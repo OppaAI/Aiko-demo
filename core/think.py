@@ -4,7 +4,7 @@ core/think.py
 Aiko's cognitive loop.
   - Retrieves relevant memories before each turn
   - Intercepts [SEARCH: query] triggers for web search
-  - Streams Ollama response to console + TTS simultaneously
+  - Streams LLM response to console + TTS simultaneously
   - Stores the turn into long-term memory after each response (background thread)
   - Supports single-shot reasoning mode via set_reasoning(True) / /think command
 """
@@ -34,7 +34,7 @@ log = get_logger(__name__)
 # ── boot labels ───────────────────────────────────────────────────────────────
 
 BOOT_LABELS = {
-    'think_start':  'Loading Ollama client + persona...',
+    'think_start':  'Loading LLM client + persona...',
     'think_warmup': 'Warming up language model...',
 }
 
@@ -109,7 +109,7 @@ class AikoThink:
                     },
                 )
             except Exception as e:
-                log.warning("LLM warmup failed — Ollama may not be running: %s", e)
+                log.warning("LLM warmup failed — LLM may not be running: %s", e)
 
     def join_warmup(self) -> None:
         """Block until LLM warmup completes. Called by wakeup.py before boot finishes."""
