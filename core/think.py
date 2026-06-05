@@ -86,7 +86,7 @@ class AikoThink:
         self._client = httpx.Client(
             base_url=LLAMA_BASE_URL,
             timeout=120.0,
-            headers={"Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY', '')}"},
+            headers={"Authorization": f"Bearer {os.getenv('OPEN_ROUTER_TOKEN', '')}"},
         )
         self._memorize  = memorize
         self._speak     = speak
