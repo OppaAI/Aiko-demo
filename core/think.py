@@ -265,6 +265,7 @@ class AikoThink:
         buffering_active = True
 
         # triple token budget in reasoning mode to fit the <think> scratchpad
+        num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
         try:
             import json
             response = self._client.post(
