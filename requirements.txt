@@ -1,5 +1,7 @@
 gradio
-ollama
-mem0ai
-qdrant-client
 python-dotenv
+sqlite-vec
+fastembed
+httpx
+requests
+numpy<2
