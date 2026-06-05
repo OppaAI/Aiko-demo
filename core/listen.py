@@ -16,7 +16,10 @@ Dependencies:
     (CUDA optional — falls back to CPU automatically)
 """
 
-from faster_whisper import WhisperModel
+try:
+    from faster_whisper import WhisperModel
+except ImportError:
+    WhisperModel = None
 from silero_vad import load_silero_vad
 import logging
 from math import gcd
