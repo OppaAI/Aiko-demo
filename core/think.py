@@ -284,7 +284,7 @@ class AikoThink:
                     "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
                     #"top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
                     "max_tokens":  num_predict,
-                    "stop":           ["<|im_end|>", "</s>", "[INST]"],
+                    "stop": ["<|eot_id|>", "<|end_of_text|>"],
                 },
                 headers={"Accept": "text/event-stream"},
             )
