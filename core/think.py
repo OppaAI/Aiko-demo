@@ -86,7 +86,7 @@ class AikoThink:
         self._client = httpx.Client(
             base_url=LLAMA_BASE_URL,
             timeout=120.0,
-            headers={"Authorization": f"Bearer {os.getenv('HF_TOKEN', '')}"},
+            headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY', '')}"},
         )
         self._memorize  = memorize
         self._speak     = speak
