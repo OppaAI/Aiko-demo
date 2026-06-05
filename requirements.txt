@@ -4,4 +4,4 @@ sqlite-vec
 fastembed
 httpx
 requests
-numpy<2
+numpy
