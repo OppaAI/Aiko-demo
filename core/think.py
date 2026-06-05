@@ -83,7 +83,11 @@ class AikoThink:
                       after memorize boot completes via think._memorize = ...
             speak:    Pre-warmed TTS backend; pass None to run silent.
         """
-        self._client = httpx.Client(base_url=LLAMA_BASE_URL, timeout=120.0)
+        self._client = httpx.Client(
+            base_url=LLAMA_BASE_URL,
+            timeout=120.0,
+            headers={"Authorization": f"Bearer {os.getenv('HF_TOKEN', '')}"},
+        )
         self._memorize  = memorize
         self._speak     = speak
         self._persona   = _load_persona()
