@@ -1,0 +1,5 @@
+gradio
+ollama
+mem0ai
+qdrant-client
+python-dotenv
