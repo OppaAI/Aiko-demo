@@ -1,68 +1,56 @@
+"""
+app.py — Aiko-chan HF Space entry point (replaces main.py + tui/)
+"""
+from dotenv import load_dotenv
+load_dotenv()
+
 import gradio as gr
-from huggingface_hub import InferenceClient
+from core.wakeup import AikoWakeup, BootResult
 
+# ── boot (once at Space startup) ──────────────────────────────────────────────
 
-def respond(
-    message,
-    history: list[dict[str, str]],
-    system_message,
-    max_tokens,
-    temperature,
-    top_p,
-    hf_token: gr.OAuthToken,
-):
-    """
-    For more information on `huggingface_hub` Inference API support, please check the docs: https://huggingface.co/docs/huggingface_hub/v0.22.2/en/guides/inference
-    """
-    client = InferenceClient(token=hf_token.token, model="openai/gpt-oss-20b")
-
-    messages = [{"role": "system", "content": system_message}]
-
-    messages.extend(history)
-
-    messages.append({"role": "user", "content": message})
-
-    response = ""
-
-    for message in client.chat_completion(
-        messages,
-        max_tokens=max_tokens,
-        stream=True,
-        temperature=temperature,
-        top_p=top_p,
-    ):
-        choices = message.choices
-        token = ""
-        if len(choices) and choices[0].delta.content:
-            token = choices[0].delta.content
-
-        response += token
-        yield response
-
-
-"""
-For information on how to customize the ChatInterface, peruse the gradio docs: https://www.gradio.app/docs/chatinterface
-"""
-chatbot = gr.ChatInterface(
-    respond,
-    additional_inputs=[
-        gr.Textbox(value="You are a friendly Chatbot.", label="System message"),
-        gr.Slider(minimum=1, maximum=2048, value=512, step=1, label="Max new tokens"),
-        gr.Slider(minimum=0.1, maximum=4.0, value=0.7, step=0.1, label="Temperature"),
-        gr.Slider(
-            minimum=0.1,
-            maximum=1.0,
-            value=0.95,
-            step=0.05,
-            label="Top-p (nucleus sampling)",
-        ),
-    ],
+result: BootResult = AikoWakeup(text_mode=True).boot(  # text_mode until ASR wired
+    on_loading = lambda k: print(f"[boot] loading: {k}"),
+    on_done    = lambda k: print(f"[boot]    done: {k}"),
+    on_skip    = lambda k: print(f"[boot]    skip: {k}"),
 )
+think    = result.think
+memorize = result.memorize
+speak    = result.speak
+listen   = result.listen
 
-with gr.Blocks() as demo:
-    with gr.Sidebar():
-        gr.LoginButton()
-    chatbot.render()
+
+# ── chat handler ──────────────────────────────────────────────────────────────
+
+def chat(message: str, history: list):
+    tokens = []
+    def _cb(token): tokens.append(token)
+    think.chat(message, token_callback=_cb)
+    return "".join(tokens)
+
+
+def reset():
+    think.reset_context()
+    return [], "Context cleared."
+
+
+# ── gradio ui ─────────────────────────────────────────────────────────────────
+
+with gr.Blocks(title="Aiko-chan") as demo:
+    gr.Markdown("# Aiko-chan ✨")
+    chatbot  = gr.Chatbot(type="messages")
+    with gr.Row():
+        txt_in = gr.Textbox(placeholder="Talk to Aiko...", scale=9)
+        send   = gr.Button("Send", scale=1)
+    reset_btn = gr.Button("Reset Context")
+    status    = gr.Textbox(label="Status", interactive=False)
+
+    send.click(
+        fn=lambda msg, hist: (hist + [{"role":"user","content":msg},
+                                      {"role":"assistant","content":chat(msg, hist)}], ""),
+        inputs=[txt_in, chatbot], outputs=[chatbot, txt_in]
+    )
+    reset_btn.click(fn=reset, outputs=[chatbot, status])
 
 
 if __name__ == "__main__":
