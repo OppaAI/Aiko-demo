@@ -272,6 +272,9 @@ class AikoThink:
         num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
         try:
             import json
+            print(f"[debug] base_url={LLAMA_BASE_URL}")
+            print(f"[debug] model={LLAMA_MODEL}")
+            print(f"[debug] key={os.getenv('OPEN_ROUTER_TOKEN', 'MISSING')[:8]}")
             response = self._client.post(
                 "/v1/chat/completions",
                 json={
