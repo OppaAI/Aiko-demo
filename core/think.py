@@ -40,8 +40,8 @@ BOOT_LABELS = {
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-OLLAMA_BASE_URL      = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL         = os.getenv("OLLAMA_MODEL",    "ministral-3:3b-instruct-2512-q4_K_M")
+LLAMA_BASE_URL      = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
+LLAMA_MODEL         = os.getenv("LLAMA_MODEL",    "ministral-3:3b-instruct-2512-q4_K_M")
 CONTEXT_WINDOW_TURNS = int(os.getenv("CONTEXT_WINDOW_TURNS", 20))
 
 _BASE_PREDICT    = 400   # normal token budget per turn
@@ -83,7 +83,7 @@ class AikoThink:
                       after memorize boot completes via think._memorize = ...
             speak:    Pre-warmed TTS backend; pass None to run silent.
         """
-        self._client    = Client(host=OLLAMA_BASE_URL)
+        self._client = httpx.Client(base_url=LLAMA_BASE_URL, timeout=120.0)
         self._memorize  = memorize
         self._speak     = speak
         self._persona   = _load_persona()
@@ -99,13 +99,13 @@ class AikoThink:
     def _warmup_llm(self) -> None:
             try:
                 self._client.chat(
-                    model=OLLAMA_MODEL,
+                    model=LLAMA_MODEL,
                     messages=[{"role": "user", "content": "hi"}],
                     stream=False,
                     keep_alive=-1,
                     options={
                         "num_predict": 1,
-                        "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", 4096)),
+                        "num_ctx": int(os.getenv("LLAMA_NUM_CTX", 4096)),
                     },
                 )
             except Exception as e:
@@ -268,66 +268,28 @@ class AikoThink:
         # triple token budget in reasoning mode to fit the <think> scratchpad
         num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
 
-        try:
-            stream = self._client.chat(
-                model=OLLAMA_MODEL,
-                messages=messages,
-                system=system,
-                stream=True,
-                keep_alive=-1,
-                options={
-                    "num_ctx":        int(os.getenv("OLLAMA_NUM_CTX", 3072)),   # was 4096 — save RAM
-                    "temperature":    float(os.getenv("OLLAMA_TEMPERATURE", 0.75)),
-                    "repeat_penalty": float(os.getenv("OLLAMA_REPEAT_PENALTY", 1.18)),
-                    "repeat_last_n":  int(os.getenv("OLLAMA_REPEAT_LAST_N", 64)),    # was 128 — 3B doesn't need that far back
-                    "num_predict":    num_predict,
-                    "top_p":          float(os.getenv("OLLAMA_TOP_P", 0.90)),
-                    "top_k":          int(os.getenv("OLLAMA_TOP_K", 40)),
-                    "tfs_z":          1.0,
-                    "stop":           ["<|im_end|>", "</s>", "[INST]"],
-                }
-            )
-
-            for chunk in stream:
-                token = (
-                    chunk.message.content
-                    if hasattr(chunk, "message")
-                    else chunk.get("message", {}).get("content", "")
-                ) or ""
-
-                full_response.append(token)
-
-                if buffering_active:
-                    buffer += token
-                    buffer_clean = buffer.lower().replace(" ", "")
-
-                    if is_searching:
-                        # already confirmed a search tag — keep buffering until closing ]
-                        if "]" in buffer:
-                            buffering_active = False
-                    elif "[search:".startswith(buffer_clean):
-                        # still a valid prefix — check if we've crossed the threshold
-                        if "[search:" in buffer_clean:
-                            is_searching = True
-                    else:
-                        # not a search tag — flush buffer
-                        buffering_active = False
-                        if self._token_callback and buffer:
-                            self._token_callback(buffer)
-                        elif not self._token_callback:
-                            if not "".join(full_response[:-1]):
-                                print("\nAiko-chan: ", end="", flush=True)
-                            print(buffer, end="", flush=True)
-                else:
-                    if not is_searching:
-                        if self._token_callback:
-                            self._token_callback(token)
-                        else:
-                            print(token, end="", flush=True)
-
-                if self._speak and token:
-                    self._speak.feed(token)
-                    tts_started = True
+        response = self._client.post(
+            "/v1/chat/completions",
+            json={
+                "model": LLAMA_MODEL,
+                "messages": [{"role": "system", "content": system}] + messages if system else messages,
+                "stream": True,
+                "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
+                "n_predict":      num_predict,
+                "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
+                "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
+                "stop":           ["<|im_end|>", "</s>", "[INST]"],
+            },
+            headers={"Accept": "text/event-stream"},
+        )
+        
+        for line in response.iter_lines():
+            if not line.startswith("data: ") or line == "data: [DONE]":
+                continue
+            import json
+            data = json.loads(line[6:])
+            token = data.get("choices", [{}])[0].get("delta", {}).get("content", "") or ""
 
             # flush buffer if stream ended without breaking out of buffering
             if buffering_active and buffer and not is_searching:
