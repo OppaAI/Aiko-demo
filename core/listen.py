@@ -20,15 +20,25 @@ try:
     from faster_whisper import WhisperModel
 except ImportError:
     WhisperModel = None
-from silero_vad import load_silero_vad
+
+try:
+    from silero_vad import load_silero_vad
+    import torch
+    import sounddevice as sd
+    from scipy.signal import resample_poly
+    _ASR_AVAILABLE = True
+except ImportError:
+    _ASR_AVAILABLE = False
+    load_silero_vad = None
+    torch = None
+    sd = None
+    resample_poly = None
+    
 import logging
 from math import gcd
 import numpy as np
 import os
-import sounddevice as sd
-from scipy.signal import resample_poly
 import threading
-import torch
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -80,6 +90,8 @@ _MAX_CHUNKS        = int(MAX_RECORD_SECONDS * 1000 / CHUNK_DURATION_MS)
 
 def _resolve_device(device_hint: str) -> tuple[str, str]:
     """Return (device, compute_type) resolving 'auto' to cuda if available."""
+    if not _ASR_AVAILABLE or torch is None:
+        return "cpu", "int8"
     if device_hint != "auto":
         return device_hint, WHISPER_COMPUTE
     try:
@@ -139,23 +151,21 @@ class AikoListen:
     # ── staged init ───────────────────────────────────────────────────────────
 
     def load_whisper(self) -> None:
-        """
-        Load the Whisper model into memory.
-        Blocking — downloads on first run, then loads from cache.
-        Call before load_vad() so warmup thread has both models ready.
-        """
+        """Load the Whisper model into memory."""
+        if not _ASR_AVAILABLE or WhisperModel is None:
+            return
         self._model = WhisperModel(
             WHISPER_MODEL_SIZE,
             device=self._device,
             compute_type=self._compute,
         )
-
+    
     def load_vad(self) -> None:
-        """
-        Load Silero VAD and kick off the background warmup thread.
-        Requires load_whisper() to have been called first.
-        """
-        self._vad_model = load_silero_vad()   # ~2 MB ONNX/JIT, MIT license
+        """Load Silero VAD and kick off the background warmup thread."""
+        if not _ASR_AVAILABLE:
+            self._warmup_done.set()   # unblock join_warmup() so boot doesn't hang
+            return
+        self._vad_model = load_silero_vad()
         self._vad_model.eval()
         self._warmup_thread = threading.Thread(target=self._warmup, daemon=True)
         self._warmup_thread.start()
