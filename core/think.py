@@ -97,19 +97,18 @@ class AikoThink:
         self._warmup_thread.start()
 
     def _warmup_llm(self) -> None:
-            try:
-                self._client.chat(
-                    model=LLAMA_MODEL,
-                    messages=[{"role": "user", "content": "hi"}],
-                    stream=False,
-                    keep_alive=-1,
-                    options={
-                        "num_predict": 1,
-                        "num_ctx": int(os.getenv("LLAMA_NUM_CTX", 4096)),
-                    },
-                )
-            except Exception as e:
-                log.warning("LLM warmup failed — LLM may not be running: %s", e)
+        try:
+            self._client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": LLAMA_MODEL,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": False,
+                    "n_predict": 1,
+                },
+            )
+        except Exception as e:
+            log.warning("LLM warmup failed — LLM may not be running: %s", e)
 
     def join_warmup(self) -> None:
         """Block until LLM warmup completes. Called by wakeup.py before boot finishes."""
@@ -266,32 +265,62 @@ class AikoThink:
         buffering_active = True
 
         # triple token budget in reasoning mode to fit the <think> scratchpad
-        num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
-
-        response = self._client.post(
-            "/v1/chat/completions",
-            json={
-                "model": LLAMA_MODEL,
-                "messages": [{"role": "system", "content": system}] + messages if system else messages,
-                "stream": True,
-                "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
-                "n_predict":      num_predict,
-                "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
-                "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
-                "stop":           ["<|im_end|>", "</s>", "[INST]"],
-            },
-            headers={"Accept": "text/event-stream"},
-        )
-        
-        for line in response.iter_lines():
-            if not line.startswith("data: ") or line == "data: [DONE]":
-                continue
+        try:
             import json
-            data = json.loads(line[6:])
-            token = data.get("choices", [{}])[0].get("delta", {}).get("content", "") or ""
+            response = self._client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": LLAMA_MODEL,
+                    "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
+                    "stream": True,
+                    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
+                    "n_predict":      num_predict,
+                    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
+                    "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
+                    "stop":           ["<|im_end|>", "</s>", "[INST]"],
+                },
+                headers={"Accept": "text/event-stream"},
+            )
 
-            # flush buffer if stream ended without breaking out of buffering
+            for line in response.iter_lines():
+                if not line.startswith("data: ") or line == "data: [DONE]":
+                    continue
+                data  = json.loads(line[6:])
+                token = data.get("choices", [{}])[0].get("delta", {}).get("content", "") or ""
+
+                full_response.append(token)
+
+                if buffering_active:
+                    buffer += token
+                    buffer_clean = buffer.lower().replace(" ", "")
+
+                    if is_searching:
+                        if "]" in buffer:
+                            buffering_active = False
+                    elif "[search:".startswith(buffer_clean):
+                        if "[search:" in buffer_clean:
+                            is_searching = True
+                    else:
+                        buffering_active = False
+                        if self._token_callback and buffer:
+                            self._token_callback(buffer)
+                        elif not self._token_callback:
+                            if not "".join(full_response[:-1]):
+                                print("\nAiko-chan: ", end="", flush=True)
+                            print(buffer, end="", flush=True)
+                else:
+                    if not is_searching:
+                        if self._token_callback:
+                            self._token_callback(token)
+                        else:
+                            print(token, end="", flush=True)
+
+                if self._speak and token:
+                    self._speak.feed(token)
+                    tts_started = True
+
+            # flush buffer if stream ended still in buffering mode
             if buffering_active and buffer and not is_searching:
                 if self._token_callback:
                     self._token_callback(buffer)
