@@ -19,7 +19,7 @@ logging.getLogger("torch").setLevel(logging.ERROR)
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 from datetime import datetime
-from ollama import Client
+import httpx
 from pathlib import Path
 import queue
 import re
