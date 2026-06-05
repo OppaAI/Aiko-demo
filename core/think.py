@@ -288,6 +288,8 @@ class AikoThink:
                 headers={"Accept": "text/event-stream"},
             )
 
+            print(f"[debug] status={response.status_code}")
+        
             for line in response.iter_lines():
                 if not line.startswith("data: ") or line == "data: [DONE]":
                     continue
