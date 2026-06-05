@@ -16,7 +16,7 @@ def chat(message, history):
     think.chat(message, token_callback=lambda t: tokens.append(t))
     return "".join(tokens)
 
-demo = gr.ChatInterface(fn=chat, title="Aiko-chan ✨", type="messages")
+demo = gr.ChatInterface(fn=chat, title="Aiko-chan ✨")
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0")
