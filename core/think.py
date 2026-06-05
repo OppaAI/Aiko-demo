@@ -278,17 +278,13 @@ class AikoThink:
                     "model": LLAMA_MODEL,
                     "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
                     "stream": True,
-                    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                    #"repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
-                    #"n_predict":      num_predict,
-                    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
-                    #"top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
-                    "max_tokens":  num_predict,
-                    "stop": ["<|eot_id|>", "<|end_of_text|>"],
+                    "temperature":          float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                    "max_completion_tokens": num_predict,
+                    "top_p":                float(os.getenv("LLAMA_TOP_P", 0.90)),
+                    "stop":                 None,
                 },
                 headers={"Accept": "text/event-stream"},
             )
-            print(f"[debug] status={response.status_code} body={response.text[:200]}")
 
             for line in response.iter_lines():
                 if not line.startswith("data: ") or line == "data: [DONE]":
