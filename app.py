@@ -11,9 +11,11 @@ try:
         on_done   =lambda k: print(f"[boot]    done: {k}"),
         on_skip   =lambda k: print(f"[boot]    skip: {k}"),
     )
+    print(f"[boot] result={result}")
+    print(f"[boot] think={result.think}")
+    print(f"[boot] memorize={result.memorize}")
     think    = result.think
     memorize = result.memorize
-    print(f"[boot] think={think}, memorize={memorize}")
 except Exception as e:
     boot_error = traceback.format_exc()
     print(f"[boot] FAILED:\n{boot_error}")
