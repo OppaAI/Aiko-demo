@@ -111,7 +111,7 @@ class AikoThink:
         try:
             self._client.post(
                 # ── llama.cpp on Modal ───
-                "/v1/chat/completions",
+                "/",
                 # ── Groq ────────────────
             #    "/v1/chat/completions",
                 json={
@@ -273,8 +273,7 @@ class AikoThink:
         try:
             import json
             response = self._client.post(
-                "/v1/chat/completions",
-                # ── llama.cpp on Modal ────────────────────────────────────────
+                "/",
                 json={
                     "model":          LLAMA_MODEL,
                     "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
@@ -295,9 +294,9 @@ class AikoThink:
                 #    "max_completion_tokens": num_predict,
                 #    "top_p":                 float(os.getenv("LLAMA_TOP_P", 0.90)),
                 #    "stop":                  None,
-                },
+                #},
             )
-        
+            
             data      = response.json()
             full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
         
