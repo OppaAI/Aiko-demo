@@ -273,7 +273,7 @@ class AikoThink:
         try:
             import json
             response = self._client.post(
-                "/v1/chat/completions",
+                "/openai/v1/chat/completions",
                 json={
                     "model": LLAMA_MODEL,
                     "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
