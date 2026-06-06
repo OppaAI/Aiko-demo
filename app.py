@@ -14,7 +14,13 @@ memorize = result.memorize
 
 def chat(message, history):
     tokens = []
-    think.chat(message, token_callback=lambda t: tokens.append(t))
+    def _cb(token):
+        if token.startswith("__SEARCHING__:"):
+            query = token.split(":", 1)[1].strip()
+            tokens.append(f"\n🔍 Searching: *{query}*\n")
+        else:
+            tokens.append(token)
+    think.chat(message, token_callback=_cb)
     return "".join(tokens)
 
 demo = gr.ChatInterface(fn=chat, title="Aiko-chan 🌸")
