@@ -83,11 +83,16 @@ class AikoThink:
                       after memorize boot completes via think._memorize = ...
             speak:    Pre-warmed TTS backend; pass None to run silent.
         """
+        #self._client = httpx.Client(
+        #    base_url=LLAMA_BASE_URL,
+        #    timeout=120.0,
+        #)
         self._client = httpx.Client(
-            base_url=LLAMA_BASE_URL,
+            base_url=GROQ_BASE_URL,
             timeout=120.0,
+            headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY', '')}"},
         )
-        
+                
         self._memorize  = memorize
         self._speak     = speak
         self._persona   = _load_persona()
@@ -105,7 +110,7 @@ class AikoThink:
             self._client.post(
                 "/v1/chat/completions",
                 json={
-                    "model": LLAMA_MODEL,
+                    "model": GROQ_MODEL,
                     "messages": [{"role": "user", "content": "hi"}],
                     "stream": False,
                     "n_predict": 1,
@@ -274,16 +279,25 @@ class AikoThink:
             import json
             response = self._client.post(
                 "/v1/chat/completions",
+                #json={
+                #    "model": LLAMA_MODEL,
+                #    "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
+                #    "stream": True,
+                #    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                #    "max_tokens":     num_predict,
+                #    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
+                #    "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
+                #    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
+                #    "stop":           ["<|im_end|>", "</s>", "[INST]"],
+                #},
                 json={
                     "model": LLAMA_MODEL,
                     "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
                     "stream": True,
-                    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                    "max_tokens":     num_predict,
-                    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
-                    "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
-                    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
-                    "stop":           ["<|im_end|>", "</s>", "[INST]"],
+                    "temperature":          float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                    "max_completion_tokens": num_predict,
+                    "top_p":                float(os.getenv("LLAMA_TOP_P", 0.90)),
+                    "stop":                 None,
                 },
                 headers={"Accept": "text/event-stream"},
             )
