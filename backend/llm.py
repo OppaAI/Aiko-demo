@@ -3,8 +3,8 @@ backend/llm.py
 
 Aiko's Modal LLM backend — runs llama.cpp server with Ministral 3B Q4 on GPU.
 Deploy with: modal deploy backend/llm.py
-The web endpoint is OpenAI-compatible, so think.py needs zero changes.
-Just set LLAMA_BASE_URL to the Modal URL in your HF Space secrets.
+OpenAI-compatible endpoint — think.py needs zero changes.
+Set LLAMA_BASE_URL to the Modal chat URL in your HF Space secrets.
 """
 
 import os
@@ -18,14 +18,24 @@ volume = modal.Volume.from_name("aiko-models", create_if_missing=True)
 # ── image ─────────────────────────────────────────────────────────────────────
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
-    .apt_install("curl", "ca-certificates")
-    .run_commands(
-        # grab the latest llama.cpp server binary
-        "curl -L https://github.com/ggerganov/llama.cpp/releases/latest/download/llama-server-linux-x64 "
-        "-o /usr/local/bin/llama-server && chmod +x /usr/local/bin/llama-server"
+    modal.Image.from_registry(
+        "nvidia/cuda:12.1.0-devel-ubuntu22.04",
+        add_python="3.11"
     )
-    .pip_install("huggingface_hub", "httpx")
+    .apt_install(
+        "curl", "ca-certificates", "git",
+        "build-essential", "cmake", "libcurl4-openssl-dev"
+    )
+    .run_commands(
+        "git clone https://github.com/ggerganov/llama.cpp /llama.cpp",
+        "cd /llama.cpp && cmake -B build -DLLAMA_CURL=ON -DGGML_CUDA=ON "
+        "-DCMAKE_CUDA_ARCHITECTURES=75 "
+        "-DCMAKE_EXE_LINKER_FLAGS='-L/usr/local/cuda/lib64/stubs -lcuda' "
+        "-DCMAKE_SHARED_LINKER_FLAGS='-L/usr/local/cuda/lib64/stubs -lcuda' "
+        "&& cmake --build build --config Release -j$(nproc) -t llama-server",
+        "cp /llama.cpp/build/bin/llama-server /usr/local/bin/llama-server",
+    )
+    .pip_install("huggingface_hub", "httpx", "fastapi[standard]")
 )
 
 # ── constants ─────────────────────────────────────────────────────────────────
@@ -39,11 +49,11 @@ LLAMA_PORT = 8080
 
 @app.cls(
     image=image,
-    gpu="T4",                        # cheapest Modal GPU, plenty for 3B Q4
+    gpu="T4",
     volumes={"/models": volume},
     timeout=300,
-    container_idle_timeout=120,      # stays warm 2 min between requests
-    secrets=[modal.Secret.from_name("aiko-secrets")],  # optional HF_TOKEN if needed
+    scaledown_window=120,
+    secrets=[modal.Secret.from_name("aiko-secrets")],
 )
 class AikoLLM:
 
@@ -60,6 +70,7 @@ class AikoLLM:
                 filename=HF_FILE,
                 local_dir="/models",
             )
+            volume.commit()  # persist to volume after download
             print("[aiko] model cached ✓")
         else:
             print("[aiko] model already cached, skipping download")
@@ -67,13 +78,13 @@ class AikoLLM:
         # ── start llama.cpp server ────────────────────────────────────────────
         self._proc = subprocess.Popen([
             "/usr/local/bin/llama-server",
-            "--model",          MODEL_PATH,
-            "--port",           str(LLAMA_PORT),
-            "--host",           "0.0.0.0",
-            "--n-gpu-layers",   "99",    # full GPU offload
-            "--ctx-size",       "4096",
-            "--threads",        "4",
-            "--parallel",       "1",
+            "--model",        MODEL_PATH,
+            "--port",         str(LLAMA_PORT),
+            "--host",         "0.0.0.0",
+            "--n-gpu-layers", "99",
+            "--ctx-size",     "4096",
+            "--threads",      "4",
+            "--parallel",     "1",
         ])
 
         # ── wait for server ready ─────────────────────────────────────────────
@@ -89,9 +100,8 @@ class AikoLLM:
         else:
             raise RuntimeError("llama.cpp server failed to start")
 
-    @modal.web_endpoint(method="POST")
+    @modal.fastapi_endpoint(method="POST")
     def chat(self, request: dict):
-        """OpenAI-compatible /v1/chat/completions proxy."""
         import httpx
         resp = httpx.post(
             f"http://localhost:{LLAMA_PORT}/v1/chat/completions",
@@ -100,6 +110,19 @@ class AikoLLM:
         )
         return resp.json()
 
-    @modal.web_endpoint(method="GET")
+    @modal.fastapi_endpoint(method="GET")
     def health(self):
         return {"status": "ok", "model": HF_FILE}
+        
+@app.function(image=image)
+@modal.fastapi_endpoint(method="GET")
+def search(query: str, max_results: int = 3):
+    from ddgs import DDGS
+    try:
+        results = DDGS().text(query, max_results=max_results)
+    except Exception as e:
+        return {"results": [], "error": str(e)}
+    return {"results": [
+        {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
+        for r in (results or [])
+    ]}
