@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.python-version
+uv.lock
+pyproject.toml
+backend/__pycache__/
+core/__pycache__/
