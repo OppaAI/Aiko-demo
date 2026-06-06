@@ -112,7 +112,7 @@ class AikoThink:
             self._client.post(
                 "/v1/chat/completions",
                 json={
-                    "model": GROQ_MODEL,
+                    "model": LLAMA_MODEL,
                     "messages": [{"role": "user", "content": "hi"}],
                     "stream": False,
                     "n_predict": 1,
@@ -293,7 +293,7 @@ class AikoThink:
                 #    "stop":           ["<|im_end|>", "</s>", "[INST]"],
                 #},
                 json={
-                    "model": LLAMA_MODEL,
+                    "model": GROQ_MODEL,
                     "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
                     "stream": True,
                     "temperature":          float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
