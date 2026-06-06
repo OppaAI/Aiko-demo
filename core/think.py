@@ -301,16 +301,19 @@ class AikoThink:
             data      = response.json()
             full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
         
-            # check for search tag in full response
-            match = re.search(r"\[SEARCH:\s*(.+?)\]", full_text, re.IGNORECASE)
+            # check for search tag in full response (with or without brackets)
+            match = re.search(r"\[?SEARCH:\s*(.+?)\]?", full_text, re.IGNORECASE)
             if match:
                 return "", match.group(1).strip()
         
+            # strip any leaked search tags before display
+            clean_text = re.sub(r"\[?SEARCH:\s*.+?\]?", "", full_text, flags=re.IGNORECASE).strip()
+        
             # no search tag — send to callback
-            if self._token_callback:
-                self._token_callback(full_text)
+            if self._token_callback and clean_text:
+                self._token_callback(clean_text)
             else:
-                print(f"\nAiko-chan: {full_text}")
+                print(f"\nAiko-chan: {clean_text}")
         
             if self._speak and full_text:
                 self._speak.feed(full_text)
