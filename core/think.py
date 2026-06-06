@@ -86,8 +86,8 @@ class AikoThink:
         self._client = httpx.Client(
             base_url=LLAMA_BASE_URL,
             timeout=120.0,
-            headers={"Authorization": f"Bearer {os.getenv('GEMINI_API_KEY', '')}"},
         )
+        
         self._memorize  = memorize
         self._speak     = speak
         self._persona   = _load_persona()
@@ -273,14 +273,17 @@ class AikoThink:
         try:
             import json
             response = self._client.post(
-                "/openai/v1/chat/completions",
+                "/v1/chat/completions",
                 json={
                     "model": LLAMA_MODEL,
                     "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
                     "stream": True,
-                    "temperature": float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                    "max_tokens": num_predict,
-                    "top_p": float(os.getenv("LLAMA_TOP_P", 0.90)),
+                    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                    "max_tokens":     num_predict,
+                    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
+                    "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
+                    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
+                    "stop":           ["<|im_end|>", "</s>", "[INST]"],
                 },
                 headers={"Accept": "text/event-stream"},
             )
