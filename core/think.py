@@ -273,15 +273,12 @@ class AikoThink:
         try:
             import json
             response = self._client.post(
-                # ── llama.cpp on Modal (LLAMA_BASE_URL has no /v1) ──
-                #"/v1/chat/completions",
-                # ── Groq (GROQ_BASE_URL already has /v1) ────────────
                 "/v1/chat/completions",
-                # ── llama.cpp payload ────────────────────────────────
+                # ── llama.cpp on Modal ────────────────────────────────────────
                 #json={
                 #    "model":          LLAMA_MODEL,
                 #    "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
-                #    "stream":         True,
+                #    "stream":         False,
                 #    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
                 #    "max_tokens":     num_predict,
                 #    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
@@ -289,62 +286,44 @@ class AikoThink:
                 #    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
                 #    "stop":           ["<|im_end|>", "</s>", "[INST]"],
                 #},
-                # ── Groq payload ─────────────────────────────────────
+                # ── Groq ─────────────────────────────────────────────────────
                 json={
                     "model":                 GROQ_MODEL,
                     "messages":              ([{"role": "system", "content": system}] + messages) if system else messages,
-                    "stream":                True,
+                    "stream":                False,
                     "temperature":           float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
                     "max_completion_tokens": num_predict,
                     "top_p":                 float(os.getenv("LLAMA_TOP_P", 0.90)),
                     "stop":                  None,
                 },
-                headers={"Accept": "text/event-stream"},
             )
-    
-            for line in response.iter_lines():
-                if not line.startswith("data: ") or line == "data: [DONE]":
-                    continue
-                data  = json.loads(line[6:])
-                token = data.get("choices", [{}])[0].get("delta", {}).get("content", "") or ""
-    
-                full_response.append(token)
-    
-                if buffering_active:
-                    buffer += token
-                    
-                    # check for complete search tag first
-                    match = re.search(r"\[SEARCH:\s*(.+?)\]", buffer, re.IGNORECASE)
-                    if match:
-                        return "", match.group(1).strip()
-                    
-                    # still potentially building a search tag — keep buffering
-                    if re.search(r"\[SEARCH:", buffer, re.IGNORECASE):
-                        is_searching = True
-                        continue
-                    
-                    # buffer is long enough that it's not a search tag — flush and stop buffering
-                    if len(buffer) > 20:
-                        buffering_active = False
-                        if self._token_callback:
-                            self._token_callback(buffer)
-                else:
-                    if self._token_callback:
-                        self._token_callback(token)
-    
-            # flush remaining buffer
-            if buffering_active and buffer and not is_searching:
-                if self._token_callback:
-                    self._token_callback(buffer)
-    
+        
+            data      = response.json()
+            full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+        
+            # check for search tag in full response
+            match = re.search(r"\[SEARCH:\s*(.+?)\]", full_text, re.IGNORECASE)
+            if match:
+                return "", match.group(1).strip()
+        
+            # no search tag — send to callback
+            if self._token_callback:
+                self._token_callback(full_text)
+            else:
+                print(f"\nAiko-chan: {full_text}")
+        
+            if self._speak and full_text:
+                self._speak.feed(full_text)
+                self._speak.play_async()
+        
         except Exception as exc:
             msg = f"Stream failed: {exc}"
             log.error(msg)
             if self._token_callback:
                 self._token_callback(f"[think] {msg}")
             return "", None
-    
-        return "".join(full_response), None
+        
+        return full_text, None
 
     def _sanitize_history(self, messages: list[dict]) -> list[dict]:
         """
