@@ -301,7 +301,7 @@ class AikoThink:
             full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
         
             # check for search tag in full response (with or without brackets)
-            match = re.search(r"\[?SEARCH:\s*(.+?)\]?", full_text, re.IGNORECASE)
+            match = re.search(r"\[SEARCH:\s*(.+?)\]", full_text, re.IGNORECASE)
             if match:
                 return "", match.group(1).strip()
         
