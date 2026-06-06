@@ -35,7 +35,7 @@ image = (
         "&& cmake --build build --config Release -j$(nproc) -t llama-server",
         "cp /llama.cpp/build/bin/llama-server /usr/local/bin/llama-server",
     )
-    .pip_install("huggingface_hub", "httpx", "fastapi[standard]")
+    .pip_install("huggingface_hub", "httpx", "fastapi[standard]", "ddgs")
 )
 
 # ── constants ─────────────────────────────────────────────────────────────────
