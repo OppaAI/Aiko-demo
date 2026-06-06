@@ -312,20 +312,21 @@ class AikoThink:
     
                 if buffering_active:
                     buffer += token
-                    buffer_clean = buffer.lower().replace(" ", "")
-    
-                    if is_searching:
-                        if "]" in buffer:
-                            buffering_active = False
-                            match = re.search(r"\[search:\s*(.+?)\]", buffer, re.IGNORECASE)
-                            if match:
-                                return "", match.group(1).strip()
-                    elif "[search:".startswith(buffer_clean):
-                        if "[search:" in buffer_clean:
-                            is_searching = True
-                    else:
+                    
+                    # check for complete search tag first
+                    match = re.search(r"\[SEARCH:\s*(.+?)\]", buffer, re.IGNORECASE)
+                    if match:
+                        return "", match.group(1).strip()
+                    
+                    # still potentially building a search tag — keep buffering
+                    if re.search(r"\[SEARCH:", buffer, re.IGNORECASE):
+                        is_searching = True
+                        continue
+                    
+                    # buffer is long enough that it's not a search tag — flush and stop buffering
+                    if len(buffer) > 20:
                         buffering_active = False
-                        if self._token_callback and buffer:
+                        if self._token_callback:
                             self._token_callback(buffer)
                 else:
                     if self._token_callback:
