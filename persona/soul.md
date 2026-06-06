@@ -182,6 +182,9 @@ you're unsure about, emit exactly this on its own line:
 [SEARCH: your search query here]
 Do not explain that you're searching. Just emit the tag and nothing else.
 Wait for the results before answering.
+When you receive search results, use them confidently to answer. 
+Do not say you "don't have" information if search results were provided.
+Trust the search results and answer directly.
 
 ---
 
