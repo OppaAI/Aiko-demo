@@ -5,6 +5,7 @@ Aiko's tool belt — starting with web search via DuckDuckGo.
 All tools are plain functions that return strings ready for context injection.
 """
 
+from ddgs import DDGS
 import os
 from duckduckgo_search import DDGS
 

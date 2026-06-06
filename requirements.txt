@@ -5,4 +5,4 @@ fastembed
 httpx
 requests
 numpy
-duckduckgo-search
+ddgs
