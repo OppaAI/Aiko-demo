@@ -85,15 +85,15 @@ class AikoThink:
                       after memorize boot completes via think._memorize = ...
             speak:    Pre-warmed TTS backend; pass None to run silent.
         """
-        #self._client = httpx.Client(
-        #    base_url=LLAMA_BASE_URL,
-        #    timeout=120.0,
-        #)
         self._client = httpx.Client(
-            base_url=GROQ_BASE_URL,
+            base_url=LLAMA_BASE_URL,
             timeout=120.0,
-            headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY', '')}"},
         )
+        #self._client = httpx.Client(
+        #    base_url=GROQ_BASE_URL,
+        #    timeout=120.0,
+        #    headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY', '')}"},
+        #)
                 
         self._memorize  = memorize
         self._speak     = speak
@@ -111,16 +111,16 @@ class AikoThink:
         try:
             self._client.post(
                 # ── llama.cpp on Modal ───
-                #"/v1/chat/completions",
-                # ── Groq ────────────────
                 "/v1/chat/completions",
+                # ── Groq ────────────────
+            #    "/v1/chat/completions",
                 json={
                     # ── llama.cpp ────────
-                    #"model":    LLAMA_MODEL,
-                    #"n_predict": 1,
+                    "model":    LLAMA_MODEL,
+                    "n_predict": 1,
                     # ── Groq ─────────────
-                    "model":                 GROQ_MODEL,
-                    "max_completion_tokens": 1,
+            #        "model":                 GROQ_MODEL,
+                    #"max_completion_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}],
                     "stream":   False,
                 },
@@ -275,26 +275,26 @@ class AikoThink:
             response = self._client.post(
                 "/v1/chat/completions",
                 # ── llama.cpp on Modal ────────────────────────────────────────
-                #json={
-                #    "model":          LLAMA_MODEL,
-                #    "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
-                #    "stream":         False,
-                #    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                #    "max_tokens":     num_predict,
-                #    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
-                #    "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
-                #    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
-                #    "stop":           ["<|im_end|>", "</s>", "[INST]"],
-                #},
-                # ── Groq ─────────────────────────────────────────────────────
                 json={
-                    "model":                 GROQ_MODEL,
-                    "messages":              ([{"role": "system", "content": system}] + messages) if system else messages,
-                    "stream":                False,
-                    "temperature":           float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                    "max_completion_tokens": num_predict,
-                    "top_p":                 float(os.getenv("LLAMA_TOP_P", 0.90)),
-                    "stop":                  None,
+                    "model":          LLAMA_MODEL,
+                    "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
+                    "stream":         False,
+                    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                    "max_tokens":     num_predict,
+                    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
+                    "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
+                    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
+                    "stop":           ["<|im_end|>", "</s>", "[INST]"],
+                },
+                # ── Groq ─────────────────────────────────────────────────────
+                #json={
+                #    "model":                 GROQ_MODEL,
+                #    "messages":              ([{"role": "system", "content": system}] + messages) if system else messages,
+                #    "stream":                False,
+                #    "temperature":           float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                #    "max_completion_tokens": num_predict,
+                #    "top_p":                 float(os.getenv("LLAMA_TOP_P", 0.90)),
+                #    "stop":                  None,
                 },
             )
         
