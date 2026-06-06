@@ -42,6 +42,8 @@ BOOT_LABELS = {
 
 LLAMA_BASE_URL      = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
 LLAMA_MODEL         = os.getenv("LLAMA_MODEL",    "ministral-3:3b-instruct-2512-q4_K_M")
+GROQ_BASE_URL       = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+GROQ_MODEL          = os.getenv("GROQ_MODEL",    "llama-3.1-8b-instant")
 CONTEXT_WINDOW_TURNS = int(os.getenv("CONTEXT_WINDOW_TURNS", 20))
 
 _BASE_PREDICT    = 400   # normal token budget per turn
