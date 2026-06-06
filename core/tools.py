@@ -25,3 +25,4 @@ def web_search(query: str, max_results: int = 3) -> str:
         content = r.get("body", "").strip()
         lines.append(f"{i}. {title}\n   {url}\n   {content}")
     return "\n\n".join(lines)
+    
