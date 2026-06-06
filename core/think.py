@@ -278,10 +278,9 @@ class AikoThink:
                     "model": LLAMA_MODEL,
                     "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
                     "stream": True,
-                    "temperature":          float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                    "max_completion_tokens": num_predict,
-                    "top_p":                float(os.getenv("LLAMA_TOP_P", 0.90)),
-                    "stop":                 None,
+                    "temperature": float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                    "max_tokens": num_predict,
+                    "top_p": float(os.getenv("LLAMA_TOP_P", 0.90)),
                 },
                 headers={"Accept": "text/event-stream"},
             )
