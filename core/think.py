@@ -110,57 +110,39 @@ class AikoThink:
     def _warmup_llm(self) -> None:
         try:
             self._client.post(
+                # ── llama.cpp on Modal ───
+                #"/v1/chat/completions",
+                # ── Groq ────────────────
                 "/v1/chat/completions",
                 json={
-                    "model": LLAMA_MODEL,
+                    # ── llama.cpp ────────
+                    #"model":    LLAMA_MODEL,
+                    #"n_predict": 1,
+                    # ── Groq ─────────────
+                    "model":                 GROQ_MODEL,
+                    "max_completion_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}],
-                    "stream": False,
-                    "n_predict": 1,
+                    "stream":   False,
                 },
             )
         except Exception as e:
-            log.warning("LLM warmup failed — LLM may not be running: %s", e)
-
-    def join_warmup(self) -> None:
-        """Block until LLM warmup completes. Called by wakeup.py before boot finishes."""
-        if self._warmup_thread and self._warmup_thread.is_alive():
-            self._warmup_thread.join()
+            log.warning("LLM warmup failed: %s", e)
 
     # ── public api ────────────────────────────────────────────────────────────
 
     def chat(self, user_input: str, token_callback=None) -> str:
-        """
-        Process one conversational turn and return the full assistant response.
-
-        If reasoning mode is active (set via set_reasoning(True)), the user turn
-        is wrapped with a step-by-step instruction and num_predict is tripled to
-        budget for the <think> scratchpad. Reasoning mode auto-resets to False
-        after each turn — it is single-shot by design.
-
-        Args:
-            user_input:      Raw text from the user.
-            token_callback:  Optional callable(token: str) invoked for each
-                             streamed token; used by the TUI to render output.
-
-        Returns:
-            The complete assistant response as a single string.
-        """
         self._token_callback = token_callback
-
-        # interrupt any ongoing speech before processing new input
+    
         if self._speak and self._speak.is_playing():
             self._speak.stop()
-
-        # 1. retrieve relevant long-term memories
+    
         memories     = self._memorize.search(user_input, limit=int(os.getenv("MEMORY_RECALL_LIMIT", 5)))
         memory_block = self._memorize.format_for_context(memories)
-
-        # 2. build system prompt
+    
         system = self._persona
         if memory_block:
             system = f"{system}\n\n{memory_block}"
-
-        # 3. wrap user turn with reasoning instruction if active
+    
         if self._reasoning:
             prompt = (
                 f"{user_input}\n\n"
@@ -169,30 +151,40 @@ class AikoThink:
             )
         else:
             prompt = user_input
-
-        # 4. append user turn
+    
         self._history.append({"role": "user", "content": prompt})
-
-        # 5. trim history to context window
-        trimmed  = self._history[-(CONTEXT_WINDOW_TURNS * 2):]
-        trimmed  = self._sanitize_history(trimmed)
-        messages = trimmed  
-
-        # 6. stream response
-        response_text = self._stream_response(messages, system=system)
+        trimmed  = self._sanitize_history(self._history[-(CONTEXT_WINDOW_TURNS * 2):])
+    
+        # ── search loop — re-prompt if LLM emits [SEARCH: ...] ──────────────
+        max_searches = 3
+        for _ in range(max_searches):
+            response_text, search_query = self._stream_response(trimmed, system=system)
+    
+            if not search_query:
+                break  # normal response, done
+    
+            # execute search and inject results
+            if token_callback:
+                token_callback(f"__SEARCHING__:{search_query}")
+    
+            try:
+                from core.tools import web_search
+                results = web_search(search_query)
+            except Exception as e:
+                results = f"[search failed: {e}]"
+    
+            # inject results as tool turn and re-prompt
+            trimmed.append({"role": "assistant", "content": f"[SEARCH: {search_query}]"})
+            trimmed.append({"role": "user",      "content": f"Search results:\n{results}\n\nNow answer the original question."})
+    
         if not response_text:
             if self._history and self._history[-1]["role"] == "user":
-                self._history.pop()   # remove orphaned user turn on failure
-
-        # 7. append assistant turn to history
+                self._history.pop()
+    
         self._history.append({"role": "assistant", "content": response_text})
-
-        # 8. persist to memory (background) — store original input, not wrapped prompt
         self._store_async(user_input, response_text)
-
-        # 9. auto-reset reasoning mode — single-shot per /think invocation
         self._reasoning = False
-
+    
         return response_text
 
     def reset_context(self) -> None:
@@ -252,39 +244,26 @@ class AikoThink:
 
     # ── internal ──────────────────────────────────────────────────────────────
 
-    def _stream_response(self, messages: list[dict], system: str = "") -> str:
-        """
-        Stream LLM response to console and TTS simultaneously.
-        Console printing is the single source of truth — speak.py is silent.
-        TTS skipped if response is a search trigger.
-
-        Tokens are buffered at the start of each response to detect a
-        [SEARCH: ...] trigger before any output is committed to the console
-        or TTS queue. num_predict is scaled by _REASONING_SCALE when
-        reasoning mode is active to budget for the <think> scratchpad.
-
-        Args:
-            messages: Full message list (system prompt + trimmed history).
-
-        Returns:
-            The complete response text assembled from all streamed tokens.
-        """
+    def _stream_response(self, messages: list[dict], system: str = "") -> tuple[str, str | None]:
+        """Returns (response_text, search_query | None)"""
         full_response    = []
-        tts_started      = False
         buffer           = ""
         is_searching     = False
         buffering_active = True
-
-        # triple token budget in reasoning mode to fit the <think> scratchpad
-        num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
+        num_predict      = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
+    
         try:
             import json
             response = self._client.post(
+                # ── llama.cpp on Modal (LLAMA_BASE_URL has no /v1) ──
+                #"/v1/chat/completions",
+                # ── Groq (GROQ_BASE_URL already has /v1) ────────────
                 "/v1/chat/completions",
+                # ── llama.cpp payload ────────────────────────────────
                 #json={
-                #    "model": LLAMA_MODEL,
-                #    "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
-                #    "stream": True,
+                #    "model":          LLAMA_MODEL,
+                #    "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
+                #    "stream":         True,
                 #    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
                 #    "max_tokens":     num_predict,
                 #    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
@@ -292,33 +271,37 @@ class AikoThink:
                 #    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
                 #    "stop":           ["<|im_end|>", "</s>", "[INST]"],
                 #},
+                # ── Groq payload ─────────────────────────────────────
                 json={
-                    "model": GROQ_MODEL,
-                    "messages": ([{"role": "system", "content": system}] + messages) if system else messages,
-                    "stream": True,
-                    "temperature":          float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
+                    "model":                 GROQ_MODEL,
+                    "messages":              ([{"role": "system", "content": system}] + messages) if system else messages,
+                    "stream":                True,
+                    "temperature":           float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
                     "max_completion_tokens": num_predict,
-                    "top_p":                float(os.getenv("LLAMA_TOP_P", 0.90)),
-                    "stop":                 None,
+                    "top_p":                 float(os.getenv("LLAMA_TOP_P", 0.90)),
+                    "stop":                  None,
                 },
                 headers={"Accept": "text/event-stream"},
             )
-
+    
             for line in response.iter_lines():
                 if not line.startswith("data: ") or line == "data: [DONE]":
                     continue
                 data  = json.loads(line[6:])
                 token = data.get("choices", [{}])[0].get("delta", {}).get("content", "") or ""
-
+    
                 full_response.append(token)
-
+    
                 if buffering_active:
                     buffer += token
                     buffer_clean = buffer.lower().replace(" ", "")
-
+    
                     if is_searching:
                         if "]" in buffer:
                             buffering_active = False
+                            match = re.search(r"\[search:\s*(.+?)\]", buffer, re.IGNORECASE)
+                            if match:
+                                return "", match.group(1).strip()
                     elif "[search:".startswith(buffer_clean):
                         if "[search:" in buffer_clean:
                             is_searching = True
@@ -326,46 +309,23 @@ class AikoThink:
                         buffering_active = False
                         if self._token_callback and buffer:
                             self._token_callback(buffer)
-                        elif not self._token_callback:
-                            if not "".join(full_response[:-1]):
-                                print("\nAiko-chan: ", end="", flush=True)
-                            print(buffer, end="", flush=True)
                 else:
-                    if not is_searching:
-                        if self._token_callback:
-                            self._token_callback(token)
-                        else:
-                            print(token, end="", flush=True)
-
-                if self._speak and token:
-                    self._speak.feed(token)
-                    tts_started = True
-
-            # flush buffer if stream ended still in buffering mode
+                    if self._token_callback:
+                        self._token_callback(token)
+    
+            # flush remaining buffer
             if buffering_active and buffer and not is_searching:
                 if self._token_callback:
                     self._token_callback(buffer)
-                else:
-                    if not "".join(full_response[:-len(buffer)]):
-                        print("\nAiko-chan: ", end="", flush=True)
-                    print(buffer, end="", flush=True)
-
-            if not self._token_callback and not is_searching:
-                print(flush=True)
-
-            if self._speak and tts_started:
-                self._speak.play_async()
-
+    
         except Exception as exc:
             msg = f"Stream failed: {exc}"
             log.error(msg)
             if self._token_callback:
                 self._token_callback(f"[think] {msg}")
-            else:
-                print(f"\n[think] {msg}")
-            return ""
-
-        return "".join(full_response)
+            return "", None
+    
+        return "".join(full_response), None
 
     def _sanitize_history(self, messages: list[dict]) -> list[dict]:
         """
