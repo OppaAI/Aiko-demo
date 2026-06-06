@@ -133,16 +133,24 @@ class AikoThink:
     def chat(self, user_input: str, token_callback=None) -> str:
         self._token_callback = token_callback
     
+        # 1. interrupt any ongoing speech before processing new input
         if self._speak and self._speak.is_playing():
             self._speak.stop()
     
-        memories     = self._memorize.search(user_input, limit=int(os.getenv("MEMORY_RECALL_LIMIT", 5)))
-        memory_block = self._memorize.format_for_context(memories)
+        # 2. retrieve relevant long-term memories
+        if self._memorize:
+            memories     = self._memorize.search(user_input, limit=int(os.getenv("MEMORY_RECALL_LIMIT", 5)))
+            memory_block = self._memorize.format_for_context(memories)
+        else:
+            memories     = []
+            memory_block = None
     
+        # 3. build system prompt
         system = self._persona
         if memory_block:
             system = f"{system}\n\n{memory_block}"
     
+        # 4. wrap user turn with reasoning instruction if active
         if self._reasoning:
             prompt = (
                 f"{user_input}\n\n"
@@ -152,11 +160,15 @@ class AikoThink:
         else:
             prompt = user_input
     
+        # 5. append user turn
         self._history.append({"role": "user", "content": prompt})
-        trimmed  = self._sanitize_history(self._history[-(CONTEXT_WINDOW_TURNS * 2):])
     
-        # ── search loop — re-prompt if LLM emits [SEARCH: ...] ──────────────
-        max_searches = 3
+        # 6. trim history to context window
+        trimmed = self._sanitize_history(self._history[-(CONTEXT_WINDOW_TURNS * 2):])
+    
+        # 7. stream response — re-prompt if LLM emits [SEARCH: ...] ──────────
+        max_searches  = 3
+        response_text = ""
         for _ in range(max_searches):
             response_text, search_query = self._stream_response(trimmed, system=system)
     
@@ -177,12 +189,18 @@ class AikoThink:
             trimmed.append({"role": "assistant", "content": f"[SEARCH: {search_query}]"})
             trimmed.append({"role": "user",      "content": f"Search results:\n{results}\n\nNow answer the original question."})
     
+        # 8. remove orphaned user turn on empty response
         if not response_text:
             if self._history and self._history[-1]["role"] == "user":
                 self._history.pop()
     
+        # 9. append assistant turn to history
         self._history.append({"role": "assistant", "content": response_text})
+    
+        # 10. persist to memory (background) — store original input, not wrapped prompt
         self._store_async(user_input, response_text)
+    
+        # 11. auto-reset reasoning mode — single-shot per /think invocation
         self._reasoning = False
     
         return response_text
@@ -372,10 +390,11 @@ class AikoThink:
         while True:
             user_input, response_text = self._mem_queue.get()
             try:
-                self._memorize.add([
-                    {"role": "user",      "content": user_input[:500]},
-                    {"role": "assistant", "content": response_text[:800]},
-                ])
+                if self._memorize:
+                    self._memorize.add([
+                        {"role": "user",      "content": user_input[:500]},
+                        {"role": "assistant", "content": response_text[:800]},
+                    ])
             except Exception as exc:
                 log.error(f"Async memory write failed: {exc}")
             finally:
