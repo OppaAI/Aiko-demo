@@ -118,8 +118,10 @@ class AikoLLM:
 @modal.fastapi_endpoint(method="GET")
 def search(query: str, max_results: int = 3):
     from ddgs import DDGS
+    print(f"[search] query received: {query}")  # ← add this
     try:
         results = DDGS().text(query, max_results=max_results)
+        print(f"[search] results count: {len(results or [])}")  # ← and this
     except Exception as e:
         return {"results": [], "error": str(e)}
     return {"results": [
