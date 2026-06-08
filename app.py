@@ -37,7 +37,7 @@ _VRM_VIEWER = """
 <div id="aiko-vrm-root" style="width:100%;height:520px;position:relative;background:#0a0a0f;border-radius:12px;overflow:hidden;">
 
   <!-- loading overlay -->
-  <div id="vrm-loading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;font-family:monospace;z-index:10;">
+  <div id="vrm-loading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;font-family:monospace;z-index:10;background:#0a0a0f;">
     <div style="font-size:13px;letter-spacing:0.25em;color:#9b7fd4;">AIKO-CHAN</div>
     <div style="width:140px;height:1px;background:#1a1a2f;overflow:hidden;">
       <div id="vrm-load-fill" style="height:100%;width:0%;background:#7b4fd4;box-shadow:0 0 6px #7b4fd4;transition:width 0.3s;"></div>
@@ -47,298 +47,258 @@ _VRM_VIEWER = """
 
   <canvas id="aiko-canvas" style="width:100%;height:100%;display:block;"></canvas>
 
-  <!-- status pill -->
   <div style="position:absolute;top:10px;right:12px;font-family:monospace;font-size:10px;color:#3a2a5a;letter-spacing:0.1em;">
     <span id="vrm-status">●</span> aiko
   </div>
-  <!-- emotion readout -->
   <div id="vrm-emotion" style="position:absolute;bottom:10px;left:12px;font-family:monospace;font-size:10px;color:#3a2a5a;letter-spacing:0.12em;text-transform:uppercase;">—</div>
 </div>
 
-<script type="importmap">
-{
-  "imports": {
-    "three":          "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-    "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
-    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.min.js"
-  }
-}
-</script>
+<!-- UMD builds: no importmap needed, works inside Gradio/HF CSP -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.170.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.170.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.js"></script>
 
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader }     from 'three/addons/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+<script>
+(function () {
+  // All libs attach to THREE global via UMD
+  const { Scene, PerspectiveCamera, WebGLRenderer, AmbientLight,
+          DirectionalLight, GridHelper, Clock, SRGBColorSpace } = THREE;
+  const OrbitControls = THREE.OrbitControls;
+  const GLTFLoader    = THREE.GLTFLoader;
+  const { VRMLoaderPlugin, VRMUtils } = THREE_VRM;
 
-const VRM_URL = '/static/Aiko.vrm';
+  const VRM_URL = '/static/Aiko.vrm';
 
-const root    = document.getElementById('aiko-vrm-root');
-const canvas  = document.getElementById('aiko-canvas');
-const loading = document.getElementById('vrm-loading');
-const fill    = document.getElementById('vrm-load-fill');
-const msg     = document.getElementById('vrm-load-msg');
-const status  = document.getElementById('vrm-status');
-const emotionEl = document.getElementById('vrm-emotion');
+  const root      = document.getElementById('aiko-vrm-root');
+  const canvas    = document.getElementById('aiko-canvas');
+  const loading   = document.getElementById('vrm-loading');
+  const fill      = document.getElementById('vrm-load-fill');
+  const msg       = document.getElementById('vrm-load-msg');
+  const status    = document.getElementById('vrm-status');
+  const emotionEl = document.getElementById('vrm-emotion');
 
-// ── renderer ──────────────────────────────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.setClearColor(0x0a0a0f);
+  // ── renderer ────────────────────────────────────────────────────────────────
+  const renderer = new WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.outputColorSpace = SRGBColorSpace;
+  renderer.setClearColor(0x0a0a0f);
 
-const scene  = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
-camera.position.set(0, 1.35, 2.8);
+  const scene  = new Scene();
+  const camera = new PerspectiveCamera(28, 1, 0.1, 100);
+  camera.position.set(0, 1.35, 2.8);
 
-const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, 1.1, 0);
-controls.enableDamping  = true;
-controls.dampingFactor  = 0.08;
-controls.minDistance    = 0.8;
-controls.maxDistance    = 6;
-controls.update();
-
-// ── lighting ──────────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xc8b0ff, 0.55));
-const key = new THREE.DirectionalLight(0xffffff, 1.2);
-key.position.set(1, 3, 2); scene.add(key);
-const rim = new THREE.DirectionalLight(0x7b4fd4, 0.45);
-rim.position.set(-2, 1, -1); scene.add(rim);
-const fill2 = new THREE.DirectionalLight(0xd4b0ff, 0.25);
-fill2.position.set(0, -1, 2); scene.add(fill2);
-scene.add(new THREE.GridHelper(10, 20, 0x1a0a2a, 0x100820));
-
-// ── resize ────────────────────────────────────────────────────────────────────
-function resize() {
-  const w = root.clientWidth, h = root.clientHeight;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-resize();
-new ResizeObserver(resize).observe(root);
-
-// ── state ─────────────────────────────────────────────────────────────────────
-let vrm = null;
-const clock = new THREE.Clock();
-
-// Expression lerp
-const exprTargets = {}, exprCurrent = {};
-const EXPR_LERP = 6;
-
-// Auto-return to neutral when Python goes quiet
-let exprResetTimer = null;
-const EXPR_RESET_DELAY = 4000;
-
-// Blink state machine
-let blinkTimer = 3.0 + Math.random() * 4.0;
-let blinkPhase = 'wait'; // 'wait' | 'closing' | 'opening'
-let blinkT = 0;
-const BLINK_CLOSE = 0.07;
-const BLINK_OPEN  = 0.10;
-
-// Idle time accumulator
-let t = 0;
-
-// Resting pose — arms behind back (parade rest)
-// Upper arms swing back and inward; lower arms cross behind hips
-const REST = {
-  leftUpperArm:  { x: -1.1, z: -0.6 },
-  rightUpperArm: { x: -1.1, z:  0.6 },
-  leftLowerArm:  { x: -0.5, z: -0.4 },
-  rightLowerArm: { x: -0.5, z:  0.4 },
-  leftHand:      { y:  0.4 },
-  rightHand:     { y: -0.4 },
-};
-
-// ── idle procedural animation ─────────────────────────────────────────────────
-// All frequencies are irrational so motions never visibly loop
-function applyIdle(dt) {
-  if (!vrm || !vrm.humanoid) return;
-  t += dt;
-  const get = name => vrm.humanoid.getRawBoneNode(name);
-
-  // Breathing — chest + belly
-  const breath = Math.sin(t * 0.83) * 0.013;
-  const chest  = get('chest');
-  const spine  = get('spine');
-  if (chest) chest.rotation.x = breath;
-  if (spine) spine.rotation.x = breath * 0.5;
-
-  // Hip sway — slow side-to-side + subtle forward rock
-  const hips = get('hips');
-  if (hips) {
-    hips.rotation.z  = Math.sin(t * 0.41) * 0.012;
-    hips.rotation.x  = Math.sin(t * 0.67) * 0.008;
-    hips.position.x  = Math.sin(t * 0.41) * 0.003;
-  }
-
-  // Head — slow wander with multiple overlapping waves
-  const head = get('head');
-  if (head) {
-    head.rotation.y = Math.sin(t * 0.31) * 0.055 + Math.sin(t * 1.13) * 0.012;
-    head.rotation.z = Math.sin(t * 0.27 + 1.1) * 0.018 + Math.sin(t * 0.71) * 0.006;
-    head.rotation.x = Math.sin(t * 0.53) * 0.012;
-  }
-
-  // Neck follows head at reduced scale
-  const neck = get('neck');
-  if (neck && head) {
-    neck.rotation.y = head.rotation.y * 0.3;
-    neck.rotation.z = head.rotation.z * 0.3;
-  }
-
-  // Arms — rest offset + per-bone subtle drift
-  const lUA = get('leftUpperArm'),  rUA = get('rightUpperArm');
-  const lLA = get('leftLowerArm'),  rLA = get('rightLowerArm');
-  const lH  = get('leftHand'),      rH  = get('rightHand');
-
-  if (lUA) { lUA.rotation.x = REST.leftUpperArm.x  + Math.sin(t * 0.47) * 0.012;
-             lUA.rotation.z = REST.leftUpperArm.z  + Math.sin(t * 0.41) * 0.008; }
-  if (rUA) { rUA.rotation.x = REST.rightUpperArm.x + Math.sin(t * 0.53 + 0.9) * 0.012;
-             rUA.rotation.z = REST.rightUpperArm.z + Math.sin(t * 0.37 + 0.7) * 0.008; }
-  if (lLA) { lLA.rotation.x = REST.leftLowerArm.x  + Math.sin(t * 0.61) * 0.010;
-             lLA.rotation.z = REST.leftLowerArm.z  + Math.sin(t * 0.43) * 0.006; }
-  if (rLA) { rLA.rotation.x = REST.rightLowerArm.x + Math.sin(t * 0.57 + 1.4) * 0.010;
-             rLA.rotation.z = REST.rightLowerArm.z + Math.sin(t * 0.51 + 0.5) * 0.006; }
-  if (lH)    lH.rotation.y  = REST.leftHand.y  + Math.sin(t * 0.33) * 0.008;
-  if (rH)    rH.rotation.y  = REST.rightHand.y + Math.sin(t * 0.29 + 1.2) * 0.008;
-}
-
-// ── blink ─────────────────────────────────────────────────────────────────────
-function applyBlink(dt) {
-  if (!vrm || !vrm.expressionManager) return;
-  const em = vrm.expressionManager;
-
-  if (blinkPhase === 'wait') {
-    blinkTimer -= dt;
-    if (blinkTimer <= 0) { blinkPhase = 'closing'; blinkT = 0; }
-
-  } else if (blinkPhase === 'closing') {
-    blinkT += dt;
-    const w = Math.min(blinkT / BLINK_CLOSE, 1.0);
-    try { em.setValue('blink', w); } catch(_) {}
-    if (blinkT >= BLINK_CLOSE) { blinkPhase = 'opening'; blinkT = 0; }
-
-  } else if (blinkPhase === 'opening') {
-    blinkT += dt;
-    const w = 1.0 - Math.min(blinkT / BLINK_OPEN, 1.0);
-    try { em.setValue('blink', w); } catch(_) {}
-    if (blinkT >= BLINK_OPEN) {
-      blinkPhase = 'wait';
-      blinkTimer = 3.0 + Math.random() * 4.0;
-      try { em.setValue('blink', 0); } catch(_) {}
-    }
-  }
-}
-
-// ── render loop ───────────────────────────────────────────────────────────────
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05); // cap dt on tab-switch
+  const controls = new OrbitControls(camera, canvas);
+  controls.target.set(0, 1.1, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance   = 0.8;
+  controls.maxDistance   = 6;
   controls.update();
 
-  if (vrm) {
-    vrm.update(dt);
+  // ── lighting ─────────────────────────────────────────────────────────────────
+  scene.add(new AmbientLight(0xc8b0ff, 0.55));
+  const key = new DirectionalLight(0xffffff, 1.2);
+  key.position.set(1, 3, 2); scene.add(key);
+  const rim = new DirectionalLight(0x7b4fd4, 0.45);
+  rim.position.set(-2, 1, -1); scene.add(rim);
+  const fill2 = new DirectionalLight(0xd4b0ff, 0.25);
+  fill2.position.set(0, -1, 2); scene.add(fill2);
+  scene.add(new GridHelper(10, 20, 0x1a0a2a, 0x100820));
 
-    // lerp expression targets (blink driven separately — don't clobber it)
+  // ── resize ───────────────────────────────────────────────────────────────────
+  function resize() {
+    const w = root.clientWidth, h = root.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  resize();
+  new ResizeObserver(resize).observe(root);
+
+  // ── state ────────────────────────────────────────────────────────────────────
+  let vrm = null;
+  const clock = new Clock();
+  const exprTargets = {}, exprCurrent = {};
+  const EXPR_LERP = 6;
+  let exprResetTimer = null;
+
+  // Blink
+  let blinkTimer = 3.0 + Math.random() * 4.0;
+  let blinkPhase = 'wait';
+  let blinkT = 0;
+  const BLINK_CLOSE = 0.07, BLINK_OPEN = 0.10;
+
+  // Idle time
+  let t = 0;
+
+  // Resting pose — tune x/z per your VRM's bone axes
+  const REST = window._REST = {
+    leftUpperArm:  { x:  0.3, z:  0.3 },
+    rightUpperArm: { x:  0.3, z: -0.3 },
+    leftLowerArm:  { x: -0.5, z: -0.4 },
+    rightLowerArm: { x: -0.5, z:  0.4 },
+    leftHand:      { y:  0.4 },
+    rightHand:     { y: -0.4 },
+  };
+
+  // ── idle ─────────────────────────────────────────────────────────────────────
+  function applyIdle(dt) {
+    if (!vrm || !vrm.humanoid) return;
+    t += dt;
+    const get = name => vrm.humanoid.getRawBoneNode(name);
+
+    const breath = Math.sin(t * 0.83) * 0.013;
+    const chest  = get('chest'), spine = get('spine');
+    if (chest) chest.rotation.x = breath;
+    if (spine) spine.rotation.x = breath * 0.5;
+
+    const hips = get('hips');
+    if (hips) {
+      hips.rotation.z = Math.sin(t * 0.41) * 0.012;
+      hips.rotation.x = Math.sin(t * 0.67) * 0.008;
+      hips.position.x = Math.sin(t * 0.41) * 0.003;
+    }
+
+    const head = get('head');
+    if (head) {
+      head.rotation.y = Math.sin(t * 0.31) * 0.055 + Math.sin(t * 1.13) * 0.012;
+      head.rotation.z = Math.sin(t * 0.27 + 1.1) * 0.018 + Math.sin(t * 0.71) * 0.006;
+      head.rotation.x = Math.sin(t * 0.53) * 0.012;
+    }
+    const neck = get('neck');
+    if (neck && head) {
+      neck.rotation.y = head.rotation.y * 0.3;
+      neck.rotation.z = head.rotation.z * 0.3;
+    }
+
+    const lUA = get('leftUpperArm'),  rUA = get('rightUpperArm');
+    const lLA = get('leftLowerArm'),  rLA = get('rightLowerArm');
+    const lH  = get('leftHand'),      rH  = get('rightHand');
+    if (lUA) { lUA.rotation.x = REST.leftUpperArm.x  + Math.sin(t * 0.47) * 0.012;
+               lUA.rotation.z = REST.leftUpperArm.z  + Math.sin(t * 0.41) * 0.008; }
+    if (rUA) { rUA.rotation.x = REST.rightUpperArm.x + Math.sin(t * 0.53 + 0.9) * 0.012;
+               rUA.rotation.z = REST.rightUpperArm.z + Math.sin(t * 0.37 + 0.7) * 0.008; }
+    if (lLA) { lLA.rotation.x = REST.leftLowerArm.x  + Math.sin(t * 0.61) * 0.010;
+               lLA.rotation.z = REST.leftLowerArm.z  + Math.sin(t * 0.43) * 0.006; }
+    if (rLA) { rLA.rotation.x = REST.rightLowerArm.x + Math.sin(t * 0.57 + 1.4) * 0.010;
+               rLA.rotation.z = REST.rightLowerArm.z + Math.sin(t * 0.51 + 0.5) * 0.006; }
+    if (lH)    lH.rotation.y  = REST.leftHand.y  + Math.sin(t * 0.33) * 0.008;
+    if (rH)    rH.rotation.y  = REST.rightHand.y + Math.sin(t * 0.29 + 1.2) * 0.008;
+  }
+
+  // ── blink ────────────────────────────────────────────────────────────────────
+  function applyBlink(dt) {
+    if (!vrm || !vrm.expressionManager) return;
     const em = vrm.expressionManager;
-    if (em) {
-      for (const [name, target] of Object.entries(exprTargets)) {
-        const cur  = exprCurrent[name] ?? 0;
-        const next = cur + (target - cur) * Math.min(1, EXPR_LERP * dt);
-        exprCurrent[name] = next;
-        if (name !== 'blink') try { em.setValue(name, next); } catch(_) {}
+    if (blinkPhase === 'wait') {
+      blinkTimer -= dt;
+      if (blinkTimer <= 0) { blinkPhase = 'closing'; blinkT = 0; }
+    } else if (blinkPhase === 'closing') {
+      blinkT += dt;
+      try { em.setValue('blink', Math.min(blinkT / BLINK_CLOSE, 1)); } catch(_) {}
+      if (blinkT >= BLINK_CLOSE) { blinkPhase = 'opening'; blinkT = 0; }
+    } else if (blinkPhase === 'opening') {
+      blinkT += dt;
+      try { em.setValue('blink', 1 - Math.min(blinkT / BLINK_OPEN, 1)); } catch(_) {}
+      if (blinkT >= BLINK_OPEN) {
+        blinkPhase = 'wait';
+        blinkTimer = 3.0 + Math.random() * 4.0;
+        try { em.setValue('blink', 0); } catch(_) {}
       }
     }
-
-    applyBlink(dt);
-    applyIdle(dt);
   }
 
-  renderer.render(scene, camera);
-}
-animate();
-
-// ── load vrm ──────────────────────────────────────────────────────────────────
-function setProgress(p, text) {
-  fill.style.width = (p * 100) + '%';
-  if (text) msg.textContent = text;
-}
-
-const loader = new GLTFLoader();
-loader.register(parser => new VRMLoaderPlugin(parser));
-
-setProgress(0.05, 'fetching model…');
-
-loader.load(
-  VRM_URL,
-  (gltf) => {
-    setProgress(0.92, 'building…');
-    vrm = gltf.userData.vrm;
-
-    // v3: removeUnnecessaryVertices is the only VRMUtils call needed;
-    // combineSkeletons and rotateVRM0 were removed — v3 handles both internally
-    VRMUtils.removeUnnecessaryVertices(vrm.scene);
-
-    vrm.scene.traverse(o => { if (o.frustumCulled) o.frustumCulled = false; });
-    scene.add(vrm.scene);
-
-    if (vrm.expressionManager) {
-      vrm.expressionManager.expressions.forEach(ex => {
-        exprTargets[ex.expressionName]  = 0;
-        exprCurrent[ex.expressionName] = 0;
-      });
+  // ── render loop ──────────────────────────────────────────────────────────────
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    controls.update();
+    if (vrm) {
+      vrm.update(dt);
+      const em = vrm.expressionManager;
+      if (em) {
+        for (const [name, target] of Object.entries(exprTargets)) {
+          const cur  = exprCurrent[name] ?? 0;
+          const next = cur + (target - cur) * Math.min(1, EXPR_LERP * dt);
+          exprCurrent[name] = next;
+          if (name !== 'blink') try { em.setValue(name, next); } catch(_) {}
+        }
+      }
+      applyBlink(dt);
+      applyIdle(dt);
     }
-
-    setProgress(1.0, 'ready');
-    status.style.color = '#7b4fd4';
-    setTimeout(() => {
-      loading.style.transition = 'opacity 0.8s';
-      loading.style.opacity    = '0';
-      setTimeout(() => loading.style.display = 'none', 800);
-    }, 400);
-  },
-  (prog) => {
-    const p = prog.total ? prog.loaded / prog.total : 0;
-    setProgress(0.05 + p * 0.85, 'loading model…');
-  },
-  (err) => {
-    msg.textContent = 'failed to load vrm';
-    status.style.color = '#d45050';
-    console.error('[aiko-vrm]', err);
+    renderer.render(scene, camera);
   }
-);
+  animate();
 
-// ── expression API — callable from Python via Gradio JS or page JS ────────────
-// window.aikoSetExpression('happy', 0.9)
-// window.aikoSetViseme('A', 0.8)
-window.aikoSetExpression = (name, intensity = 1.0) => {
-  for (const k of Object.keys(exprTargets)) {
-    if (k !== 'blink') exprTargets[k] = 0; // preserve blink state
+  // ── load vrm ─────────────────────────────────────────────────────────────────
+  function setProgress(p, text) {
+    fill.style.width = (p * 100) + '%';
+    if (text) msg.textContent = text;
   }
-  if (name && name !== 'neutral') exprTargets[name] = intensity;
 
-  // update emotion readout
-  emotionEl.textContent = (name && name !== 'neutral')
-    ? name + ' · ' + Math.round(intensity * 100) + '%'
-    : '—';
-  emotionEl.style.color = (name && name !== 'neutral') ? '#9b7fd4' : '#3a2a5a';
+  const loader = new GLTFLoader();
+  loader.register(parser => new VRMLoaderPlugin(parser));
+  setProgress(0.05, 'fetching model…');
 
-  // auto-return to neutral after delay if Python goes quiet
-  clearTimeout(exprResetTimer);
-  if (name && name !== 'neutral') {
-    exprResetTimer = setTimeout(() => window.aikoSetExpression('neutral'), 4000);
-  }
-};
+  loader.load(
+    VRM_URL,
+    (gltf) => {
+      setProgress(0.92, 'building…');
+      vrm = gltf.userData.vrm;
+      window._vrm = vrm;
+      VRMUtils.removeUnnecessaryVertices(vrm.scene);
+      vrm.scene.traverse(o => { if (o.frustumCulled) o.frustumCulled = false; });
+      scene.add(vrm.scene);
+      if (vrm.expressionManager) {
+        vrm.expressionManager.expressions.forEach(ex => {
+          exprTargets[ex.expressionName] = 0;
+          exprCurrent[ex.expressionName] = 0;
+        });
+      }
+      setProgress(1.0, 'ready');
+      status.style.color = '#7b4fd4';
+      setTimeout(() => {
+        loading.style.transition = 'opacity 0.8s';
+        loading.style.opacity    = '0';
+        setTimeout(() => loading.style.display = 'none', 800);
+      }, 400);
+    },
+    (prog) => {
+      const p = prog.total ? prog.loaded / prog.total : 0;
+      setProgress(0.05 + p * 0.85, 'loading model…');
+    },
+    (err) => {
+      msg.textContent = 'error: ' + err.message;
+      status.style.color = '#d45050';
+      console.error('[aiko-vrm]', err);
+    }
+  );
 
-window.aikoSetViseme = (viseme, weight = 1.0) => {
-  const map = { A:'aa', I:'ih', U:'ou', E:'ee', O:'oh' };
-  const v   = map[viseme] ?? viseme;
-  ['aa','ih','ou','ee','oh'].forEach(k => exprTargets[k] = 0);
-  exprTargets[v] = weight;
-};
+  // ── expression API ───────────────────────────────────────────────────────────
+  window.aikoSetExpression = (name, intensity = 1.0) => {
+    for (const k of Object.keys(exprTargets)) {
+      if (k !== 'blink') exprTargets[k] = 0;
+    }
+    if (name && name !== 'neutral') exprTargets[name] = intensity;
+    emotionEl.textContent = (name && name !== 'neutral')
+      ? name + ' · ' + Math.round(intensity * 100) + '%' : '—';
+    emotionEl.style.color = (name && name !== 'neutral') ? '#9b7fd4' : '#3a2a5a';
+    clearTimeout(exprResetTimer);
+    if (name && name !== 'neutral') {
+      exprResetTimer = setTimeout(() => window.aikoSetExpression('neutral'), 4000);
+    }
+  };
+
+  window.aikoSetViseme = (viseme, weight = 1.0) => {
+    const map = { A:'aa', I:'ih', U:'ou', E:'ee', O:'oh' };
+    const v = map[viseme] ?? viseme;
+    ['aa','ih','ou','ee','oh'].forEach(k => exprTargets[k] = 0);
+    exprTargets[v] = weight;
+  };
+
+})();
 </script>
 """
 
