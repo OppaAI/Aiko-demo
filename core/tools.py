@@ -24,3 +24,16 @@ def web_search(query: str, max_results: int = 3) -> str:
         lines.append(f"{i}. {title}\n   {url}\n   {content}")
     return "\n\n".join(lines)
     
+def web_fetch(url: str, max_chars: int = 2000) -> str:
+    try:
+        import httpx
+        resp = httpx.get(url, timeout=10, follow_redirects=True,
+                        headers={"User-Agent": "Mozilla/5.0"})
+        # strip html tags
+        import re
+        text = re.sub(r'<[^>]+>', ' ', resp.text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text[:max_chars]
+    except Exception as e:
+        return f"[fetch failed: {e}]"
+        
