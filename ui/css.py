@@ -64,6 +64,22 @@ body, .gradio-container {
     overflow-y: auto !important;
 }
 
+/* ── Narrow bubble widths (replaces bubble_full_width) ───── */
+.message.user, .bubble-wrap.user,
+[data-testid="user"] {
+    margin-left: auto !important;
+    margin-right: 8px !important;
+    max-width: 80% !important;
+    width: auto !important;
+}
+.message.bot, .bubble-wrap.bot,
+[data-testid="bot"] {
+    margin-right: auto !important;
+    margin-left: 8px !important;
+    max-width: 80% !important;
+    width: auto !important;
+}
+
 /* Messages */
 .message.user, [data-testid="user"],
 .bubble-wrap.user .bubble {
