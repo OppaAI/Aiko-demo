@@ -30,6 +30,10 @@ def chat(message, history):
 
 # ── dark lavender glassmorphic CSS ────────────────────────────────────────────
 _CSS = """
+html, body {
+    background: #080612 !important;
+    color-scheme: dark !important;
+}
 body, .gradio-container {
     background: #080612 !important;
     color: #d4c8f0 !important;
@@ -42,87 +46,118 @@ body, .gradio-container {
         #080612 !important;
     min-height: 100vh;
 }
+
+/* Force dark on Gradio's theme root vars */
+:root, .dark {
+    --body-background-fill: #080612 !important;
+    --background-fill-primary: #0d0920 !important;
+    --background-fill-secondary: #110d24 !important;
+    --color-accent: #9b7fd4 !important;
+    --neutral-950: #d4c8f0 !important;
+    --neutral-900: #c4b8e0 !important;
+    --neutral-800: #b4a8d0 !important;
+    --neutral-100: #1a1030 !important;
+    --neutral-50: #0d0920 !important;
+    --input-background-fill: rgba(15,10,30,0.85) !important;
+    --input-border-color: rgba(155,127,212,0.3) !important;
+    --chatbot-background: rgba(10,7,20,0.8) !important;
+    --border-color-primary: rgba(155,127,212,0.2) !important;
+    --color-text-body: #d4c8f0 !important;
+    --body-text-color: #d4c8f0 !important;
+    --block-label-text-color: rgba(196,168,255,0.8) !important;
+}
+
+/* Nuke any white panels Gradio injects */
+.app, .wrap, footer,
+.svelte-1ipelgc, .svelte-byatnx,
+[class*="gradio-"] > div,
+.block, .form, .gap, .panel {
+    background: transparent !important;
+    border-color: transparent !important;
+}
+
+/* Chat panel */
 .gradio-container h1 {
     color: #c4a8ff !important;
     font-family: 'Georgia', serif !important;
     letter-spacing: 0.06em !important;
-    text-shadow: 0 0 20px rgba(155,127,212,0.4) !important;
 }
+
 #aiko-chatbot,
 .chatbot,
 [data-testid="chatbot"] {
     background: rgba(15,10,30,0.65) !important;
     border: 1px solid rgba(155,127,212,0.2) !important;
     border-radius: 16px !important;
-    backdrop-filter: blur(20px) !important;
-    -webkit-backdrop-filter: blur(20px) !important;
-    box-shadow:
-        0 0 0 1px rgba(155,127,212,0.06),
-        0 8px 32px rgba(0,0,0,0.5),
-        inset 0 1px 0 rgba(255,255,255,0.04) !important;
     height: 480px !important;
 }
-.message.user, [data-testid="user"] {
+
+/* Message bubbles */
+.message.user, [data-testid="user"],
+.bubble-wrap.user .bubble {
     background: rgba(91,47,168,0.35) !important;
     border: 1px solid rgba(155,127,212,0.25) !important;
     border-radius: 14px 14px 4px 14px !important;
     color: #e8deff !important;
-    backdrop-filter: blur(8px) !important;
 }
-.message.bot, [data-testid="bot"] {
+.message.bot, [data-testid="bot"],
+.bubble-wrap.bot .bubble {
     background: rgba(20,12,42,0.6) !important;
     border: 1px solid rgba(155,127,212,0.15) !important;
     border-radius: 14px 14px 14px 4px !important;
     color: #d4c8f0 !important;
-    backdrop-filter: blur(8px) !important;
 }
+
+/* Ensure all text inside chatbot is bright enough */
+.chatbot *, [data-testid="chatbot"] * {
+    color: inherit !important;
+}
+.message.user *, .bubble-wrap.user * { color: #e8deff !important; }
+.message.bot *, .bubble-wrap.bot * { color: #d4c8f0 !important; }
+
+/* Input box */
 .gradio-container textarea,
-.gradio-container input[type="text"] {
-    background: rgba(15,10,30,0.7) !important;
+.gradio-container input[type="text"],
+textarea, input[type="text"] {
+    background: rgba(15,10,30,0.85) !important;
     border: 1px solid rgba(155,127,212,0.25) !important;
     border-radius: 12px !important;
     color: #e8deff !important;
-    backdrop-filter: blur(12px) !important;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03) !important;
     caret-color: #9b7fd4 !important;
 }
-.gradio-container textarea:focus,
-.gradio-container input[type="text"]:focus {
+textarea:focus, input[type="text"]:focus {
     border-color: rgba(155,127,212,0.5) !important;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), 0 0 0 3px rgba(123,79,212,0.15) !important;
     outline: none !important;
+    box-shadow: 0 0 0 3px rgba(123,79,212,0.15) !important;
 }
-.gradio-container textarea::placeholder { color: rgba(155,127,212,0.35) !important; }
-.gradio-container button[aria-label="Submit"],
-.gradio-container button.submit,
-#component-submit-btn {
+textarea::placeholder { color: rgba(155,127,212,0.4) !important; }
+
+/* Submit button */
+button[aria-label="Submit"],
+button.submit,
+#component-submit-btn,
+button[type="submit"] {
     background: linear-gradient(135deg, rgba(91,47,168,0.8), rgba(123,79,212,0.7)) !important;
     border: 1px solid rgba(155,127,212,0.4) !important;
     border-radius: 10px !important;
     color: #f0e8ff !important;
-    box-shadow: 0 2px 12px rgba(123,79,212,0.3) !important;
-    transition: all 0.2s ease !important;
 }
-.gradio-container button[aria-label="Submit"]:hover,
-.gradio-container button.submit:hover {
-    background: linear-gradient(135deg, rgba(123,79,212,0.9), rgba(155,127,212,0.8)) !important;
-    box-shadow: 0 4px 20px rgba(123,79,212,0.5) !important;
-    transform: translateY(-1px) !important;
-}
+button[aria-label="Submit"]:hover { background: linear-gradient(135deg, rgba(123,79,212,0.9), rgba(155,127,212,0.8)) !important; }
+
+/* All other buttons and labels */
 .gradio-container button { color: #c4a8ff !important; }
 .gradio-container button:hover { color: #e8deff !important; }
 .gradio-container label,
 .gradio-container .label-wrap span,
-.gradio-container .prose,
-.gradio-container p { color: rgba(196,168,255,0.7) !important; }
-.gradio-container .gr-box,
-.gradio-container .gr-panel,
-.gradio-container .block { background: transparent !important; border: none !important; }
+.gradio-container p,
+label, p { color: rgba(196,168,255,0.8) !important; }
+
+/* Scrollbars */
 * { scrollbar-width: thin; scrollbar-color: rgba(123,79,212,0.4) rgba(15,10,30,0.3); }
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: rgba(15,10,30,0.3); border-radius: 3px; }
 ::-webkit-scrollbar-thumb { background: rgba(123,79,212,0.4); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(155,127,212,0.6); }
+
 #aiko-col { padding: 0 !important; }
 .gradio-container .row { gap: 16px !important; }
 """
@@ -152,12 +187,12 @@ _VRM_VIEWER = """
 <script>
 (function() {
   // sequential CDN loader — each waits for previous so THREE is global first
-  var SCRIPTS = [
-    'https://unpkg.com/three@0.170.0/build/three.min.js',
-    'https://unpkg.com/three@0.170.0/examples/js/controls/OrbitControls.js',
-    'https://unpkg.com/three@0.170.0/examples/js/loaders/GLTFLoader.js',
-    'https://unpkg.com/@pixiv/three-vrm@3/lib/three-vrm.js'
-  ];
+var SCRIPTS = [
+    'https://unpkg.com/three@0.163.0/build/three.min.js',
+    'https://unpkg.com/three@0.163.0/examples/js/controls/OrbitControls.js',
+    'https://unpkg.com/three@0.163.0/examples/js/loaders/GLTFLoader.js',
+    'https://unpkg.com/@pixiv/three-vrm@2/lib/three-vrm.js'
+];
 
   function loadScript(i) {
     if (i >= SCRIPTS.length) { initVRM(); return; }
@@ -184,7 +219,11 @@ _VRM_VIEWER = """
       document.getElementById('vrm-load-msg').textContent = 'error: THREE_VRM not found';
       return;
     }
-
+    if (typeof THREE_VRM.VRMLoaderPlugin === 'undefined') {
+      document.getElementById('vrm-load-msg').textContent = 'error: VRMLoaderPlugin not found';
+      return;
+    }
+    
     var root   = document.getElementById('aiko-vrm-root');
     var canvas = document.getElementById('aiko-canvas');
     var loading= document.getElementById('vrm-loading');
