@@ -3,7 +3,8 @@ core/think.py
 
 Aiko's cognitive loop.
   - Retrieves relevant memories before each turn
-  - Intercepts [SEARCH: query] triggers for web search
+  - Proactive intent gate: detects data-seeking queries and injects live
+    web search results into the system prompt BEFORE the LLM speaks
   - Streams LLM response to console + TTS simultaneously
   - Stores the turn into long-term memory after each response (background thread)
   - Supports single-shot reasoning mode via set_reasoning(True) / /think command
@@ -60,6 +61,77 @@ def _load_persona() -> str:
     user_id = os.getenv("USER_ID", "OppaAI")
     today   = datetime.now().strftime("%B %d, %Y")
     return persona.replace("USER_ID_HERE", user_id).replace("TODAY_HERE", today)
+
+
+# ── search intent gate ────────────────────────────────────────────────────────
+
+# question words / phrases that strongly imply the user wants live data
+_INTENT_QUESTION_WORDS = re.compile(
+    r"\b(what(?:'s| is| are| was| were)?"
+    r"|who(?:'s| is| are)?"
+    r"|when(?:'s| is| are| was| were)?"
+    r"|where(?:'s| is| are)?"
+    r"|how (?:much|many|old|tall|long|far|do|does|did|is|are|was|were)"
+    r"|why (?:is|are|was|were|did|does|do)"
+    r"|price of|cost of|worth of"
+    r"|latest|recent|current|today|tonight|this week|this month|right now|live"
+    r"|news|update|score|weather|forecast|stock|crypto|rate|ranking|standings"
+    r"|release date|out now|available|coming out"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# explicit data-request phrases — override everything
+_INTENT_EXPLICIT = re.compile(
+    r"\b(search for|look up|find out|tell me about|what do you know about"
+    r"|google|check online|check the web)\b",
+    re.IGNORECASE,
+)
+
+# topics that are always stale in a model's weights — force search
+_INTENT_STALENESS = re.compile(
+    r"\b(weather|temperature|forecast|rain|snow|wind"
+    r"|score|standings|game|match|result|winner"
+    r"|stock|crypto|bitcoin|price|market|nasdaq|s&p"
+    r"|news|breaking|headline|election|vote"
+    r"|release|launch|update|version|patch)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_data_intent(text: str) -> bool:
+    """
+    Return True when the user's message likely requires live or recent data.
+
+    Combines three signals: explicit lookup phrases, staleness keywords, and
+    question words. Any single signal is sufficient to trigger a search.
+    Short conversational inputs (< 4 words) are skipped to avoid false positives.
+    """
+    if len(text.split()) < 4:
+        return False  # too short to be a genuine data query
+    if _INTENT_EXPLICIT.search(text):
+        return True
+    if _INTENT_STALENESS.search(text):
+        return True
+    if _INTENT_QUESTION_WORDS.search(text):
+        return True
+    return False
+
+
+def _build_search_query(text: str) -> str:
+    """
+    Derive a clean search query from user input.
+
+    Strips common conversational lead-ins so SearXNG gets a tight query
+    rather than a full sentence with filler words.
+    """
+    filler = re.compile(
+        r"^(hey aiko[,.]?\s*|aiko[,.]?\s*|can you\s*|could you\s*"
+        r"|please\s*|tell me\s*|what(?:'s| is)\s*|do you know\s*"
+        r"|search for\s*|look up\s*|find\s*)",
+        re.IGNORECASE,
+    )
+    return filler.sub("", text).strip()
 
 
 # ── think ─────────────────────────────────────────────────────────────────────
@@ -145,12 +217,31 @@ class AikoThink:
             memories     = []
             memory_block = None
     
-        # 3. build system prompt
+        # 3. build system prompt — persona + memories
         system = self._persona
         if memory_block:
             system = f"{system}\n\n{memory_block}"
-    
-        # 4. wrap user turn with reasoning instruction if active
+
+        # 4. proactive search gate — inject live results BEFORE the LLM speaks
+        #    soul.md already instructs Aiko to treat <search_results> as her
+        #    sole source for that topic; no extra prompt wording needed here.
+        if _is_data_intent(user_input):
+            query = _build_search_query(user_input)
+            log.debug("Search intent detected — querying: %s", query)
+
+            if token_callback:
+                token_callback(f"__SEARCHING__:{query}")
+
+            try:
+                from core.tools import web_search
+                results = web_search(query)
+            except Exception as exc:
+                results = f"[search failed: {exc}]"
+                log.warning("Web search failed: %s", exc)
+
+            system = f"{system}\n\n<search_results>\n{results}\n</search_results>"
+
+        # 5. wrap user turn with reasoning instruction if active
         if self._reasoning:
             prompt = (
                 f"{user_input}\n\n"
@@ -159,48 +250,28 @@ class AikoThink:
             )
         else:
             prompt = user_input
-    
-        # 5. append user turn
+
+        # 6. append user turn
         self._history.append({"role": "user", "content": prompt})
-    
-        # 6. trim history to context window
+
+        # 7. trim history to context window
         trimmed = self._sanitize_history(self._history[-(CONTEXT_WINDOW_TURNS * 2):])
-    
-        # 7. stream response — re-prompt if LLM emits [SEARCH: ...] ──────────
-        max_searches  = 3
-        response_text = ""
-        for _ in range(max_searches):
-            response_text, search_query = self._stream_response(trimmed, system=system)
-    
-            if not search_query:
-                break  # normal response, done
-    
-            # execute search and inject results
-            if token_callback:
-                token_callback(f"__SEARCHING__:{search_query}")
-    
-            try:
-                from core.tools import web_search
-                results = web_search(search_query)
-            except Exception as e:
-                results = f"[search failed: {e}]"
-    
-            # inject results as tool turn and re-prompt
-            trimmed.append({"role": "assistant", "content": f"[SEARCH: {search_query}]"})
-            trimmed.append({"role": "user",      "content": f"Search results:\n{results}\n\nNow answer the original question."})
-    
-        # 8. remove orphaned user turn on empty response
+
+        # 8. single LLM call — search results already in system prompt if needed
+        response_text, _ = self._stream_response(trimmed, system=system)
+
+        # 9. remove orphaned user turn on empty response
         if not response_text:
             if self._history and self._history[-1]["role"] == "user":
                 self._history.pop()
     
-        # 9. append assistant turn to history
+        # 10. append assistant turn to history
         self._history.append({"role": "assistant", "content": response_text})
     
-        # 10. persist to memory (background) — store original input, not wrapped prompt
+        # 11. persist to memory (background) — store original input, not wrapped prompt
         self._store_async(user_input, response_text)
     
-        # 11. auto-reset reasoning mode — single-shot per /think invocation
+        # 12. auto-reset reasoning mode — single-shot per /think invocation
         self._reasoning = False
     
         return response_text
