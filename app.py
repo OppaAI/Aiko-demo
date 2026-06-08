@@ -36,15 +36,18 @@ with gr.Blocks(title="Aiko-chan 🌸", css=CSS, theme=gr.themes.Base()) as demo:
 
     with gr.Row(elem_id="aiko-main-row"):
         with gr.Column(scale=6, elem_id="aiko-chat-col"):
+            # Build the chatbot component separately so we can style it
+            chatbot = gr.Chatbot(
+                elem_id="aiko-chatbot",
+                show_copy_button=True,
+                avatar_images=(None, None),  # set to ("static/user.png", "static/aiko_avatar.png") if you have images
+                height="100%",
+            )
+            
             gr.ChatInterface(
                 fn=chat,
+                chatbot=chatbot,
                 title="Aiko-chan 🌸",
-                chatbot=gr.Chatbot(
-                    elem_id="aiko-chatbot",
-                    bubble_full_width=False,
-                    show_copy_button=True,
-                    avatar_images=(None, "static/aiko_avatar.png"),  # optional
-                ),
                 textbox=gr.Textbox(
                     placeholder="Say something to Aiko-chan...",
                     container=False,
