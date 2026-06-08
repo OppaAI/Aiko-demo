@@ -7,12 +7,6 @@ import re
 import httpx
 from ddgs import DDGS
 
-# domains that reliably block scrapers — skip fetching these
-_FETCH_BLOCKLIST = {
-    "investing.com", "bloomberg.com", "wsj.com", "ft.com",
-    "reuters.com", "nytimes.com", "washingtonpost.com",
-}
-
 
 def web_search(query: str, max_results: int = 5) -> str:
     try:
@@ -30,11 +24,7 @@ def web_search(query: str, max_results: int = 5) -> str:
     return "\n\n".join(lines)
 
 
-def web_fetch(url: str, max_chars: int = 3000) -> str:
-    from urllib.parse import urlparse
-    domain = urlparse(url).netloc.replace("www.", "")
-    if any(blocked in domain for blocked in _FETCH_BLOCKLIST):
-        return f"[fetch skipped: {domain} blocks scrapers]"
+def web_fetch(url: str, max_chars: int = 6000) -> str:
     try:
         resp = httpx.get(
             url,
@@ -46,6 +36,9 @@ def web_fetch(url: str, max_chars: int = 3000) -> str:
             return f"[fetch failed: HTTP {resp.status_code}]"
         text = re.sub(r'<[^>]+>', ' ', resp.text)
         text = re.sub(r'\s+', ' ', text).strip()
+        # too little content = JS-rendered page, skip it
+        if len(text) < 200:
+            return "[fetch failed: page appears JS-rendered]"
         return text[:max_chars]
     except Exception as e:
         return f"[fetch failed: {e}]"
@@ -58,7 +51,7 @@ def web_search_and_fetch(query: str, max_results: int = 5) -> str:
     """
     results = web_search(query, max_results=max_results)
 
-    # extract URLs from results, try up to 3
+    # extract up to 3 URLs from results
     urls = []
     for line in results.split("\n"):
         line = line.strip()
@@ -67,6 +60,7 @@ def web_search_and_fetch(query: str, max_results: int = 5) -> str:
         if len(urls) >= 3:
             break
 
+    # try each URL until one returns real content
     for url in urls:
         fetched = web_fetch(url)
         if not fetched.startswith("[fetch"):
@@ -74,4 +68,3 @@ def web_search_and_fetch(query: str, max_results: int = 5) -> str:
             break
 
     return results
-    
