@@ -78,29 +78,87 @@ def _is_data_intent(text: str) -> bool:
     return bool(_SEARCH_TRIGGERS.search(text.strip()))
 
 
+import re
+ 
+# (keep _SEARCH_TRIGGERS as-is from think.py)
+_SEARCH_TRIGGERS = re.compile(
+    r"\b(check (?:the )?internet|search (?:the )?web|look it up|go online|"
+    r"search online|check online|look online|google that|browse for|"
+    r"fetch.*web|web search|internet search)\b",
+    re.IGNORECASE,
+)
+ 
+# Strips leading junk left after trigger removal — applied in a loop
+_LEADING_JUNK = re.compile(
+    r"^[\s,;.\-—–]+",
+)
+_LEADING_FILLER = re.compile(
+    r"^("
+    # conjunctions / transitions
+    r"and\s+|but\s+|then\s+|so\s+|for\s+"
+    # address
+    r"|hey aiko[,.]?\s*|aiko[,.]?\s*"
+    # politeness
+    r"|can you\s*|could you\s*|please\s*|me\s+"
+    # action verbs
+    r"|tell me\s*|give me\s*|show me\s*|get me\s*"
+    r"|find\s+(?:out\s+)?|look\s+(?:up\s+)?"
+    # info phrases
+    r"|(?:some\s+)?(?:detailed?\s+)?info(?:rmation)?\s+(?:about\s+|on\s+)?"
+    r"|(?:more\s+)?details?\s+(?:about\s+|on\s+)?"
+    r"|about\s+"
+    r")",
+    re.IGNORECASE,
+)
+ 
 def _build_search_query(text: str) -> str:
-    """Strip trigger phrase + conversational filler, extract clean topic."""
-    # remove the trigger phrase first
+    """
+    Strip the search trigger + all conversational filler from user input,
+    leaving a clean query string for DDG.
+ 
+    Example:
+      "Check internet and tell me detail info about Huggingface build small hackathon"
+      → "Huggingface build small hackathon"
+    """
+    # 1. remove the trigger phrase
     cleaned = _SEARCH_TRIGGERS.sub("", text).strip()
-    # strip leading conjunctions/filler left behind after trigger removal
-    cleaned = re.sub(
-        r"^(and\s+|but\s+|then\s+|so\s+|,\s*)+",
-        "", cleaned, flags=re.IGNORECASE
-    ).strip()
-    # strip conversational lead-ins
-    filler = re.compile(
-        r"^(hey aiko[,.]?\s*|aiko[,.]?\s*|can you\s*|could you\s*|"
-        r"please\s*|for\s+me\s*|tell me\s*|give me\s*|"
-        r"(detail(?:ed)?\s+)?info(?:rmation)?\s+about\s*)",
-        re.IGNORECASE,
-    )
-    # apply filler strip repeatedly until stable
+ 
+    # 2. peel leading junk + filler iteratively until stable
     prev = None
     while prev != cleaned:
         prev = cleaned
-        cleaned = filler.sub("", cleaned).strip()
+        cleaned = _LEADING_JUNK.sub("", cleaned).strip()
+        cleaned = _LEADING_FILLER.sub("", cleaned).strip()
+ 
+    # 3. fallback: if we stripped everything, use original input
     return cleaned or text.strip()
-
+ 
+# ── quick smoke test ──────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    cases = [
+        ("Check internet and tell me detail info about Huggingface build small hackathon",
+         "Huggingface build small hackathon"),
+        ("search the web for latest python 3.13 features",
+         "latest python 3.13 features"),
+        ("hey aiko, go online and find out about the weather in Vancouver",
+         "weather in Vancouver"),
+        ("look it up — best ramen in Tokyo",
+         "best ramen in Tokyo"),
+        ("can you search online for Ministral 3B benchmarks",
+         "Ministral 3B benchmarks"),
+        ("check online for me about the nvidia cosmos cookoff results",
+         "nvidia cosmos cookoff results"),
+    ]
+    all_pass = True
+    for inp, expected in cases:
+        result = _build_search_query(inp)
+        ok = expected.lower() in result.lower()
+        status = "✓" if ok else "✗"
+        print(f"{status} '{result}'  (expected: '{expected}')")
+        if not ok:
+            all_pass = False
+    print("\n" + ("All pass ✓" if all_pass else "Some failed ✗"))
+ 
 # ── think ─────────────────────────────────────────────────────────────────────
 
 class AikoThink:
