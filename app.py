@@ -45,7 +45,7 @@ HEADER_HTML = """
 </div>
 """
 
-# ── Welcome screen (shown when no messages) ──
+# ── Welcome screen (injected via first bot message or HTML) ──
 WELCOME_HTML = """
 <div class="aiko-welcome">
     <div class="welcome-icon">🌸</div>
@@ -70,36 +70,74 @@ with gr.Blocks(title="Aiko-chan 🌸", css=CSS) as demo:
     with gr.Row(equal_height=True):
         # ── Chat column ──
         with gr.Column(scale=6, min_width=400):
-            gr.ChatInterface(
-                fn=chat,
-                chatbot=gr.Chatbot(
-                    elem_id="aiko-chatbot",
-                    show_label=False,
-                    show_copy_button=True,
-                    layout="bubble",
-                    bubble_full_width=False,
-                    placeholder=WELCOME_HTML,
-                ),
-                textbox=gr.Textbox(
+            chatbot = gr.Chatbot(
+                elem_id="aiko-chatbot",
+                type="messages",
+                height=600,
+            )
+            with gr.Row(elem_id="aiko-input-row"):
+                msg_input = gr.Textbox(
                     placeholder="Message Aiko-chan...",
                     show_label=False,
                     container=False,
                     elem_id="aiko-input-wrap",
                     scale=9,
-                ),
-                submit_btn=gr.Button(
+                )
+                send_btn = gr.Button(
                     "➤",
                     variant="primary",
                     elem_id="aiko-send-btn",
                     scale=1,
-                ),
-                retry_btn=None,
-                undo_btn=None,
-                clear_btn=gr.Button(
-                    "✕ Clear",
-                    variant="secondary",
-                    size="sm",
-                ),
+                )
+            with gr.Row(elem_id="aiko-actions-row"):
+                clear_btn = gr.Button("✕ Clear", variant="secondary", size="sm")
+
+            # ── Chat logic ──
+            def user_submit(message, history):
+                return "", history + [{"role": "user", "content": message}]
+
+            def bot_respond(history):
+                if not history:
+                    return history
+                last_msg = history[-1]["content"]
+                tokens = []
+                def _cb(token):
+                    if token.startswith("__SEARCHING__:"):
+                        query = token.split(":", 1)[1].strip()
+                        tokens.append(f"\n🔍 Searching: *{query}*\n")
+                    else:
+                        tokens.append(token)
+                think.chat(last_msg, token_callback=_cb)
+                history.append({"role": "assistant", "content": "".join(tokens)})
+                return history
+
+            def clear_chat():
+                return [], ""
+
+            # Wire up interactions
+            msg_input.submit(
+                user_submit,
+                inputs=[msg_input, chatbot],
+                outputs=[msg_input, chatbot],
+            ).then(
+                bot_respond,
+                inputs=[chatbot],
+                outputs=[chatbot],
+            )
+
+            send_btn.click(
+                user_submit,
+                inputs=[msg_input, chatbot],
+                outputs=[msg_input, chatbot],
+            ).then(
+                bot_respond,
+                inputs=[chatbot],
+                outputs=[chatbot],
+            )
+
+            clear_btn.click(
+                clear_chat,
+                outputs=[chatbot, msg_input],
             )
 
         # ── VRM Viewer column ──
