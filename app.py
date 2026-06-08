@@ -389,7 +389,7 @@ _SPEECH_JS = """
         const id = setInterval(()=>{ const el=document.querySelector(selector); if(el){clearInterval(id);cb(el);} if(++tries>=maxTries) clearInterval(id); }, interval);
     }
     function stripMarkdown(text) {
-        return text.replace(/\ud83d\udd0d Searching:.*/g,'').replace(/\*\*(.*?)\*\*/g,'$1').replace(/\*(.*?)\*/g,'$1').replace(/`{1,3}[^`]*`{1,3}/g,'').replace(/#{1,6}\s/g,'').replace(/\n+/g,' ').trim();
+        return text.replace(/\U0001f50d Searching:.*/g,'').replace(/\*\*(.*?)\*\*/g,'$1').replace(/\*(.*?)\*/g,'$1').replace(/`{1,3}[^`]*`{1,3}/g,'').replace(/#{1,6}\s/g,'').replace(/\n+/g,' ').trim();
     }
     function speak(text) {
         if(!ttsEnabled||!text) return;
@@ -424,7 +424,7 @@ _SPEECH_JS = """
     };
     function buildMicButton() {
         const btn=document.createElement('button');
-        btn.id='aiko-mic-btn'; btn.innerHTML='\ud83c\udfa4'; btn.title='Click to speak';
+        btn.id='aiko-mic-btn'; btn.innerHTML='\U0001f3a4'; btn.title='Click to speak';
         Object.assign(btn.style,{...btnBase, right:'60px'});
         document.body.appendChild(btn);
         const SpeechRec=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -444,16 +444,16 @@ _SPEECH_JS = """
                 if(submitBtn) submitBtn.click();
             },200);
         };
-        recognition.onstart=()=>{isListening=true;btn.innerHTML='\ud83d\udd34';btn.style.background='rgba(180,30,80,0.25)';window.speechSynthesis.cancel();};
-        recognition.onend=()=>{isListening=false;btn.innerHTML='\ud83c\udfa4';btn.style.background='rgba(30,15,55,0.85)';};
-        recognition.onerror=(e)=>{console.warn('[aiko-asr]',e.error);isListening=false;btn.innerHTML='\ud83c\udfa4';btn.style.background='rgba(30,15,55,0.85)';};
+        recognition.onstart=()=>{isListening=true;btn.innerHTML='\U0001f534';btn.style.background='rgba(180,30,80,0.25)';window.speechSynthesis.cancel();};
+        recognition.onend=()=>{isListening=false;btn.innerHTML='\U0001f3a4';btn.style.background='rgba(30,15,55,0.85)';};
+        recognition.onerror=(e)=>{console.warn('[aiko-asr]',e.error);isListening=false;btn.innerHTML='\U0001f3a4';btn.style.background='rgba(30,15,55,0.85)';};
         btn.addEventListener('click',()=>{if(isListening){recognition.stop();}else{try{recognition.start();}catch(e){console.warn(e);}}});
     }
     function buildTTSToggle() {
         const btn=document.createElement('button');
-        btn.innerHTML='\ud83d\udd0a'; btn.title='Toggle voice';
+        btn.innerHTML='\U0001f50a'; btn.title='Toggle voice';
         Object.assign(btn.style,{...btnBase, right:'12px'});
-        btn.addEventListener('click',()=>{ttsEnabled=!ttsEnabled;btn.innerHTML=ttsEnabled?'\ud83d\udd0a':'\ud83d\udd07';if(!ttsEnabled)window.speechSynthesis.cancel();});
+        btn.addEventListener('click',()=>{ttsEnabled=!ttsEnabled;btn.innerHTML=ttsEnabled?'\U0001f50a':'\U0001f507';if(!ttsEnabled)window.speechSynthesis.cancel();});
         document.body.appendChild(btn);
     }
     window.addEventListener('load',()=>{
@@ -484,4 +484,5 @@ demo.launch(
     server_name="0.0.0.0",
     server_port=7860,
     ssr_mode=False,
+    share=False,   # HF Spaces handles routing; share=True only needed for local tunneling
 )
