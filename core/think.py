@@ -239,7 +239,13 @@ class AikoThink:
                 results = f"[search failed: {exc}]"
                 log.warning("Web search failed: %s", exc)
 
-            system = f"{system}\n\n<search_results>\n{results}\n</search_results>"
+            system = (
+                f"{system}\n\n"
+                f"<search_results>\n{results}\n</search_results>\n\n"
+                "IMPORTANT: Answer using ONLY the search results above. "
+                "Do not use your training data for this topic. "
+                "If the answer is in the results, state it directly."
+            )
 
         # 5. wrap user turn with reasoning instruction if active
         if self._reasoning:
