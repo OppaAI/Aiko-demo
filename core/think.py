@@ -233,19 +233,8 @@ class AikoThink:
                 token_callback(f"__SEARCHING__:{query}")
 
             try:
-                from core.tools import web_search, web_fetch
-                
-                results = web_search(query)
-                # fetch top result for richer content
-                first_url = None
-                for line in results.split("\n"):
-                    line = line.strip()
-                    if line.startswith("http"):
-                        first_url = line
-                        break
-                if first_url:
-                    fetched = web_fetch(first_url)
-                    results = f"{results}\n\n[Fetched content from top result]\n{fetched}"
+                from core.tools import web_search_and_fetch
+                results = web_search_and_fetch(query)
                 
                 system = (
                     f"{system}\n\n"
