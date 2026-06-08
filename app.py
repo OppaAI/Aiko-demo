@@ -28,7 +28,7 @@ def chat(message, history):
 # ── web speech api injection ───────────────────────────────────────────────────
 # Injected via gr.HTML — hooks into Gradio's existing chatbot and textbox.
 # TTS: watches for new assistant messages, speaks them automatically.
-# ASR: mic button captures speech, injects transcript into the textbox.
+# ASR: mic button (fixed position on body) captures speech, injects transcript.
 
 _SPEECH_JS = """
 <script>
@@ -38,13 +38,11 @@ _SPEECH_JS = """
     const TTS_PITCH  = 1.1;
     const TTS_LANG   = 'en-US';
     const ASR_LANG   = 'en-US';
-
     // ── state ─────────────────────────────────────────────────────────────────
     let ttsEnabled  = true;
     let lastSpoken  = '';
     let recognition = null;
     let isListening = false;
-
     // ── wait for gradio to mount ──────────────────────────────────────────────
     function waitFor(selector, cb, interval = 200, maxTries = 50) {
         let tries = 0;
@@ -54,7 +52,6 @@ _SPEECH_JS = """
             if (++tries >= maxTries) clearInterval(id);
         }, interval);
     }
-
     // ── TTS ───────────────────────────────────────────────────────────────────
     function stripMarkdown(text) {
         return text
@@ -66,7 +63,6 @@ _SPEECH_JS = """
             .replace(/\n+/g, ' ')
             .trim();
     }
-
     function speak(text) {
         if (!ttsEnabled || !text) return;
         const clean = stripMarkdown(text);
@@ -85,7 +81,6 @@ _SPEECH_JS = """
         if (female) utt.voice = female;
         window.speechSynthesis.speak(utt);
     }
-
     // observe chatbot for new assistant messages
     function watchChatbot(chatbot) {
         const observer = new MutationObserver(() => {
@@ -98,89 +93,95 @@ _SPEECH_JS = """
         });
         observer.observe(chatbot, { childList: true, subtree: true });
     }
-
     // ── ASR ───────────────────────────────────────────────────────────────────
-    function buildMicButton(textbox) {
+    // Fixed-position button appended to body — immune to Gradio re-renders
+    // that tear down and rebuild the textarea wrapper.
+    function buildMicButton() {
         const btn = document.createElement('button');
         btn.id        = 'aiko-mic-btn';
         btn.innerHTML = '🎤';
-        btn.title     = 'Hold to speak';
+        btn.title     = 'Click to speak';
         Object.assign(btn.style, {
-            position:     'absolute',
-            right:        '48px',
-            bottom:       '8px',
-            zIndex:       '999',
-            background:   'transparent',
-            border:       '1.5px solid #555',
-            borderRadius: '50%',
-            width:        '34px',
-            height:       '34px',
-            fontSize:     '16px',
-            cursor:       'pointer',
-            transition:   'background 0.2s',
-            display:      'flex',
-            alignItems:   'center',
+            position:       'fixed',
+            bottom:         '22px',
+            right:          '60px',
+            zIndex:         '9999',
+            background:     'rgba(30,30,30,0.85)',
+            border:         '1.5px solid #888',
+            borderRadius:   '50%',
+            width:          '38px',
+            height:         '38px',
+            fontSize:       '18px',
+            cursor:         'pointer',
+            transition:     'background 0.2s',
+            display:        'flex',
+            alignItems:     'center',
             justifyContent: 'center',
+            boxShadow:      '0 2px 8px rgba(0,0,0,0.4)',
         });
-
-        // find the textbox wrapper to position relative to it
-        const wrapper = textbox.closest('.wrap, .input-row, [class*="input"]') || textbox.parentElement;
-        wrapper.style.position = 'relative';
-        wrapper.appendChild(btn);
+        document.body.appendChild(btn);
 
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRec) {
-            btn.title   = 'Speech recognition not supported in this browser';
+            btn.title         = 'Speech recognition not supported in this browser';
             btn.style.opacity = '0.4';
             btn.style.cursor  = 'not-allowed';
             return;
         }
 
         recognition = new SpeechRec();
-        recognition.lang        = ASR_LANG;
-        recognition.interimResults = false;
+        recognition.lang            = ASR_LANG;
+        recognition.interimResults  = false;
         recognition.maxAlternatives = 1;
 
         recognition.onresult = (e) => {
             const transcript = e.results[0][0].transcript.trim();
             if (!transcript) return;
-            // inject into Gradio textbox and fire input event
-            const nativeInput = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'value'
-            ) || Object.getOwnPropertyDescriptor(
+
+            // Find the active Gradio textarea
+            const inputEl =
+                document.querySelector('.gradio-container textarea') ||
+                document.querySelector('textarea');
+            if (!inputEl) return;
+
+            // Set value via native setter so Svelte/React picks up the change
+            const proto = Object.getOwnPropertyDescriptor(
                 window.HTMLTextAreaElement.prototype, 'value'
             );
-            const inputEl = textbox.tagName === 'TEXTAREA' ? textbox
-                : textbox.querySelector('textarea') || textbox;
-            nativeInput.set.call(inputEl, transcript);
+            proto.set.call(inputEl, transcript);
             inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-            // auto-submit after short delay
+
+            // Auto-submit after short delay
             setTimeout(() => {
-                const submitBtn = document.querySelector(
-                    'button[aria-label="Submit"], #component-submit-btn, .submit-btn'
-                );
+                const submitBtn =
+                    document.querySelector('button.submit') ||
+                    document.querySelector('#component-submit-btn') ||
+                    document.querySelector('[data-testid="submit-btn"]') ||
+                    [...document.querySelectorAll('button')].find(
+                        b => b.getAttribute('aria-label') === 'Submit' ||
+                             b.textContent.trim() === '↵'             ||
+                             b.textContent.trim() === 'Submit'
+                    );
                 if (submitBtn) submitBtn.click();
-            }, 150);
+            }, 200);
         };
 
-        recognition.onstart  = () => {
-            isListening    = true;
-            btn.innerHTML  = '🔴';
-            btn.style.background = 'rgba(255,50,50,0.15)';
-            window.speechSynthesis.cancel(); // stop TTS on barge-in
+        recognition.onstart = () => {
+            isListening          = true;
+            btn.innerHTML        = '🔴';
+            btn.style.background = 'rgba(255,50,50,0.25)';
+            window.speechSynthesis.cancel(); // barge-in
         };
-
         recognition.onend = () => {
-            isListening   = false;
-            btn.innerHTML = '🎤';
-            btn.style.background = 'transparent';
+            isListening          = false;
+            btn.innerHTML        = '🎤';
+            btn.style.background = 'rgba(30,30,30,0.85)';
         };
-
         recognition.onerror = (e) => {
             console.warn('[aiko-asr] error:', e.error);
-            isListening   = false;
-            btn.innerHTML = '🎤';
-            btn.style.background = 'transparent';
+            isListening          = false;
+            btn.innerHTML        = '🎤';
+            btn.style.background = 'rgba(30,30,30,0.85)';
         };
 
         btn.addEventListener('click', () => {
@@ -191,7 +192,6 @@ _SPEECH_JS = """
             }
         });
     }
-
     // ── TTS toggle button ─────────────────────────────────────────────────────
     function buildTTSToggle() {
         const btn = document.createElement('button');
@@ -199,17 +199,18 @@ _SPEECH_JS = """
         btn.innerHTML = '🔊';
         btn.title     = 'Toggle voice';
         Object.assign(btn.style, {
-            position:   'fixed',
-            top:        '12px',
-            right:      '12px',
-            zIndex:     '9999',
-            background: 'transparent',
-            border:     '1.5px solid #555',
+            position:     'fixed',
+            bottom:       '22px',
+            right:        '12px',
+            zIndex:       '9999',
+            background:   'rgba(30,30,30,0.85)',
+            border:       '1.5px solid #888',
             borderRadius: '50%',
-            width:      '34px',
-            height:     '34px',
-            fontSize:   '16px',
-            cursor:     'pointer',
+            width:        '38px',
+            height:       '38px',
+            fontSize:     '18px',
+            cursor:       'pointer',
+            boxShadow:    '0 2px 8px rgba(0,0,0,0.4)',
         });
         btn.addEventListener('click', () => {
             ttsEnabled    = !ttsEnabled;
@@ -218,22 +219,16 @@ _SPEECH_JS = """
         });
         document.body.appendChild(btn);
     }
-
     // ── init ──────────────────────────────────────────────────────────────────
     window.addEventListener('load', () => {
         // voices load async in some browsers
         if (window.speechSynthesis.onvoiceschanged !== undefined) {
             window.speechSynthesis.onvoiceschanged = () => {};
         }
-
         buildTTSToggle();
-
+        buildMicButton();  // no longer needs waitFor — appended to body directly
         waitFor('.chatbot, [data-testid="chatbot"]', (chatbot) => {
             watchChatbot(chatbot);
-        });
-
-        waitFor('textarea, input[type="text"]', (textbox) => {
-            buildMicButton(textbox);
         });
     });
 })();
