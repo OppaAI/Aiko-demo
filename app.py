@@ -419,6 +419,6 @@ with gr.Blocks(title="Aiko-chan \U0001f338", css=_CSS) as demo:
         with gr.Column(scale=4, elem_id="aiko-col"):
             gr.HTML(_VRM_VIEWER)
 
-   demo.launch(server_name="0.0.0.0", server_port=7860, 
-               ssr_mode=False, share=False,
-               allowed_paths=["static"])
+demo.launch(server_name="0.0.0.0", server_port=7860, 
+           ssr_mode=False, share=False,
+           allowed_paths=["static"])
