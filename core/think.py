@@ -3,8 +3,7 @@ core/think.py
 
 Aiko's cognitive loop.
   - Retrieves relevant memories before each turn
-  - Proactive intent gate: detects data-seeking queries and injects live
-    web search results into the system prompt BEFORE the LLM speaks
+  - Explicit search gate: fires ONLY when user asks Aiko to search the web
   - Streams LLM response to console + TTS simultaneously
   - Stores the turn into long-term memory after each response (background thread)
   - Supports single-shot reasoning mode via set_reasoning(True) / /think command
@@ -41,14 +40,14 @@ BOOT_LABELS = {
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-LLAMA_BASE_URL      = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
-LLAMA_MODEL         = os.getenv("LLAMA_MODEL",    "ministral-3:3b-instruct-2512-q4_K_M")
-GROQ_BASE_URL       = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-GROQ_MODEL          = os.getenv("GROQ_MODEL",    "llama-3.1-8b-instant")
+LLAMA_BASE_URL       = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
+LLAMA_MODEL          = os.getenv("LLAMA_MODEL",    "ministral-3:3b-instruct-2512-q4_K_M")
+GROQ_BASE_URL        = os.getenv("GROQ_BASE_URL",  "https://api.groq.com/openai/v1")
+GROQ_MODEL           = os.getenv("GROQ_MODEL",     "llama-3.1-8b-instant")
 CONTEXT_WINDOW_TURNS = int(os.getenv("CONTEXT_WINDOW_TURNS", 20))
 
 _BASE_PREDICT    = 400   # normal token budget per turn
-_REASONING_SCALE = 3     # multiplier applied to num_predict in reasoning mode
+_REASONING_SCALE = 3     # multiplier applied in reasoning mode
 
 _PERSONA_PATH = Path(__file__).resolve().parent.parent / "persona" / "soul.md"
 
@@ -65,115 +64,29 @@ def _load_persona() -> str:
 
 # ── search intent gate ────────────────────────────────────────────────────────
 
-# Conversational/self-referential patterns that should NEVER trigger search.
-# Checked first — any match short-circuits the intent pipeline entirely.
-_INTENT_NEVER_SEARCH = re.compile(
-    r"^\s*("
-    r"hi|hey|hello|sup|yo|good morning|good night|good evening|おはよう|こんにちは|おやすみ"
-    r"|how are you|how('?re| are) you doing|you okay|you good|what('?s| is) up"
-    r"|what('?s| is) your name|who are you|what are you|tell me about yourself"
-    r"|are you (ok|okay|fine|real|alive|sentient|conscious|there)"
-    r"|do you (like|love|hate|enjoy|prefer|have|feel|know me|remember me)"
-    r"|thank(s| you)|okay|ok|cool|got it|nice|lol|haha|heh|wow|oh|ah|hmm"
-    r"|yes|no|sure|maybe|idk|i don'?t know"
-    r")\s*[?.!]*\s*$",
-    re.IGNORECASE,
-)
-
-# question words / phrases that strongly imply the user wants live data
-_INTENT_QUESTION_WORDS = re.compile(
-    r"\b(what(?:'s| is| are| was| were)?"
-    r"|who(?:'s| is| are)?"
-    r"|when(?:'s| is| are| was| were)?"
-    r"|where(?:'s| is| are)?"
-    r"|how (?:much|many|old|tall|long|far|do|does|did|is|are|was|were)"
-    r"|why (?:is|are|was|were|did|does|do)"
-    r"|price of|cost of|worth of"
-    r"|latest|recent|current|today|tonight|this week|this month|right now|live"
-    r"|news|update|score|weather|forecast|stock|crypto|rate|ranking|standings"
-    r"|release date|out now|available|coming out"
-    r")\b",
-    re.IGNORECASE,
-)
-
-# explicit data-request phrases — override everything
-_INTENT_EXPLICIT = re.compile(
-    r"\b(search for|look up|find out|tell me about|what do you know about"
-    r"|google|check online|check the web)\b",
-    re.IGNORECASE,
-)
-
-# topics that are always stale in a model's weights — force search
-_INTENT_STALENESS = re.compile(
-    r"\b(weather|temperature|forecast|rain|snow|wind"
-    r"|score|standings|game|match|result|winner"
-    r"|stock|crypto|bitcoin|price|market|nasdaq|s&p"
-    r"|news|breaking|headline|election|vote"
-    r"|release|launch|update|version|patch)\b",
-    re.IGNORECASE,
-)
-
-# Second-person / self-referential subjects — "what is your X" should not search
-_INTENT_SELF_REFERENTIAL = re.compile(
-    r"\b(your (name|age|purpose|role|goal|personality|feelings?|opinion|favorite|"
-    r"thoughts?|view|dream|memory|memories|creator|origin|story))\b"
-    r"|\b(you feel|you think|you believe|you like|you love|you hate|you know|you remember)\b"
-    r"|\b(about you|about yourself)\b",
+# Fires only on explicit user commands to search the web.
+_SEARCH_TRIGGERS = re.compile(
+    r"\b(check (?:the )?internet|search (?:the )?web|look it up|go online|"
+    r"search online|check online|look online|google that|browse for|"
+    r"fetch.*web|web search|internet search)\b",
     re.IGNORECASE,
 )
 
 
 def _is_data_intent(text: str) -> bool:
-    """
-    Return True when the user's message likely requires live or recent data.
-
-    Pipeline (first match wins):
-      1. Never-search list (greetings, self-referential, chitchat) → False
-      2. Self-referential subject ("your name", "your feelings") → False
-      3. Explicit lookup phrase → True
-      4. Staleness keyword → True
-      5. Question word heuristic (only if > 5 words, not self-ref) → True
-      6. Default → False
-    """
-    stripped = text.strip()
-
-    # 1. hard never-search list
-    if _INTENT_NEVER_SEARCH.match(stripped):
-        return False
-
-    # 2. self-referential subject — Aiko can answer from persona, no search needed
-    if _INTENT_SELF_REFERENTIAL.search(stripped):
-        return False
-
-    # 3. explicit lookup phrases always win
-    if _INTENT_EXPLICIT.search(stripped):
-        return True
-
-    # 4. staleness keywords — live data by definition
-    if _INTENT_STALENESS.search(stripped):
-        return True
-
-    # 5. question-word heuristic — only on longer, clearly factual queries
-    if len(stripped.split()) > 5 and _INTENT_QUESTION_WORDS.search(stripped):
-        return True
-
-    return False
+    """Return True only when the user explicitly asks Aiko to search the web."""
+    return bool(_SEARCH_TRIGGERS.search(text.strip()))
 
 
 def _build_search_query(text: str) -> str:
-    """
-    Derive a clean search query from user input.
-
-    Strips common conversational lead-ins so SearXNG gets a tight query
-    rather than a full sentence with filler words.
-    """
+    """Strip the trigger phrase, leaving just the query topic."""
+    cleaned = _SEARCH_TRIGGERS.sub("", text).strip()
+    # remove residual conversational lead-ins
     filler = re.compile(
-        r"^(hey aiko[,.]?\s*|aiko[,.]?\s*|can you\s*|could you\s*"
-        r"|please\s*|tell me\s*|what(?:'s| is)\s*|do you know\s*"
-        r"|search for\s*|look up\s*|find\s*)",
+        r"^(hey aiko[,.]?\s*|aiko[,.]?\s*|can you\s*|could you\s*|please\s*|for\s+me\s*)",
         re.IGNORECASE,
     )
-    return filler.sub("", text).strip()
+    return filler.sub("", cleaned).strip() or text.strip()
 
 
 # ── think ─────────────────────────────────────────────────────────────────────
@@ -208,10 +121,10 @@ class AikoThink:
             self._client.post(
                 "/",
                 json={
-                    "model":    LLAMA_MODEL,
+                    "model":     LLAMA_MODEL,
                     "n_predict": 1,
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "stream":   False,
+                    "messages":  [{"role": "user", "content": "hi"}],
+                    "stream":    False,
                 },
             )
         except Exception as e:
@@ -248,7 +161,7 @@ class AikoThink:
         if memory_block:
             system = f"{system}\n\n{memory_block}"
 
-        # 4. proactive search gate — inject live results BEFORE the LLM speaks
+        # 4. explicit search gate — only fires when user asks Aiko to search
         if _is_data_intent(user_input):
             query = _build_search_query(user_input)
             log.debug("Search intent detected — querying: %s", query)
@@ -344,11 +257,10 @@ class AikoThink:
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _stream_response(self, messages: list[dict], system: str = "") -> tuple[str, str | None]:
-        """Returns (response_text, search_query | None)"""
+        """Returns (response_text, None). Search tag emission is no longer used."""
         num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
 
         try:
-            import json
             response = self._client.post(
                 "/",
                 json={
@@ -367,12 +279,7 @@ class AikoThink:
             data      = response.json()
             full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
 
-            # check for search tag in full response
-            match = re.search(r"\[SEARCH:\s*(.+?)\]", full_text, re.IGNORECASE)
-            if match:
-                return "", match.group(1).strip()
-
-            # strip any leaked search tags before display
+            # strip any leaked search tags (defensive — LLM should no longer emit them)
             clean_text = re.sub(r"\[?SEARCH:\s*.+?\]?", "", full_text, flags=re.IGNORECASE).strip()
 
             if self._token_callback and clean_text:
