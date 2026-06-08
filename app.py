@@ -12,6 +12,10 @@ result = AikoWakeup(text_mode=True).boot(
 think    = result.think
 memorize = result.memorize
 
+# Drain any background warmup thread if it exists (graceful no-op if not)
+if hasattr(think, "join_warmup"):
+    think.join_warmup()
+
 
 def chat(message, history):
     tokens = []
@@ -245,4 +249,8 @@ with gr.Blocks(title="Aiko-chan 🌸") as demo:
         chatbot=gr.Chatbot(elem_id="aiko-chatbot"),
     )
 
-demo.launch(server_name="0.0.0.0")
+demo.launch(
+    server_name="0.0.0.0",
+    server_port=7860,
+    ssr_mode=False,
+)
