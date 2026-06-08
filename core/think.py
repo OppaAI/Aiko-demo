@@ -254,7 +254,9 @@ class AikoThink:
                     "Do not use your training data for this topic. "
                     "If the answer is in the results, state it directly."
                 )
-
+            except Exception as exc:
+                log.warning("Web search failed: %s", exc)
+    
         # 5. wrap user turn with reasoning instruction if active
         if self._reasoning:
             prompt = (
