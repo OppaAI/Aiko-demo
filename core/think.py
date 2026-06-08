@@ -233,19 +233,27 @@ class AikoThink:
                 token_callback(f"__SEARCHING__:{query}")
 
             try:
-                from core.tools import web_search
+                from core.tools import web_search, web_fetch
+                
                 results = web_search(query)
-            except Exception as exc:
-                results = f"[search failed: {exc}]"
-                log.warning("Web search failed: %s", exc)
-
-            system = (
-                f"{system}\n\n"
-                f"<search_results>\n{results}\n</search_results>\n\n"
-                "IMPORTANT: Answer using ONLY the search results above. "
-                "Do not use your training data for this topic. "
-                "If the answer is in the results, state it directly."
-            )
+                # fetch top result for richer content
+                first_url = None
+                for line in results.split("\n"):
+                    line = line.strip()
+                    if line.startswith("http"):
+                        first_url = line
+                        break
+                if first_url:
+                    fetched = web_fetch(first_url)
+                    results = f"{results}\n\n[Fetched content from top result]\n{fetched}"
+                
+                system = (
+                    f"{system}\n\n"
+                    f"<search_results>\n{results}\n</search_results>\n\n"
+                    "IMPORTANT: Answer using ONLY the search results above. "
+                    "Do not use your training data for this topic. "
+                    "If the answer is in the results, state it directly."
+                )
 
         # 5. wrap user turn with reasoning instruction if active
         if self._reasoning:
