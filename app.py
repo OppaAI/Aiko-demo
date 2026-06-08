@@ -31,34 +31,17 @@ def chat(message, history):
     return "".join(tokens)
 
 
-with gr.Blocks(title="Aiko-chan 🌸", css=CSS, theme=gr.themes.Base()) as demo:
+with gr.Blocks(title="Aiko-chan 🌸", css=CSS) as demo:
     gr.HTML(SPEECH_JS)
 
-    with gr.Row(elem_id="aiko-main-row"):
-        with gr.Column(scale=6, elem_id="aiko-chat-col"):
-            chatbot = gr.Chatbot(
-                elem_id="aiko-chatbot",
-                height="100%",
-            )
-            
+    with gr.Row():
+        with gr.Column(scale=6):
             gr.ChatInterface(
                 fn=chat,
-                chatbot=chatbot,
                 title="Aiko-chan 🌸",
-                textbox=gr.Textbox(
-                    placeholder="Say something to Aiko-chan...",
-                    container=False,
-                    scale=7,
-                ),
-                submit_btn=gr.Button("Send 💌", variant="primary", scale=1),
-                stop_btn=gr.Button("Stop ✋", variant="stop", scale=1),
-                examples=[
-                    "Tell me about yourself",
-                    "What's on your mind?",
-                    "Can you search for something?",
-                ],
+                chatbot=gr.Chatbot(elem_id="aiko-chatbot"),
             )
-        with gr.Column(scale=4, elem_id="aiko-vrm-col"):
+        with gr.Column(scale=4, elem_id="aiko-col"):
             gr.HTML(VRM_VIEWER)
 
 demo.launch(
