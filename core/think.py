@@ -79,15 +79,27 @@ def _is_data_intent(text: str) -> bool:
 
 
 def _build_search_query(text: str) -> str:
-    """Strip the trigger phrase, leaving just the query topic."""
+    """Strip trigger phrase + conversational filler, extract clean topic."""
+    # remove the trigger phrase first
     cleaned = _SEARCH_TRIGGERS.sub("", text).strip()
-    # remove residual conversational lead-ins
+    # strip leading conjunctions/filler left behind after trigger removal
+    cleaned = re.sub(
+        r"^(and\s+|but\s+|then\s+|so\s+|,\s*)+",
+        "", cleaned, flags=re.IGNORECASE
+    ).strip()
+    # strip conversational lead-ins
     filler = re.compile(
-        r"^(hey aiko[,.]?\s*|aiko[,.]?\s*|can you\s*|could you\s*|please\s*|for\s+me\s*)",
+        r"^(hey aiko[,.]?\s*|aiko[,.]?\s*|can you\s*|could you\s*|"
+        r"please\s*|for\s+me\s*|tell me\s*|give me\s*|"
+        r"(detail(?:ed)?\s+)?info(?:rmation)?\s+about\s*)",
         re.IGNORECASE,
     )
-    return filler.sub("", cleaned).strip() or text.strip()
-
+    # apply filler strip repeatedly until stable
+    prev = None
+    while prev != cleaned:
+        prev = cleaned
+        cleaned = filler.sub("", cleaned).strip()
+    return cleaned or text.strip()
 
 # ── think ─────────────────────────────────────────────────────────────────────
 
