@@ -6,8 +6,6 @@ All tools are plain functions that return strings ready for context injection.
 """
 
 from ddgs import DDGS
-import os
-from duckduckgo_search import DDGS
 
 def web_search(query: str, max_results: int = 3) -> str:
     try:
