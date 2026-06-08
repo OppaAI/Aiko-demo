@@ -173,7 +173,7 @@ _VRM_VIEWER = """
   <canvas id="aiko-canvas" style="width:100%;height:100%;display:block;"></canvas>
   <div id="aiko-vrm-status" style="position:absolute;bottom:8px;left:50%;
        transform:translateX(-50%);font-family:monospace;font-size:9px;
-       color:rgba(155,127,212,0.5);letter-spacing:2px;">loading…</div>
+       color:rgba(155,127,212,0.5);letter-spacing:2px;white-space:nowrap;">initializing…</div>
 
 <script type="module">
 import * as THREE from 'https://unpkg.com/three@0.168.0/build/three.module.js';
@@ -181,18 +181,42 @@ import { GLTFLoader } from 'https://unpkg.com/three@0.168.0/examples/jsm/loaders
 import { VRMLoaderPlugin, VRMUtils } from 'https://unpkg.com/@pixiv/three-vrm@3/lib/three-vrm.module.js';
 import { OrbitControls } from 'https://unpkg.com/three@0.168.0/examples/jsm/controls/OrbitControls.js';
 
-const canvas  = document.getElementById('aiko-canvas');
-const status  = document.getElementById('aiko-vrm-status');
-const W = canvas.parentElement.clientWidth;
-const H = canvas.parentElement.clientHeight;
+const status = document.getElementById('aiko-vrm-status');
+const log = msg => { status.textContent = msg; console.log('[aiko-vrm]', msg); };
+
+// ── try fetching VRM from multiple candidate paths ────────────────────────────
+const CANDIDATES = [
+  '/file=static/Aiko.vrm',
+  '/file=static/aiko.vrm',
+  './static/Aiko.vrm',
+  'static/Aiko.vrm',
+  '/static/Aiko.vrm',
+];
+
+async function findVRM() {
+  for (const path of CANDIDATES) {
+    try {
+      log(`trying: ${path}`);
+      const r = await fetch(path, { method: 'HEAD' });
+      if (r.ok) { log(`found: ${path}`); return path; }
+      log(`${r.status} at ${path}`);
+    } catch(e) {
+      log(`err: ${path} — ${e.message}`);
+    }
+  }
+  return null;
+}
 
 // ── renderer ──────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('aiko-canvas');
+const W = canvas.parentElement.clientWidth || 400;
+const H = canvas.parentElement.clientHeight || 520;
+
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-// ── scene + camera ────────────────────────────────────────────────────────────
 const scene  = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, W / H, 0.1, 20);
 camera.position.set(0, 1.4, 3.5);
@@ -203,7 +227,6 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.update();
 
-// ── lights ────────────────────────────────────────────────────────────────────
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 const dir = new THREE.DirectionalLight(0xfff0ff, 1.2);
 dir.position.set(1, 3, 2);
@@ -212,47 +235,64 @@ const fill = new THREE.DirectionalLight(0xd0b0ff, 0.4);
 fill.position.set(-2, 1, -1);
 scene.add(fill);
 
-// ── load VRM ──────────────────────────────────────────────────────────────────
+// ── load ──────────────────────────────────────────────────────────────────────
 let vrm = null;
 const clock = new THREE.Clock();
-const loader = new GLTFLoader();
-loader.register(parser => new VRMLoaderPlugin(parser));
+let blinkTimer = 3 + Math.random() * 3;
 
-loader.load(
-  '/file=static/Aiko.vrm',          // Gradio serves static/ via /file=
-  gltf => {
-    vrm = gltf.userData.vrm;
-    VRMUtils.removeUnnecessaryJoints(vrm.scene);
-    scene.add(vrm.scene);
-    vrm.scene.rotation.y = Math.PI; // face camera
-    status.textContent = 'aiko-chan';
+const vrmPath = await findVRM();
 
-    // kick idle head-bob / blink loop
-    startIdle();
-  },
-  xhr => {
-    const pct = xhr.total ? Math.round(xhr.loaded / xhr.total * 100) : '…';
-    status.textContent = `loading ${pct}%`;
-  },
-  err => {
-    console.warn('[three-vrm] load failed:', err);
-    status.textContent = 'vrm unavailable';
-    // leave canvas blank — the parent page can show SVG fallback here if needed
-  }
-);
+if (!vrmPath) {
+  log('VRM not found — check static/ folder and allowed_paths');
+} else {
+  const loader = new GLTFLoader();
+  loader.register(parser => new VRMLoaderPlugin(parser));
 
-// ── expression helper ─────────────────────────────────────────────────────────
+  loader.load(
+    vrmPath,
+    gltf => {
+      vrm = gltf.userData.vrm;
+      if (!vrm) { log('GLB loaded but no VRM data found — may be wrong format'); return; }
+      VRMUtils.removeUnnecessaryJoints(vrm.scene);
+      scene.add(vrm.scene);
+      vrm.scene.rotation.y = Math.PI;
+      log('aiko-chan ✓');
+    },
+    xhr => {
+      if (xhr.total) {
+        const pct = Math.round(xhr.loaded / xhr.total * 100);
+        log(`loading ${pct}% (${Math.round(xhr.loaded/1024)}KB / ${Math.round(xhr.total/1024)}KB)`);
+      } else {
+        log(`loading… ${Math.round(xhr.loaded/1024)}KB`);
+      }
+    },
+    err => {
+      log(`LOAD ERROR: ${err.message || err}`);
+      console.error('[aiko-vrm] full error:', err);
+    }
+  );
+}
+
+// ── expression helpers ────────────────────────────────────────────────────────
 function setExpr(name, val = 1.0) {
   if (!vrm?.expressionManager) return;
-  ['happy', 'sad', 'surprised', 'relaxed', 'angry'].forEach(e =>
+  ['happy','sad','surprised','relaxed','angry','blink'].forEach(e =>
     vrm.expressionManager.setValue(e, 0));
   if (name && name !== 'neutral')
     vrm.expressionManager.setValue(name, val);
 }
 
-// ── idle: blink + subtle breathing ───────────────────────────────────────────
-let blinkTimer = 3 + Math.random() * 3;
-function startIdle() { /* handled in animate() */ }
+window.aikoSetExpression = name => setExpr(name === 'thinking' ? 'relaxed' : name);
+window._aikoExprFromText = text => {
+  const t = text.toLowerCase();
+  let expr = 'neutral';
+  if (/!\s|wow|amazing|whoa/.test(t))                              expr = 'surprised';
+  else if (/sorry|sad|unfortunate|cannot|can't|don't know/.test(t)) expr = 'sad';
+  else if (/hmm|think|let me|consider|wonder/.test(t))              expr = 'relaxed';
+  else if (/haha|lol|♥|❤|love|cute|kawaii/.test(t))                expr = 'happy';
+  setExpr(expr);
+  setTimeout(() => setExpr('neutral'), 5000);
+};
 
 // ── animate ───────────────────────────────────────────────────────────────────
 function animate() {
@@ -262,21 +302,15 @@ function animate() {
 
   if (vrm) {
     vrm.update(delta);
-
-    // spring-bone physics runs automatically via vrm.update()
-
-    // subtle idle: head nod + sway
     const head = vrm.humanoid?.getNormalizedBoneNode('head');
     if (head) {
       head.rotation.x = Math.sin(t * 0.5) * 0.04;
       head.rotation.z = Math.sin(t * 0.3) * 0.025;
     }
-
-    // blink
     blinkTimer -= delta;
     if (blinkTimer <= 0) {
-      setExpr('blink', 1);        // three-vrm built-in blink expression
-      setTimeout(() => { if (vrm?.expressionManager) vrm.expressionManager.setValue('blink', 0); }, 120);
+      setExpr('blink', 1);
+      setTimeout(() => vrm?.expressionManager?.setValue('blink', 0), 120);
       blinkTimer = 3 + Math.random() * 4;
     }
   }
@@ -286,23 +320,6 @@ function animate() {
 }
 animate();
 
-// ── public API (same interface as SVG version) ────────────────────────────────
-window.aikoSetExpression = name => {
-  setExpr(name === 'thinking' ? 'relaxed' : name);  // map thinking→relaxed
-};
-
-window._aikoExprFromText = text => {
-  const t = text.toLowerCase();
-  let expr = 'neutral';
-  if (/!\s|wow|amazing|whoa/.test(t))                         expr = 'surprised';
-  else if (/sorry|sad|unfortunate|cannot|can't|don't know/.test(t)) expr = 'sad';
-  else if (/hmm|think|let me|consider|wonder/.test(t))         expr = 'relaxed';
-  else if (/haha|lol|♥|❤|love|cute|kawaii/.test(t))           expr = 'happy';
-  setExpr(expr);
-  setTimeout(() => setExpr('neutral'), 5000);
-};
-
-// ── resize ────────────────────────────────────────────────────────────────────
 new ResizeObserver(() => {
   const w = canvas.parentElement.clientWidth;
   const h = canvas.parentElement.clientHeight;
@@ -419,6 +436,10 @@ with gr.Blocks(title="Aiko-chan \U0001f338", css=_CSS) as demo:
         with gr.Column(scale=4, elem_id="aiko-col"):
             gr.HTML(_VRM_VIEWER)
 
-demo.launch(server_name="0.0.0.0", server_port=7860, 
-           ssr_mode=False, share=False,
-           allowed_paths=["static"])
+demo.launch(
+    server_name="0.0.0.0",
+    server_port=7860,
+    ssr_mode=False,
+    share=False,
+    allowed_paths=["static"],   # ← this line is required
+)
