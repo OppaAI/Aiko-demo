@@ -65,6 +65,21 @@ def _load_persona() -> str:
 
 # ── search intent gate ────────────────────────────────────────────────────────
 
+# Conversational/self-referential patterns that should NEVER trigger search.
+# Checked first — any match short-circuits the intent pipeline entirely.
+_INTENT_NEVER_SEARCH = re.compile(
+    r"^\s*("
+    r"hi|hey|hello|sup|yo|good morning|good night|good evening|おはよう|こんにちは|おやすみ"
+    r"|how are you|how('?re| are) you doing|you okay|you good|what('?s| is) up"
+    r"|what('?s| is) your name|who are you|what are you|tell me about yourself"
+    r"|are you (ok|okay|fine|real|alive|sentient|conscious|there)"
+    r"|do you (like|love|hate|enjoy|prefer|have|feel|know me|remember me)"
+    r"|thank(s| you)|okay|ok|cool|got it|nice|lol|haha|heh|wow|oh|ah|hmm"
+    r"|yes|no|sure|maybe|idk|i don'?t know"
+    r")\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
 # question words / phrases that strongly imply the user wants live data
 _INTENT_QUESTION_WORDS = re.compile(
     r"\b(what(?:'s| is| are| was| were)?"
@@ -98,23 +113,50 @@ _INTENT_STALENESS = re.compile(
     re.IGNORECASE,
 )
 
+# Second-person / self-referential subjects — "what is your X" should not search
+_INTENT_SELF_REFERENTIAL = re.compile(
+    r"\b(your (name|age|purpose|role|goal|personality|feelings?|opinion|favorite|"
+    r"thoughts?|view|dream|memory|memories|creator|origin|story))\b"
+    r"|\b(you feel|you think|you believe|you like|you love|you hate|you know|you remember)\b"
+    r"|\b(about you|about yourself)\b",
+    re.IGNORECASE,
+)
+
 
 def _is_data_intent(text: str) -> bool:
     """
     Return True when the user's message likely requires live or recent data.
 
-    Combines three signals: explicit lookup phrases, staleness keywords, and
-    question words. Any single signal is sufficient to trigger a search.
-    Short conversational inputs (< 4 words) are skipped to avoid false positives.
+    Pipeline (first match wins):
+      1. Never-search list (greetings, self-referential, chitchat) → False
+      2. Self-referential subject ("your name", "your feelings") → False
+      3. Explicit lookup phrase → True
+      4. Staleness keyword → True
+      5. Question word heuristic (only if > 5 words, not self-ref) → True
+      6. Default → False
     """
-    if len(text.split()) < 4:
-        return False  # too short to be a genuine data query
-    if _INTENT_EXPLICIT.search(text):
+    stripped = text.strip()
+
+    # 1. hard never-search list
+    if _INTENT_NEVER_SEARCH.match(stripped):
+        return False
+
+    # 2. self-referential subject — Aiko can answer from persona, no search needed
+    if _INTENT_SELF_REFERENTIAL.search(stripped):
+        return False
+
+    # 3. explicit lookup phrases always win
+    if _INTENT_EXPLICIT.search(stripped):
         return True
-    if _INTENT_STALENESS.search(text):
+
+    # 4. staleness keywords — live data by definition
+    if _INTENT_STALENESS.search(stripped):
         return True
-    if _INTENT_QUESTION_WORDS.search(text):
+
+    # 5. question-word heuristic — only on longer, clearly factual queries
+    if len(stripped.split()) > 5 and _INTENT_QUESTION_WORDS.search(stripped):
         return True
+
     return False
 
 
@@ -145,33 +187,15 @@ class AikoThink:
     """
 
     def __init__(self, memorize: AikoMemorize, speak: AikoSpeak | None = None) -> None:
-        """
-        Initialise the cognitive loop.
-
-        Starts the LLM warmup and memory-write worker threads immediately so
-        both are ready before the first user prompt arrives.
-
-        Args:
-            memorize: Injected memory backend for retrieval and persistence.
-                      May be None at construction time — wakeup.py injects it
-                      after memorize boot completes via think._memorize = ...
-            speak:    Pre-warmed TTS backend; pass None to run silent.
-        """
         self._client = httpx.Client(
             base_url=LLAMA_BASE_URL,
             timeout=120.0,
         )
-        #self._client = httpx.Client(
-        #    base_url=GROQ_BASE_URL,
-        #    timeout=120.0,
-        #    headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY', '')}"},
-        #)
-                
         self._memorize  = memorize
         self._speak     = speak
         self._persona   = _load_persona()
         self._history:  list[dict] = []
-        self._reasoning = False        # reasoning mode off by default; toggled by /think
+        self._reasoning = False
         self._mem_queue  = queue.Queue()
         self._mem_worker = threading.Thread(target=self._mem_write_loop, daemon=True)
         self._mem_worker.start()
@@ -182,17 +206,10 @@ class AikoThink:
     def _warmup_llm(self) -> None:
         try:
             self._client.post(
-                # ── llama.cpp on Modal ───
                 "/",
-                # ── Groq ────────────────
-            #    "/v1/chat/completions",
                 json={
-                    # ── llama.cpp ────────
                     "model":    LLAMA_MODEL,
                     "n_predict": 1,
-                    # ── Groq ─────────────
-            #        "model":                 GROQ_MODEL,
-                    #"max_completion_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}],
                     "stream":   False,
                 },
@@ -202,13 +219,22 @@ class AikoThink:
 
     # ── public api ────────────────────────────────────────────────────────────
 
+    def join_warmup(self) -> None:
+        """
+        Block until the background LLM warmup thread completes.
+        Called by wakeup.py after boot so the first real request hits a hot model.
+        Safe to call multiple times — joining a finished thread is a no-op.
+        """
+        if self._warmup_thread.is_alive():
+            self._warmup_thread.join()
+
     def chat(self, user_input: str, token_callback=None) -> str:
         self._token_callback = token_callback
-    
+
         # 1. interrupt any ongoing speech before processing new input
         if self._speak and self._speak.is_playing():
             self._speak.stop()
-    
+
         # 2. retrieve relevant long-term memories
         if self._memorize:
             memories     = self._memorize.search(user_input, limit=int(os.getenv("MEMORY_RECALL_LIMIT", 5)))
@@ -216,15 +242,13 @@ class AikoThink:
         else:
             memories     = []
             memory_block = None
-    
+
         # 3. build system prompt — persona + memories
         system = self._persona
         if memory_block:
             system = f"{system}\n\n{memory_block}"
 
         # 4. proactive search gate — inject live results BEFORE the LLM speaks
-        #    soul.md already instructs Aiko to treat <search_results> as her
-        #    sole source for that topic; no extra prompt wording needed here.
         if _is_data_intent(user_input):
             query = _build_search_query(user_input)
             log.debug("Search intent detected — querying: %s", query)
@@ -235,7 +259,7 @@ class AikoThink:
             try:
                 from core.tools import web_search_and_fetch
                 results = web_search_and_fetch(query)
-                
+
                 system = (
                     f"{system}\n\n"
                     f"<search_results>\n{results}\n</search_results>\n\n"
@@ -245,7 +269,7 @@ class AikoThink:
                 )
             except Exception as exc:
                 log.warning("Web search failed: %s", exc)
-    
+
         # 5. wrap user turn with reasoning instruction if active
         if self._reasoning:
             prompt = (
@@ -269,16 +293,16 @@ class AikoThink:
         if not response_text:
             if self._history and self._history[-1]["role"] == "user":
                 self._history.pop()
-    
+
         # 10. append assistant turn to history
         self._history.append({"role": "assistant", "content": response_text})
-    
+
         # 11. persist to memory (background) — store original input, not wrapped prompt
         self._store_async(user_input, response_text)
-    
+
         # 12. auto-reset reasoning mode — single-shot per /think invocation
         self._reasoning = False
-    
+
         return response_text
 
     def reset_context(self) -> None:
@@ -286,16 +310,7 @@ class AikoThink:
         self._history.clear()
 
     def last_turn(self) -> tuple[str, str] | None:
-        """
-        Return the latest complete user/assistant exchange, if one exists.
-
-        Walks history in reverse to find the most recent assistant reply and
-        its paired user message.
-
-        Returns:
-            (user_text, assistant_text) for the last turn, or None if the
-            history contains no complete exchange yet.
-        """
+        """Return the latest complete user/assistant exchange, or None."""
         assistant_text: str | None = None
 
         for message in reversed(self._history):
@@ -315,17 +330,7 @@ class AikoThink:
         return None
 
     def set_reasoning(self, enabled: bool) -> None:
-        """
-        Enable or disable reasoning mode for the next turn only.
-
-        When enabled, chat() wraps the user prompt with a step-by-step
-        instruction and triples num_predict to budget for the <think>
-        scratchpad. Auto-resets to False after each chat() call — single-shot
-        by design so a forgotten /think never bleeds into normal conversation.
-
-        Args:
-            enabled: True to activate reasoning for the next turn, False to cancel.
-        """
+        """Enable or disable reasoning mode for the next turn only."""
         self._reasoning = enabled
 
     def set_speak(self, speak) -> None:
@@ -340,12 +345,8 @@ class AikoThink:
 
     def _stream_response(self, messages: list[dict], system: str = "") -> tuple[str, str | None]:
         """Returns (response_text, search_query | None)"""
-        full_response    = []
-        buffer           = ""
-        is_searching     = False
-        buffering_active = True
-        num_predict      = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
-    
+        num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
+
         try:
             import json
             response = self._client.post(
@@ -361,90 +362,60 @@ class AikoThink:
                     "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
                     "stop":           ["<|im_end|>", "</s>", "[INST]"],
                 },
-                # ── Groq ─────────────────────────────────────────────────────
-                #json={
-                #    "model":                 GROQ_MODEL,
-                #    "messages":              ([{"role": "system", "content": system}] + messages) if system else messages,
-                #    "stream":                False,
-                #    "temperature":           float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                #    "max_completion_tokens": num_predict,
-                #    "top_p":                 float(os.getenv("LLAMA_TOP_P", 0.90)),
-                #    "stop":                  None,
-                #},
             )
-            
+
             data      = response.json()
             full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
-        
-            # check for search tag in full response (with or without brackets)
+
+            # check for search tag in full response
             match = re.search(r"\[SEARCH:\s*(.+?)\]", full_text, re.IGNORECASE)
             if match:
                 return "", match.group(1).strip()
-        
+
             # strip any leaked search tags before display
             clean_text = re.sub(r"\[?SEARCH:\s*.+?\]?", "", full_text, flags=re.IGNORECASE).strip()
-        
-            # no search tag — send to callback
+
             if self._token_callback and clean_text:
                 self._token_callback(clean_text)
             else:
                 print(f"\nAiko-chan: {clean_text}")
-        
+
             if self._speak and full_text:
                 self._speak.feed(full_text)
                 self._speak.play_async()
-        
+
         except Exception as exc:
             msg = f"Stream failed: {exc}"
             log.error(msg)
             if self._token_callback:
                 self._token_callback(f"[think] {msg}")
             return "", None
-        
+
         return full_text, None
 
     def _sanitize_history(self, messages: list[dict]) -> list[dict]:
-        """
-        Enforce strict user/assistant alternation.
-        Merges consecutive same-role messages (keeps last).
-        Strips leading assistant turns — history must start with user.
-        """
+        """Enforce strict user/assistant alternation."""
         if not messages:
             return []
 
         sanitized = [messages[0]]
         for msg in messages[1:]:
             if msg["role"] == sanitized[-1]["role"]:
-                sanitized[-1] = msg   # keep the later one
+                sanitized[-1] = msg
             else:
                 sanitized.append(msg)
 
-        # must start with user — strip any leading assistant orphans
         while sanitized and sanitized[0]["role"] != "user":
             sanitized.pop(0)
 
         return sanitized
 
     def _store_async(self, user_input: str, response_text: str) -> None:
-        """
-        Enqueue a completed turn for background memory persistence.
-
-        Non-blocking — the chat path returns immediately after this call.
-        The background worker in _mem_write_loop drains the queue serially.
-
-        Args:
-            user_input:    The user's raw message for this turn.
-            response_text: The assistant's full response for this turn.
-        """
+        """Enqueue a completed turn for background memory persistence."""
         self._mem_queue.put((user_input, response_text))
 
     def _mem_write_loop(self) -> None:
-        """
-        Serial background worker that drains the memory write queue.
-
-        Runs for the lifetime of the process (daemon thread). Processes writes
-        in order so memory entries are never interleaved or lost.
-        """
+        """Serial background worker that drains the memory write queue."""
         while True:
             user_input, response_text = self._mem_queue.get()
             try:
