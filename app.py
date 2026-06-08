@@ -31,17 +31,79 @@ def chat(message, history):
     return "".join(tokens)
 
 
+# ── Header HTML ──
+HEADER_HTML = """
+<div id="aiko-header">
+    <div class="header-avatar">🌸</div>
+    <div class="header-text">
+        <h1>Aiko-chan</h1>
+        <p class="header-status">
+            <span class="status-dot"></span>
+            Online · Ready to chat
+        </p>
+    </div>
+</div>
+"""
+
+# ── Welcome screen (shown when no messages) ──
+WELCOME_HTML = """
+<div class="aiko-welcome">
+    <div class="welcome-icon">🌸</div>
+    <h2>Hi, I'm Aiko!</h2>
+    <p>Your personal AI assistant. Ask me anything — I can search the web, remember our conversations, and help you out.</p>
+    <div class="suggestion-chips">
+        <span class="chip">✨ Tell me about yourself</span>
+        <span class="chip">🔍 Search for something</span>
+        <span class="chip">💡 Help me brainstorm</span>
+        <span class="chip">📝 Summarize a topic</span>
+    </div>
+</div>
+"""
+
+
 with gr.Blocks(title="Aiko-chan 🌸", css=CSS) as demo:
     gr.HTML(SPEECH_JS)
 
-    with gr.Row():
-        with gr.Column(scale=6):
+    # ── Header ──
+    gr.HTML(HEADER_HTML)
+
+    with gr.Row(equal_height=True):
+        # ── Chat column ──
+        with gr.Column(scale=6, min_width=400):
             gr.ChatInterface(
                 fn=chat,
-                title="Aiko-chan 🌸",
-                chatbot=gr.Chatbot(elem_id="aiko-chatbot"),
+                chatbot=gr.Chatbot(
+                    elem_id="aiko-chatbot",
+                    show_label=False,
+                    show_copy_button=True,
+                    layout="bubble",
+                    bubble_full_width=False,
+                    placeholder=WELCOME_HTML,
+                ),
+                textbox=gr.Textbox(
+                    placeholder="Message Aiko-chan...",
+                    show_label=False,
+                    container=False,
+                    elem_id="aiko-input-wrap",
+                    scale=9,
+                ),
+                submit_btn=gr.Button(
+                    "➤",
+                    variant="primary",
+                    elem_id="aiko-send-btn",
+                    scale=1,
+                ),
+                retry_btn=None,
+                undo_btn=None,
+                clear_btn=gr.Button(
+                    "✕ Clear",
+                    variant="secondary",
+                    size="sm",
+                ),
             )
-        with gr.Column(scale=4, elem_id="aiko-col"):
+
+        # ── VRM Viewer column ──
+        with gr.Column(scale=4, elem_id="aiko-col", min_width=300):
             gr.HTML(VRM_VIEWER)
 
 demo.launch(
