@@ -166,255 +166,298 @@ label, p { color: rgba(196,168,255,0.8) !important; }
 # Scripts loaded sequentially: THREE must be global before OrbitControls/GLTFLoader/three-vrm attach
 # unpkg used as CDN (better HF Spaces CSP compat)
 _VRM_VIEWER = """
-<div id="aiko-vrm-root" style="width:100%;height:520px;position:relative;background:rgba(10,8,20,0.7);border-radius:16px;overflow:hidden;border:1px solid rgba(155,127,212,0.18);backdrop-filter:blur(18px);">
+<div id="aiko-vrm-root" style="width:100%;height:520px;position:relative;background:rgba(10,8,20,0.7);border-radius:16px;overflow:hidden;border:1px solid rgba(155,127,212,0.18);">
 
-  <div id="vrm-loading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:'Courier New',monospace;z-index:10;background:rgba(10,8,20,0.9);">
-    <div style="font-size:11px;letter-spacing:0.4em;color:#9b7fd4;text-shadow:0 0 12px rgba(155,127,212,0.6);">AIKO-CHAN</div>
-    <div style="width:140px;height:1px;background:rgba(155,127,212,0.15);overflow:hidden;border-radius:1px;">
-      <div id="vrm-load-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#5b2fa8,#9b7fd4);box-shadow:0 0 8px #7b4fd4;transition:width 0.3s;"></div>
-    </div>
-    <div id="vrm-load-msg" style="font-size:9px;color:rgba(155,127,212,0.45);letter-spacing:0.2em;">loading runtime...</div>
-  </div>
+  <svg id="aiko-svg" viewBox="0 0 300 520" xmlns="http://www.w3.org/2000/svg"
+       style="width:100%;height:100%;display:block;">
+    <defs>
+      <radialGradient id="bgGlow" cx="50%" cy="60%" r="50%">
+        <stop offset="0%" stop-color="#2a0f5e" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#080612" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="skinGrad" cx="50%" cy="40%" r="60%">
+        <stop offset="0%" stop-color="#fde8d8"/>
+        <stop offset="100%" stop-color="#f5c9a8"/>
+      </radialGradient>
+      <radialGradient id="hairGrad" cx="50%" cy="0%" r="80%">
+        <stop offset="0%" stop-color="#c084f5"/>
+        <stop offset="100%" stop-color="#7b2fc0"/>
+      </radialGradient>
+      <filter id="softGlow">
+        <feGaussianBlur stdDeviation="3" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="hairGlow">
+        <feGaussianBlur stdDeviation="4" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
 
-  <canvas id="aiko-canvas" style="width:100%;height:100%;display:block;"></canvas>
+    <!-- background glow -->
+    <ellipse cx="150" cy="320" rx="130" ry="160" fill="url(#bgGlow)"/>
 
-  <div style="position:absolute;top:10px;right:12px;font-family:'Courier New',monospace;font-size:9px;color:rgba(155,127,212,0.4);letter-spacing:0.15em;">
-    <span id="vrm-status" style="margin-right:4px;">&#9679;</span>aiko
-  </div>
-  <div id="vrm-emotion" style="position:absolute;bottom:10px;left:12px;font-family:'Courier New',monospace;font-size:9px;color:rgba(155,127,212,0.35);letter-spacing:0.15em;text-transform:uppercase;">&#8212;</div>
-</div>
+    <!-- BODY group — breathes -->
+    <g id="body-group">
 
-<script>
-(function() {
-  // sequential CDN loader — each waits for previous so THREE is global first
-var SCRIPTS = [
-    'https://unpkg.com/three@0.163.0/build/three.min.js',
-    'https://unpkg.com/three@0.163.0/examples/js/controls/OrbitControls.js',
-    'https://unpkg.com/three@0.163.0/examples/js/loaders/GLTFLoader.js',
-    'https://unpkg.com/@pixiv/three-vrm@2/lib/three-vrm.js'
-];
+      <!-- torso / outfit -->
+      <g id="torso">
+        <!-- body base -->
+        <ellipse cx="150" cy="400" rx="58" ry="72" fill="#1a0d35"/>
+        <!-- sailor collar -->
+        <path d="M110,330 L150,370 L190,330 L175,320 L150,355 L125,320 Z" fill="#9b7fd4" opacity="0.9"/>
+        <path d="M125,320 L150,355 L175,320" fill="none" stroke="#c4a8ff" stroke-width="1.5"/>
+        <!-- shirt -->
+        <rect x="108" y="320" width="84" height="85" rx="8" fill="#140b2e"/>
+        <!-- ribbon -->
+        <path d="M140,342 L150,352 L160,342 L155,336 L150,344 L145,336 Z" fill="#d45080"/>
+        <!-- arms -->
+        <ellipse cx="95" cy="360" rx="14" ry="36" fill="#fde8d8" transform="rotate(-8,95,360)"/>
+        <ellipse cx="205" cy="360" rx="14" ry="36" fill="#fde8d8" transform="rotate(8,205,360)"/>
+        <!-- sleeves -->
+        <ellipse cx="95" cy="345" rx="16" ry="22" fill="#140b2e" transform="rotate(-8,95,345)"/>
+        <ellipse cx="205" cy="345" rx="16" ry="22" fill="#140b2e" transform="rotate(8,205,345)"/>
+        <!-- hands -->
+        <ellipse cx="90" cy="393" rx="11" ry="13" fill="#fde8d8"/>
+        <ellipse cx="210" cy="393" rx="11" ry="13" fill="#fde8d8"/>
+        <!-- skirt -->
+        <path d="M108,400 Q80,430 75,475 Q150,490 225,475 Q220,430 192,400 Z" fill="#1e1040"/>
+        <path d="M108,400 Q80,430 75,475" fill="none" stroke="#9b7fd4" stroke-width="1" opacity="0.5"/>
+        <path d="M192,400 Q220,430 225,475" fill="none" stroke="#9b7fd4" stroke-width="1" opacity="0.5"/>
+        <!-- legs -->
+        <rect x="120" y="470" width="22" height="45" rx="8" fill="#fde8d8"/>
+        <rect x="158" y="470" width="22" height="45" rx="8" fill="#fde8d8"/>
+        <!-- stockings -->
+        <rect x="120" y="490" width="22" height="28" rx="6" fill="#2a1545"/>
+        <rect x="158" y="490" width="22" height="28" rx="6" fill="#2a1545"/>
+        <!-- shoes -->
+        <ellipse cx="131" cy="518" rx="14" ry="7" fill="#5b2fa8"/>
+        <ellipse cx="169" cy="518" rx="14" ry="7" fill="#5b2fa8"/>
+      </g>
 
-  function loadScript(i) {
-    if (i >= SCRIPTS.length) { initVRM(); return; }
-    var s = document.createElement('script');
-    s.src = SCRIPTS[i];
-    s.onload  = function() { loadScript(i + 1); };
-    s.onerror = function() {
-      var el = document.getElementById('vrm-load-msg');
-      if (el) el.textContent = 'cdn error (script ' + i + ')';
-      var st = document.getElementById('vrm-status');
-      if (st) st.style.color = '#d45050';
-      console.error('[aiko-vrm] failed to load', SCRIPTS[i]);
-    };
-    document.head.appendChild(s);
-  }
-  loadScript(0);
+      <!-- NECK -->
+      <rect id="neck" x="141" y="290" width="18" height="32" rx="6" fill="#fde8d8"/>
 
-  function initVRM() {
-    if (typeof THREE === 'undefined') {
-      document.getElementById('vrm-load-msg').textContent = 'error: THREE not found';
-      return;
-    }
-    if (typeof THREE_VRM === 'undefined') {
-      document.getElementById('vrm-load-msg').textContent = 'error: THREE_VRM not found';
-      return;
-    }
-    if (typeof THREE_VRM.VRMLoaderPlugin === 'undefined') {
-      document.getElementById('vrm-load-msg').textContent = 'error: VRMLoaderPlugin not found';
-      return;
-    }
-    
-    var root   = document.getElementById('aiko-vrm-root');
-    var canvas = document.getElementById('aiko-canvas');
-    var loading= document.getElementById('vrm-loading');
-    var fill   = document.getElementById('vrm-load-fill');
-    var msg    = document.getElementById('vrm-load-msg');
-    var status = document.getElementById('vrm-status');
-    var emotEl = document.getElementById('vrm-emotion');
+      <!-- HEAD group -->
+      <g id="head-group">
+        <!-- hair back -->
+        <ellipse cx="150" cy="220" rx="72" ry="78" fill="url(#hairGrad)" filter="url(#hairGlow)"/>
+        <!-- long hair sides -->
+        <path d="M80,200 Q55,280 65,360 Q85,330 95,310 Q88,260 90,210 Z" fill="#8b35d4" opacity="0.9"/>
+        <path d="M220,200 Q245,280 235,360 Q215,330 205,310 Q212,260 210,210 Z" fill="#8b35d4" opacity="0.9"/>
+        <!-- hair streaks -->
+        <path d="M82,205 Q60,285 68,355" fill="none" stroke="#c084f5" stroke-width="1.5" opacity="0.6"/>
+        <path d="M218,205 Q240,285 232,355" fill="none" stroke="#c084f5" stroke-width="1.5" opacity="0.6"/>
 
-    var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.setClearColor(0x000000, 0);
+        <!-- face -->
+        <ellipse id="face" cx="150" cy="228" rx="58" ry="62" fill="url(#skinGrad)"/>
 
-    var scene  = new THREE.Scene();
-    var camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
-    camera.position.set(0, 1.35, 2.8);
+        <!-- hair front / bangs -->
+        <path d="M92,190 Q100,145 150,138 Q200,145 208,190 Q190,170 170,168 Q150,162 130,168 Q110,170 92,190 Z" fill="url(#hairGrad)"/>
+        <!-- bang strands -->
+        <path d="M105,188 Q100,210 108,228" fill="none" stroke="#8b35d4" stroke-width="8" stroke-linecap="round" opacity="0.85"/>
+        <path d="M122,178 Q116,205 120,225" fill="none" stroke="#8b35d4" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+        <path d="M178,178 Q184,205 180,225" fill="none" stroke="#8b35d4" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+        <path d="M195,188 Q200,210 192,228" fill="none" stroke="#8b35d4" stroke-width="8" stroke-linecap="round" opacity="0.85"/>
+        <!-- hair highlight -->
+        <path d="M118,155 Q148,148 175,158" fill="none" stroke="#e8c4ff" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
 
-    var controls = new THREE.OrbitControls(camera, canvas);
-    controls.target.set(0, 1.1, 0);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.minDistance   = 0.8;
-    controls.maxDistance   = 6;
-    controls.update();
+        <!-- hair accessories — star clips -->
+        <polygon points="88,210 91,202 94,210 103,210 97,215 99,223 91,218 83,223 85,215 79,210" fill="#ffd700" opacity="0.9"/>
+        <polygon points="212,210 215,202 218,210 227,210 221,215 223,223 215,218 207,223 209,215 203,210" fill="#ffd700" opacity="0.9"/>
 
-    scene.add(new THREE.AmbientLight(0xc8b0ff, 0.55));
-    var key = new THREE.DirectionalLight(0xffffff, 1.2);
-    key.position.set(1, 3, 2); scene.add(key);
-    var rim = new THREE.DirectionalLight(0x7b4fd4, 0.45);
-    rim.position.set(-2, 1, -1); scene.add(rim);
-    var fill2 = new THREE.DirectionalLight(0xd4b0ff, 0.25);
-    fill2.position.set(0, -1, 2); scene.add(fill2);
-    scene.add(new THREE.GridHelper(10, 20, 0x2a1545, 0x180d2e));
+        <!-- EYES -->
+        <g id="eyes">
+          <!-- eye whites / shadow -->
+          <ellipse cx="126" cy="228" rx="16" ry="14" fill="white" opacity="0.9"/>
+          <ellipse cx="174" cy="228" rx="16" ry="14" fill="white" opacity="0.9"/>
 
-    function resize() {
-      var w = root.clientWidth, h = root.clientHeight;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    }
-    resize();
-    new ResizeObserver(resize).observe(root);
+          <!-- iris left -->
+          <ellipse id="iris-l" cx="126" cy="230" rx="11" ry="12" fill="#7b2fc0"/>
+          <ellipse cx="126" cy="230" rx="8" ry="9" fill="#4a1a8a"/>
+          <ellipse cx="126" cy="230" rx="4" ry="5" fill="#1a0635"/>
+          <!-- iris right -->
+          <ellipse id="iris-r" cx="174" cy="230" rx="11" ry="12" fill="#7b2fc0"/>
+          <ellipse cx="174" cy="230" rx="8" ry="9" fill="#4a1a8a"/>
+          <ellipse cx="174" cy="230" rx="4" ry="5" fill="#1a0635"/>
 
-    var vrm = null;
-    var clock = new THREE.Clock();
-    var exprTargets = {}, exprCurrent = {};
-    var EXPR_LERP = 6, exprResetTimer = null;
-    var blinkTimer = 3.0 + Math.random() * 4.0;
-    var blinkPhase = 'wait', blinkT = 0;
-    var BLINK_CLOSE = 0.07, BLINK_OPEN = 0.10;
+          <!-- eye shine -->
+          <ellipse cx="121" cy="224" rx="3.5" ry="3" fill="white" opacity="0.9"/>
+          <ellipse cx="169" cy="224" rx="3.5" ry="3" fill="white" opacity="0.9"/>
+          <ellipse cx="130" cy="226" rx="1.5" ry="1.5" fill="white" opacity="0.6"/>
+          <ellipse cx="178" cy="226" rx="1.5" ry="1.5" fill="white" opacity="0.6"/>
+
+          <!-- upper lashes -->
+          <path d="M110,220 Q118,214 142,218" fill="none" stroke="#2a0845" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M158,218 Q182,214 190,220" fill="none" stroke="#2a0845" stroke-width="2.5" stroke-linecap="round"/>
+
+          <!-- blink overlays — hidden by default -->
+          <ellipse id="blink-l" cx="126" cy="228" rx="16" ry="1" fill="#fde8d8" opacity="0" transform-origin="126 228"/>
+          <ellipse id="blink-r" cx="174" cy="228" rx="16" ry="1" fill="#fde8d8" opacity="0" transform-origin="174 228"/>
+        </g>
+
+        <!-- eyebrows -->
+        <g id="brows">
+          <path id="brow-l" d="M110,212 Q126,206 142,210" fill="none" stroke="#6b25a0" stroke-width="3" stroke-linecap="round"/>
+          <path id="brow-r" d="M158,210 Q174,206 190,212" fill="none" stroke="#6b25a0" stroke-width="3" stroke-linecap="round"/>
+        </g>
+
+        <!-- blush -->
+        <ellipse id="blush-l" cx="108" cy="242" rx="14" ry="8" fill="#ffb0c8" opacity="0.35"/>
+        <ellipse id="blush-r" cx="192" cy="242" rx="14" ry="8" fill="#ffb0c8" opacity="0.35"/>
+
+        <!-- MOUTH -->
+        <g id="mouth-group">
+          <!-- happy default -->
+          <path id="mouth-happy" d="M136,258 Q150,270 164,258" fill="none" stroke="#c06080" stroke-width="2.5" stroke-linecap="round"/>
+          <!-- surprised — hidden -->
+          <ellipse id="mouth-surprised" cx="150" cy="262" rx="8" ry="10" fill="#8a2040" opacity="0"/>
+          <!-- sad — hidden -->
+          <path id="mouth-sad" d="M136,266 Q150,256 164,266" fill="none" stroke="#c06080" stroke-width="2.5" stroke-linecap="round" opacity="0"/>
+        </g>
+
+        <!-- cat ear blush (hidden, shown on happy) -->
+        <ellipse id="blush-l2" cx="108" cy="242" rx="14" ry="8" fill="#ff80a0" opacity="0"/>
+        <ellipse id="blush-r2" cx="192" cy="242" rx="14" ry="8" fill="#ff80a0" opacity="0"/>
+
+      </g><!-- end head-group -->
+    </g><!-- end body-group -->
+
+    <!-- floating particles -->
+    <g id="particles" opacity="0.5">
+      <circle class="particle" cx="60" cy="150" r="2" fill="#9b7fd4"/>
+      <circle class="particle" cx="240" cy="180" r="1.5" fill="#c084f5"/>
+      <circle class="particle" cx="45" cy="300" r="1" fill="#7b4fd4"/>
+      <circle class="particle" cx="255" cy="120" r="2" fill="#9b7fd4"/>
+      <circle class="particle" cx="270" cy="350" r="1.5" fill="#c084f5"/>
+      <circle class="particle" cx="30" cy="400" r="1" fill="#7b4fd4"/>
+    </g>
+
+    <!-- status label -->
+    <text x="150" y="18" text-anchor="middle" font-family="'Courier New',monospace"
+          font-size="9" fill="#9b7fd4" letter-spacing="4" opacity="0.7">AIKO-CHAN</text>
+    <text id="emotion-label" x="150" y="510" text-anchor="middle" font-family="'Courier New',monospace"
+          font-size="9" fill="rgba(155,127,212,0.45)" letter-spacing="2">idle</text>
+  </svg>
+
+  <script>
+  (function(){
     var t = 0;
+    var blinkTimer = 3 + Math.random()*3;
+    var blinkOpen = true;
+    var currentExpr = 'neutral';
 
-    var REST = {
-      leftUpperArm:  { x:  0.3, z:  0.3 },
-      rightUpperArm: { x:  0.3, z: -0.3 },
-      leftLowerArm:  { x: -0.5, z: -0.4 },
-      rightLowerArm: { x: -0.5, z:  0.4 },
-      leftHand:      { y:  0.4 },
-      rightHand:     { y: -0.4 },
-    };
-    window._REST = REST;
+    var bodyGroup  = document.getElementById('body-group');
+    var headGroup  = document.getElementById('head-group');
+    var blinkL     = document.getElementById('blink-l');
+    var blinkR     = document.getElementById('blink-r');
+    var browL      = document.getElementById('brow-l');
+    var browR      = document.getElementById('brow-r');
+    var blushL2    = document.getElementById('blush-l2');
+    var blushR2    = document.getElementById('blush-r2');
+    var mouthHappy = document.getElementById('mouth-happy');
+    var mouthSad   = document.getElementById('mouth-sad');
+    var mouthSurp  = document.getElementById('mouth-surprised');
+    var emotLabel  = document.getElementById('emotion-label');
+    var irisL      = document.getElementById('iris-l');
+    var irisR      = document.getElementById('iris-r');
 
-    function applyIdle(dt) {
-      if (!vrm || !vrm.humanoid) return;
-      t += dt;
-      var g = function(n) { return vrm.humanoid.getRawBoneNode(n); };
-      var breath = Math.sin(t * 0.83) * 0.013;
-      var chest = g('chest'), spine = g('spine');
-      if (chest) chest.rotation.x = breath;
-      if (spine)  spine.rotation.x = breath * 0.5;
-      var hips = g('hips');
-      if (hips) {
-        hips.rotation.z = Math.sin(t * 0.41) * 0.012;
-        hips.rotation.x = Math.sin(t * 0.67) * 0.008;
-        hips.position.x = Math.sin(t * 0.41) * 0.003;
+    var particles  = document.querySelectorAll('.particle');
+    var partPhase  = Array.from(particles).map(function(_,i){ return i*1.1; });
+
+    function setAttr(el, attr, val){ if(el) el.setAttribute(attr, val); }
+    function setStyle(el, prop, val){ if(el) el.style[prop] = val; }
+
+    function applyExpression(expr){
+      currentExpr = expr;
+      if(emotLabel) emotLabel.textContent = expr;
+      // reset
+      setAttr(mouthHappy,'opacity','1');
+      setAttr(mouthSad,'opacity','0');
+      setAttr(mouthSurp,'opacity','0');
+      setAttr(blushL2,'opacity','0');
+      setAttr(blushR2,'opacity','0');
+      setAttr(browL,'d','M110,212 Q126,206 142,210');
+      setAttr(browR,'d','M158,210 Q174,206 190,212');
+      setAttr(irisL,'ry','12');
+      setAttr(irisR,'ry','12');
+
+      if(expr === 'happy'){
+        setAttr(browL,'d','M110,209 Q126,203 142,207');
+        setAttr(browR,'d','M158,207 Q174,203 190,209');
+        setAttr(blushL2,'opacity','0.4');
+        setAttr(blushR2,'opacity','0.4');
+      } else if(expr === 'surprised'){
+        setAttr(browL,'d','M110,207 Q126,200 142,205');
+        setAttr(browR,'d','M158,205 Q174,200 190,207');
+        setAttr(mouthHappy,'opacity','0');
+        setAttr(mouthSurp,'opacity','1');
+        setAttr(irisL,'ry','14');
+        setAttr(irisR,'ry','14');
+      } else if(expr === 'sad'){
+        setAttr(browL,'d','M110,212 Q126,216 142,213');
+        setAttr(browR,'d','M158,213 Q174,216 190,212');
+        setAttr(mouthHappy,'opacity','0');
+        setAttr(mouthSad,'opacity','1');
+      } else if(expr === 'thinking'){
+        setAttr(browL,'d','M110,210 Q126,206 142,211');
+        setAttr(browR,'d','M158,207 Q174,203 190,210');
       }
-      var head = g('head');
-      if (head) {
-        head.rotation.y = Math.sin(t * 0.31) * 0.055 + Math.sin(t * 1.13) * 0.012;
-        head.rotation.z = Math.sin(t * 0.27 + 1.1) * 0.018 + Math.sin(t * 0.71) * 0.006;
-        head.rotation.x = Math.sin(t * 0.53) * 0.012;
-      }
-      var neck = g('neck');
-      if (neck && head) {
-        neck.rotation.y = head.rotation.y * 0.3;
-        neck.rotation.z = head.rotation.z * 0.3;
-      }
-      var lUA=g('leftUpperArm'),rUA=g('rightUpperArm'),lLA=g('leftLowerArm'),rLA=g('rightLowerArm'),lH=g('leftHand'),rH=g('rightHand');
-      if(lUA){lUA.rotation.x=REST.leftUpperArm.x+Math.sin(t*0.47)*0.012;lUA.rotation.z=REST.leftUpperArm.z+Math.sin(t*0.41)*0.008;}
-      if(rUA){rUA.rotation.x=REST.rightUpperArm.x+Math.sin(t*0.53+0.9)*0.012;rUA.rotation.z=REST.rightUpperArm.z+Math.sin(t*0.37+0.7)*0.008;}
-      if(lLA){lLA.rotation.x=REST.leftLowerArm.x+Math.sin(t*0.61)*0.010;lLA.rotation.z=REST.leftLowerArm.z+Math.sin(t*0.43)*0.006;}
-      if(rLA){rLA.rotation.x=REST.rightLowerArm.x+Math.sin(t*0.57+1.4)*0.010;rLA.rotation.z=REST.rightLowerArm.z+Math.sin(t*0.51+0.5)*0.006;}
-      if(lH) lH.rotation.y=REST.leftHand.y+Math.sin(t*0.33)*0.008;
-      if(rH) rH.rotation.y=REST.rightHand.y+Math.sin(t*0.29+1.2)*0.008;
     }
 
-    function applyBlink(dt) {
-      if (!vrm || !vrm.expressionManager) return;
-      var em = vrm.expressionManager;
-      if (blinkPhase==='wait') {
-        blinkTimer-=dt;
-        if(blinkTimer<=0){blinkPhase='closing';blinkT=0;}
-      } else if (blinkPhase==='closing') {
-        blinkT+=dt;
-        try{em.setValue('blink',Math.min(blinkT/BLINK_CLOSE,1));}catch(_){}
-        if(blinkT>=BLINK_CLOSE){blinkPhase='opening';blinkT=0;}
-      } else if (blinkPhase==='opening') {
-        blinkT+=dt;
-        try{em.setValue('blink',1-Math.min(blinkT/BLINK_OPEN,1));}catch(_){}
-        if(blinkT>=BLINK_OPEN){blinkPhase='wait';blinkTimer=3.0+Math.random()*4.0;try{em.setValue('blink',0);}catch(_){}}
+    function tick(){
+      t += 0.016;
+      // body bob
+      var bob = Math.sin(t*0.9)*3;
+      var breathX = Math.sin(t*0.83)*0.012;
+      if(bodyGroup) bodyGroup.setAttribute('transform',
+        'translate(0,'+bob.toFixed(2)+')');
+      // head slight sway
+      var headSway = Math.sin(t*0.4)*1.5;
+      if(headGroup) headGroup.setAttribute('transform',
+        'translate('+headSway.toFixed(2)+',0)');
+
+      // blink
+      blinkTimer -= 0.016;
+      if(blinkTimer <= 0){
+        blinkOpen = !blinkOpen;
+        blinkTimer = blinkOpen ? (3+Math.random()*4) : 0.1;
+        var ry = blinkOpen ? '1' : '14';
+        var op = blinkOpen ? '0' : '1';
+        setAttr(blinkL,'ry',ry); setAttr(blinkL,'opacity',op);
+        setAttr(blinkR,'ry',ry); setAttr(blinkR,'opacity',op);
       }
+
+      // particles float
+      particles.forEach(function(p, i){
+        partPhase[i] += 0.008;
+        var cy = parseFloat(p.getAttribute('data-base-cy')||p.getAttribute('cy'));
+        if(!p.getAttribute('data-base-cy')) p.setAttribute('data-base-cy', cy);
+        p.setAttribute('cy', (cy + Math.sin(partPhase[i])*12).toFixed(1));
+        p.setAttribute('opacity', (0.2 + Math.sin(partPhase[i]*0.7+1)*0.3).toFixed(2));
+      });
+
+      requestAnimationFrame(tick);
     }
+    tick();
 
-    function animate() {
-      requestAnimationFrame(animate);
-      var dt = Math.min(clock.getDelta(), 0.05);
-      controls.update();
-      if (vrm) {
-        vrm.update(dt);
-        var em = vrm.expressionManager;
-        if (em) {
-          for (var name in exprTargets) {
-            var cur = exprCurrent[name]!==undefined ? exprCurrent[name] : 0;
-            var next = cur + (exprTargets[name]-cur)*Math.min(1,EXPR_LERP*dt);
-            exprCurrent[name] = next;
-            if (name!=='blink') try{em.setValue(name,next);}catch(_){}
-          }
-        }
-        applyBlink(dt);
-        applyIdle(dt);
-      }
-      renderer.render(scene, camera);
-    }
-    animate();
-
-    function setProgress(p, text) {
-      fill.style.width = (p*100)+'%';
-      if (text) msg.textContent = text;
-    }
-
-    var loader = new THREE.GLTFLoader();
-    loader.register(function(parser){ return new THREE_VRM.VRMLoaderPlugin(parser); });
-    setProgress(0.05, 'fetching model...');
-
-    loader.load('/static/Aiko.vrm',
-      function(gltf) {
-        setProgress(0.92,'building...');
-        vrm = gltf.userData.vrm;
-        window._vrm = vrm;
-        THREE_VRM.VRMUtils.removeUnnecessaryVertices(vrm.scene);
-        vrm.scene.traverse(function(o){if(o.frustumCulled)o.frustumCulled=false;});
-        scene.add(vrm.scene);
-        if (vrm.expressionManager) {
-          vrm.expressionManager.expressions.forEach(function(ex){
-            exprTargets[ex.expressionName]=0;
-            exprCurrent[ex.expressionName]=0;
-          });
-        }
-        setProgress(1.0,'ready');
-        status.style.color='#9b7fd4';
-        status.style.textShadow='0 0 8px rgba(155,127,212,0.8)';
-        setTimeout(function(){
-          loading.style.transition='opacity 0.8s';
-          loading.style.opacity='0';
-          setTimeout(function(){loading.style.display='none';},800);
-        },400);
-      },
-      function(prog){ var p=prog.total?prog.loaded/prog.total:0; setProgress(0.05+p*0.85,'loading model...'); },
-      function(err){ msg.textContent='error: '+(err.message||'unknown'); status.style.color='#d45050'; console.error('[aiko-vrm]',err); }
-    );
-
-    window.aikoSetExpression = function(name, intensity) {
-      intensity = intensity!==undefined ? intensity : 1.0;
-      for(var k in exprTargets){if(k!=='blink')exprTargets[k]=0;}
-      if(name&&name!=='neutral') exprTargets[name]=intensity;
-      emotEl.textContent=(name&&name!=='neutral')?name+' \xb7 '+Math.round(intensity*100)+'%':'—';
-      emotEl.style.color=(name&&name!=='neutral')?'#9b7fd4':'rgba(155,127,212,0.35)';
-      clearTimeout(exprResetTimer);
-      if(name&&name!=='neutral') exprResetTimer=setTimeout(function(){window.aikoSetExpression('neutral');},4000);
+    // public API — same interface as VRM version
+    window.aikoSetExpression = function(name){
+      applyExpression(name||'neutral');
     };
 
-    window.aikoSetViseme = function(viseme, weight) {
-      weight=weight!==undefined?weight:1.0;
-      var map={A:'aa',I:'ih',U:'ou',E:'ee',O:'oh'};
-      var v=map[viseme]||viseme;
-      ['aa','ih','ou','ee','oh'].forEach(function(k){exprTargets[k]=0;});
-      exprTargets[v]=weight;
+    // auto-expression from chat: hook into the same MutationObserver
+    window._aikoExprFromText = function(text){
+      var t = text.toLowerCase();
+      if(/\!\s|wow|amazing|whoa/.test(t)) applyExpression('surprised');
+      else if(/sorry|sad|unfortunate|cannot|can't|don't know/.test(t)) applyExpression('sad');
+      else if(/hmm|think|let me|consider|wonder/.test(t)) applyExpression('thinking');
+      else if(/haha|lol|\u2665|\u2764|love|cute|kawaii/.test(t)) applyExpression('happy');
+      else applyExpression('neutral');
+      setTimeout(function(){ applyExpression('neutral'); }, 5000);
     };
-  }
-})();
-</script>
+  })();
+  </script>
+</div>
 """
 
 # ── speech js (tts + asr) ─────────────────────────────────────────────────────
@@ -444,13 +487,16 @@ _SPEECH_JS = """
         window.speechSynthesis.speak(utt);
     }
     function watchChatbot(chatbot) {
-        const observer=new MutationObserver(()=>{
-            const bubbles=chatbot.querySelectorAll('.message.bot,[data-testid="bot"] .md');
-            if(!bubbles.length) return;
-            const last=bubbles[bubbles.length-1];
-            speak(last.innerText||last.textContent||'');
+        const observer = new MutationObserver(() => {
+            const bubbles = chatbot.querySelectorAll('.message.bot,[data-testid="bot"] .md');
+            if (!bubbles.length) return;
+            const last = bubbles[bubbles.length - 1];
+            const text = last.innerText || last.textContent || '';
+            speak(text);
+            // ← add this
+            if (window._aikoExprFromText) window._aikoExprFromText(text);
         });
-        observer.observe(chatbot,{childList:true,subtree:true});
+        observer.observe(chatbot, {childList: true, subtree: true});
     }
     const btnBase = {
         position:'fixed',bottom:'22px',zIndex:'9999',
