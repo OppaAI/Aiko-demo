@@ -10,6 +10,7 @@ import gradio as gr
 
 from core.wakeup import AikoWakeup
 from ui.css import AIKO_CSS
+from ui.asr import transcribe_file
 from ui.speak import speak_to_file
 from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
 
@@ -34,7 +35,7 @@ except AttributeError:
     pass
 
 
-def chat(message, history):
+def _assistant_response(message: str) -> tuple[str, str | None]:
     tokens: list[str] = []
 
     def _cb(token):
@@ -48,10 +49,34 @@ def chat(message, history):
     text = "".join(tokens)
     audio = speak_to_file(text)
     print(f"[chat] audio path: {audio}")
-    yield text, audio
+    return text, audio
 
 
-with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
+def text_chat(message, history):
+    history = history or []
+    message = (message or "").strip()
+    if not message:
+        return history, None, ""
+    history.append({"role": "user", "content": message})
+    text, audio = _assistant_response(message)
+    history.append({"role": "assistant", "content": text})
+    return history, audio, ""
+
+
+def voice_chat(audio_path, history):
+    history = history or []
+    if not audio_path:
+        return history, None, None
+    transcript = transcribe_file(audio_path)
+    if not transcript:
+        return history, None, None
+    history.append({"role": "user", "content": f"🎙️ {transcript}"})
+    text, audio = _assistant_response(transcript)
+    history.append({"role": "assistant", "content": text})
+    return history, audio, None
+
+
+with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
     with gr.Column(elem_id="aiko-shell"):
         with gr.Row(equal_height=True):
             with gr.Column(scale=5, elem_id="aiko-avatar-card"):
@@ -62,18 +87,38 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
                     label="🔊 Aiko",
                     type="filepath",
                     elem_id="aiko-audio",
+                    container=False,
                 )
                 gr.Markdown(
                     "Aiko's VRM mouth is driven by the MP3 playback level in your browser.",
                     elem_id="aiko-note",
                 )
             with gr.Column(scale=6, elem_id="aiko-chat-card"):
-                gr.ChatInterface(
-                    fn=chat,
-                    title="Aiko-chan 🌸",
-                    chatbot=gr.Chatbot(elem_id="aiko-chatbot", show_label=False),
-                    additional_outputs=[audio_out],
+                gr.Markdown("# Aiko-chan 🌸", elem_id="aiko-title")
+                chatbot = gr.Chatbot(
+                    elem_id="aiko-chatbot",
+                    show_label=False,
+                    type="messages",
+                    height=520,
                 )
+                with gr.Row(elem_id="aiko-input-row"):
+                    msg = gr.Textbox(
+                        placeholder="Type a message…",
+                        show_label=False,
+                        scale=12,
+                        container=False,
+                    )
+                    send = gr.Button("➤", variant="primary", scale=1, elem_id="aiko-send")
+                voice_in = gr.Audio(
+                    sources=["microphone"],
+                    type="filepath",
+                    label="🎙️ Speak to Aiko",
+                    elem_id="aiko-mic",
+                )
+
+                msg.submit(text_chat, [msg, chatbot], [chatbot, audio_out, msg])
+                send.click(text_chat, [msg, chatbot], [chatbot, audio_out, msg])
+                voice_in.change(voice_chat, [voice_in, chatbot], [chatbot, audio_out, voice_in])
 
 allowed_paths = [str(Path("/tmp/aiko_tts")), str(VRM_PATH.parent)]
 
