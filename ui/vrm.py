@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 
 def resolve_vrm_path() -> Path:
@@ -19,18 +20,32 @@ def resolve_vrm_path() -> Path:
     return candidates[0].resolve()
 
 
+def gradio_file_urls(path: Path) -> list[str]:
+    """Build Gradio file-serving URL candidates for an allowed local path.
+
+    Gradio 5/6 serves files from /gradio_api/file=<path>, while older builds
+    accepted /file=<path>.  Returning both lets the browser retry instead of
+    showing a silent VRM failure when the Space runtime changes.
+    """
+    encoded_path = quote(path.as_posix(), safe="/:")
+    return [f"/gradio_api/file={encoded_path}", f"/file={encoded_path}"]
+
+
 def gradio_file_url(path: Path) -> str:
-    """Build a Gradio file-serving URL for an allowed local path."""
-    return f"/file={path.as_posix()}"
+    """Return the preferred Gradio file-serving URL for compatibility callers."""
+    return gradio_file_urls(path)[0]
 
 
-def avatar_html(vrm_url: str) -> str:
+def avatar_html(vrm_urls: str | list[str]) -> str:
     """Return an iframe containing the Three/VRM viewer.
 
     The iframe keeps module scripts/import maps isolated from Gradio's own DOM,
     then watches the parent gr.Audio element (#aiko-audio) to drive simple
     amplitude-based lip sync while Edge TTS MP3 playback is active.
     """
+    if isinstance(vrm_urls, str):
+        vrm_urls = [vrm_urls]
+
     srcdoc = f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -100,7 +115,40 @@ def avatar_html(vrm_url: str) -> str:
     import {{ GLTFLoader }} from 'three/addons/loaders/GLTFLoader.js';
     import {{ VRMLoaderPlugin, VRMUtils }} from '@pixiv/three-vrm';
 
-    const VRM_URL = {vrm_url!r};
+    const RAW_VRM_URLS = {vrm_urls!r};
+
+    function withTrailingSlash(url) {{
+      return url.endsWith('/') ? url : url + '/';
+    }}
+
+    function buildVrmUrls(rawUrls) {{
+      const urls = [];
+      let parentHref = null;
+      let parentOrigin = null;
+      try {{
+        parentHref = parent.location.href;
+        parentOrigin = parent.location.origin;
+      }} catch {{
+        parentHref = window.location.href;
+        parentOrigin = window.location.origin;
+      }}
+      for (const raw of rawUrls) {{
+        if (!raw) continue;
+        try {{
+          if (/^https?:\/\//.test(raw)) {{
+            urls.push(raw);
+          }} else {{
+            urls.push(new URL(raw, parentOrigin).href);
+            urls.push(new URL(raw.replace(/^\//, ''), withTrailingSlash(parentHref)).href);
+          }}
+        }} catch (err) {{
+          console.warn('[aiko-vrm] bad VRM URL candidate', raw, err);
+        }}
+      }}
+      return [...new Set(urls)];
+    }}
+
+    const VRM_URLS = buildVrmUrls(RAW_VRM_URLS);
     const canvas = document.getElementById('canvas');
     const renderer = new THREE.WebGLRenderer({{ canvas, antialias: true, alpha: true }});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -206,21 +254,34 @@ def avatar_html(vrm_url: str) -> str:
 
     const loader = new GLTFLoader();
     loader.register(parser => new VRMLoaderPlugin(parser));
-    loader.load(VRM_URL, gltf => {{
-      vrm = gltf.userData.vrm;
-      VRMUtils.removeUnnecessaryVertices(vrm.scene);
-      vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
-      vrm.scene.rotation.y = Math.PI;
-      scene.add(vrm.scene);
-      setExpression('relaxed', 0.25);
-      document.getElementById('load-msg').textContent = 'ready';
-      document.getElementById('loader').classList.add('fade');
-      setTimeout(() => document.getElementById('loader').remove(), 550);
-    }}, undefined, err => {{
-      document.getElementById('load-msg').textContent = 'VRM load failed';
-      log.textContent = String(err?.message || err);
-      console.error('[aiko-vrm] load failed', err);
-    }});
+
+    function loadVrm(index = 0) {{
+      const url = VRM_URLS[index];
+      if (!url) {{
+        document.getElementById('load-msg').textContent = 'VRM load failed';
+        log.textContent = 'No Gradio file URL could load static/Aiko.vrm. Check allowed_paths and browser console.';
+        return;
+      }}
+      document.getElementById('load-msg').textContent = `loading VRM (${{index + 1}}/${{VRM_URLS.length}})…`;
+      log.textContent = url;
+      loader.load(url, gltf => {{
+        vrm = gltf.userData.vrm;
+        VRMUtils.removeUnnecessaryVertices(vrm.scene);
+        vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
+        vrm.scene.rotation.y = Math.PI;
+        scene.add(vrm.scene);
+        setExpression('relaxed', 0.25);
+        document.getElementById('load-msg').textContent = 'ready';
+        log.textContent = 'loaded: Aiko.vrm';
+        document.getElementById('loader').classList.add('fade');
+        setTimeout(() => document.getElementById('loader').remove(), 550);
+      }}, undefined, err => {{
+        console.warn('[aiko-vrm] candidate failed', url, err);
+        loadVrm(index + 1);
+      }});
+    }}
+
+    loadVrm();
 
     function tick() {{
       requestAnimationFrame(tick);
