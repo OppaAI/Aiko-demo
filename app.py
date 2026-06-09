@@ -19,7 +19,7 @@ if hasattr(think, "join_warmup"):
     think.join_warmup()
 
 
-# ── Orb HTML (shown when no VRM is available, or above the chat column) ──────
+# ── Orb header ────────────────────────────────────────────────────────────────
 ORB_HEADER = """
 <div id="aiko-orb-section">
   <div id="aiko-orb-wrap">
@@ -34,49 +34,63 @@ ORB_HEADER = """
 </div>
 """
 
-# ── Suggestion pills ──────────────────────────────────────────────────────────
-# Each pill calls sendMessage() injected below via JS
-SUGGESTION_PILLS = """
-<div id="aiko-suggestions">
-  <span class="aiko-pill" onclick="aikoPill(this)">What are you thinking?</span>
-  <span class="aiko-pill" onclick="aikoPill(this)">Tell me something</span>
-  <span class="aiko-pill" onclick="aikoPill(this)">Debug help</span>
-  <span class="aiko-pill" onclick="aikoPill(this)">How is Aiko feeling?</span>
-</div>
+# ── Orb thinking animation JS ─────────────────────────────────────────────────
+# Watches for Gradio's pending/generating state and toggles .thinking on the orb.
+# Gradio 6 adds aria-busy="true" on the chatbot log div while streaming.
+ORB_THINKING_JS = """
 <script>
 (function() {
-  // Click a pill → put its text into the Gradio textbox and submit
-  window.aikoPill = function(el) {
-    var txt = document.querySelector('textarea[data-testid="textbox"]');
-    if (!txt) return;
-    var nativeSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLTextAreaElement.prototype, 'value').set;
-    nativeSetter.call(txt, el.innerText);
-    txt.dispatchEvent(new Event('input', { bubbles: true }));
+  function watchOrb() {
+    var orbWrap = document.getElementById('aiko-orb-wrap');
+    if (!orbWrap) { setTimeout(watchOrb, 300); return; }
 
-    // Hide the suggestions once used
-    var pills = document.getElementById('aiko-suggestions');
-    if (pills) pills.style.display = 'none';
+    // Observe the chatbot log div for aria-busy changes
+    var mo = new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        if (m.type === 'attributes' && m.attributeName === 'aria-busy') {
+          var busy = m.target.getAttribute('aria-busy') === 'true';
+          if (busy) {
+            orbWrap.classList.add('thinking');
+          } else {
+            orbWrap.classList.remove('thinking');
+          }
+        }
+      });
+    });
 
-    // Trigger submit after a tick
-    setTimeout(function() {
-      var btn = document.querySelector(
-        '.input-row button, [data-testid="submit-btn"], button[aria-label="Submit"]'
-      );
-      if (btn) btn.click();
-    }, 50);
-  };
-
-  // Auto-hide pills once user sends first real message
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      var pills = document.getElementById('aiko-suggestions');
-      if (pills) pills.style.display = 'none';
+    // The chatbot log has role="log" aria-live="polite"
+    function attachObserver() {
+      var log = document.querySelector('[role="log"][aria-label="chatbot conversation"]');
+      if (log) {
+        mo.observe(log, { attributes: true });
+      } else {
+        setTimeout(attachObserver, 400);
+      }
     }
-  }, { once: true });
+    attachObserver();
+
+    // Fallback: also watch for the loading spinner appearing/disappearing
+    var spinnerObs = new MutationObserver(function() {
+      var spinner = document.querySelector('#aiko-chatbot .loading-spinner');
+      var dots    = document.querySelector('#aiko-chatbot .dots');
+      if (spinner || dots) {
+        orbWrap.classList.add('thinking');
+      } else {
+        orbWrap.classList.remove('thinking');
+      }
+    });
+    var chatbot = document.getElementById('aiko-chatbot');
+    if (chatbot) {
+      spinnerObs.observe(chatbot, { childList: true, subtree: true });
+    }
+  }
+  document.addEventListener('DOMContentLoaded', watchOrb);
+  // Also try immediately in case DOM is already ready
+  if (document.readyState !== 'loading') watchOrb();
 })();
 </script>
 """
+
 
 # ── Chat function ─────────────────────────────────────────────────────────────
 def chat(message, history):
@@ -99,25 +113,25 @@ with gr.Blocks(title="Aiko-chan 🌸", css=CSS) as demo:
     # Speech JS (VAD, TTS hooks)
     gr.HTML(SPEECH_JS)
 
+    # Orb thinking JS
+    gr.HTML(ORB_THINKING_JS)
+
     with gr.Row():
         # ── Left: chat column ──────────────────────────────────────────────
         with gr.Column(scale=6):
 
-            # Orb + greeting
+            # Orb + greeting (above chat, no suggestions)
             gr.HTML(ORB_HEADER)
 
-            # Suggestion pills
-            gr.HTML(SUGGESTION_PILLS)
-
-            # Chat interface — no built-in title (orb header replaces it)
+            # Chat interface
             gr.ChatInterface(
                 fn=chat,
                 chatbot=gr.Chatbot(
                     elem_id="aiko-chatbot",
-                    height=460,
-                    placeholder="",       # suppress the default placeholder
+                    height=500,
+                    placeholder="",
                     show_label=False,
-                    layout="bubble",      # bubble layout for left/right alignment
+                    layout="bubble",
                     avatar_images=(None, None),
                 ),
                 textbox=gr.Textbox(
