@@ -35,7 +35,7 @@ def chat(message, history):
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
     audio_out = gr.Audio(
         autoplay=True,
-        visible=False,
+        visible=True,
         label="voice",
         type="filepath",
     )
