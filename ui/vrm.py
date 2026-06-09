@@ -261,12 +261,17 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       emotion.textContent = name || 'neutral';
     }}
 
-    function setMouth(weight) {{
-      if (!vrm?.expressionManager) return;
-      for (const key of ['aa', 'ih', 'ou', 'ee', 'oh']) {{
-        try {{ vrm.expressionManager.setValue(key, key === 'aa' ? weight : 0); }} catch {{}}
-      }}
-    }}
+    function setMouth(weight) {
+    
+      if (!vrm) return;
+    
+      const jaw =
+        vrm.humanoid?.getNormalizedBoneNode("jaw");
+    
+      if (!jaw) return;
+    
+      jaw.rotation.x = weight * 0.5;
+    }
 
     function setSpeaking(active) {{
       speaking = active;
@@ -361,15 +366,17 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const dt = clock.getDelta();
       controls.update();
 
-      if (speaking) {{
-        // sine fallback — no cross-frame AudioContext available
-        mouth = 0.12 + Math.abs(Math.sin(performance.now() / 110)) * 0.65;
-      }} else {{
-        mouth = THREE.MathUtils.lerp(mouth, 0, 0.22);
-      }}
-      setMouth(mouth);
-
-      if (vrm) vrm.update(dt);
+        mouth =
+          0.12 +
+          Math.abs(
+            Math.sin(performance.now() / 110)
+          ) * 0.65;
+        
+        if (vrm) {
+            vrm.update(dt);
+        }
+        
+        setMouth(mouth);
       applyIdle(dt);
       applyBlink(dt);
       renderer.render(scene, camera);
