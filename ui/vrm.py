@@ -448,6 +448,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let audioAnalyser = null;
     let audioAnalyserData = null;
     let analyserAudio = null;
+    let analyserStartedAt = 0;
+    let analyserSilentSince = 0;
+    let lastAudioTime = 0;
 
     function findParentAudio() {{
       try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }} catch {{ return null; }}
@@ -467,11 +470,16 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         source.connect(audioAnalyser);
         audioAnalyser.connect(audioContext.destination);
         analyserAudio = audio;
+        analyserStartedAt = performance.now();
+        analyserSilentSince = 0;
+        lastAudioTime = audio.currentTime || 0;
         log.textContent = 'linked to Gradio MP3 output · audio-level lip sync';
       }} catch (err) {{
         audioAnalyser = null;
         audioAnalyserData = null;
         analyserAudio = null;
+        analyserStartedAt = 0;
+        analyserSilentSince = 0;
         console.warn('[aiko-vrm] Web Audio analyser unavailable; falling back to timed mouth motion', err);
       }}
     }}
@@ -485,8 +493,21 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         sum += centered * centered;
       }}
       const rms = Math.sqrt(sum / audioAnalyserData.length);
-      const opened = Math.max(0, Math.min(1, (rms - 0.012) * 7.5));
+      // Speech in browser audio elements is often much quieter than music, so use
+      // a low noise gate and high gain.  Smooth it to avoid chatter.
+      const opened = Math.max(0, Math.min(1, (rms - 0.004) * 16));
       smoothedAudioMouth += (opened - smoothedAudioMouth) * 0.42;
+
+      const now = performance.now();
+      const audioTime = lastAudio?.currentTime ?? 0;
+      const audioIsAdvancing = Math.abs(audioTime - lastAudioTime) > 0.005;
+      lastAudioTime = audioTime;
+      if (rms < 0.006 && smoothedAudioMouth < 0.025 && audioIsAdvancing && now - analyserStartedAt > 700) {{
+        analyserSilentSince = analyserSilentSince || now;
+        if (now - analyserSilentSince > 450) return null;
+      }} else if (rms >= 0.006 || smoothedAudioMouth >= 0.025) {{
+        analyserSilentSince = 0;
+      }}
       return smoothedAudioMouth;
     }}
     function syncAudioState(audio = lastAudio) {{
@@ -499,8 +520,8 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (audio !== lastAudio) {{
         lastAudio = audio;
         log.textContent = 'linked to Gradio MP3 output';
-        audio.addEventListener('play',  () => {{ audioContext?.resume?.(); setSpeaking(true); }});
-        audio.addEventListener('playing', () => {{ audioContext?.resume?.(); setSpeaking(true); }});
+        audio.addEventListener('play',  () => {{ attachAudioAnalyser(audio); audioContext?.resume?.(); setSpeaking(true); }});
+        audio.addEventListener('playing', () => {{ attachAudioAnalyser(audio); audioContext?.resume?.(); setSpeaking(true); }});
         audio.addEventListener('pause', () => setSpeaking(false));
         audio.addEventListener('ended', () => setSpeaking(false));
       }}
