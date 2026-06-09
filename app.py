@@ -3,9 +3,6 @@ load_dotenv()
 
 import gradio as gr
 from core.wakeup import AikoWakeup
-from ui.css import CSS
-from ui.speech import SPEECH_JS
-from ui.vrm_viewer import VRM_VIEWER
 
 result = AikoWakeup(text_mode=True).boot(
     on_loading=lambda k: print(f"[boot] loading: {k}"),
@@ -19,187 +16,169 @@ if hasattr(think, "join_warmup"):
     think.join_warmup()
 
 
-# ── Orb header ────────────────────────────────────────────────────────────────
-ORB_HEADER = """
-<div id="aiko-orb-section">
-  <div id="aiko-orb-wrap">
-    <div id="aiko-orb-ring-outer"></div>
-    <div id="aiko-orb-ring-inner"></div>
-    <div id="aiko-orb"></div>
-  </div>
-  <div id="aiko-greeting">
-    <h2>Hi Oppa! How can I help you today?</h2>
-    <p>AI companion &middot; always here</p>
-  </div>
-</div>
-"""
-
-# ── Setup JS: runs once on page load ─────────────────────────────────────────
-# Handles:
-#   1. Input pill styling (JS class injection — most reliable cross-browser)
-#   2. Exposes window.aikoSetThinking() for orb state
-#   3. Aria-busy watcher as secondary fallback
-SETUP_JS = """
-<script>
-(function() {
-  // ── 1. Orb state controller ─────────────────────────────────────
-  window.aikoSetThinking = function(val) {
-    var wrap = document.getElementById('aiko-orb-wrap');
-    if (!wrap) return;
-    if (val) wrap.classList.add('thinking');
-    else     wrap.classList.remove('thinking');
-  };
-
-  // ── 2. Input pill — JS-inject .aiko-input-pill on the wrapper ───
-  function styleInputPill() {
-    // Walk up from the textarea to find the right wrapper level
-    var ta = document.querySelector('textarea[data-testid="textbox"]');
-    if (!ta) return false;
-
-    // Try parent, grandparent, great-grandparent
-    var el = ta.parentElement;
-    for (var i = 0; i < 4; i++) {
-      if (!el) break;
-      // The wrapper we want contains the textarea AND at least one button
-      if (el.querySelector('button') && el.querySelector('textarea')) {
-        el.classList.add('aiko-input-pill');
-        // Also ensure the textarea's own wrapper has no extra border
-        var innerWrap = ta.parentElement;
-        if (innerWrap && innerWrap !== el) {
-          innerWrap.style.background = 'transparent';
-          innerWrap.style.border     = 'none';
-          innerWrap.style.boxShadow  = 'none';
-        }
-        return true;
-      }
-      el = el.parentElement;
-    }
-    return false;
-  }
-
-  // ── 3. Aria-busy fallback for orb ───────────────────────────────
-  function attachAriaWatcher() {
-    var log = document.querySelector('[role="log"]');
-    if (!log) { setTimeout(attachAriaWatcher, 500); return; }
-    new MutationObserver(function(muts) {
-      muts.forEach(function(m) {
-        if (m.attributeName === 'aria-busy') {
-          window.aikoSetThinking(m.target.getAttribute('aria-busy') === 'true');
-        }
-      });
-    }).observe(log, { attributes: true });
-  }
-
-  // ── 4. Poll for .generating class as secondary orb fallback ─────
-  var lastBotCount = 0;
-  function pollOrb() {
-    var generating = !!document.querySelector('.generating, .progress-bar, .eta-bar');
-    if (generating) {
-      window.aikoSetThinking(true);
-    } else {
-      var bots = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
-      if (bots.length !== lastBotCount) {
-        window.aikoSetThinking(false);
-        lastBotCount = bots.length;
-      }
-    }
-  }
-
-  // ── Boot ─────────────────────────────────────────────────────────
-  function boot() {
-    if (!styleInputPill()) {
-      // Retry until Gradio renders the textarea
-      var attempts = 0;
-      var t = setInterval(function() {
-        if (styleInputPill() || ++attempts > 40) clearInterval(t);
-      }, 250);
-    }
-    attachAriaWatcher();
-    setInterval(pollOrb, 200);
-  }
-
-  if (document.readyState !== 'loading') boot();
-  else document.addEventListener('DOMContentLoaded', boot);
-})();
-</script>
-"""
-
-# ── Chat function ─────────────────────────────────────────────────────────────
 def chat(message, history):
     tokens = []
-
     def _cb(token):
         if token.startswith("__SEARCHING__:"):
             query = token.split(":", 1)[1].strip()
-            tokens.append(f"\n🔍 *Searching: {query}*\n")
+            tokens.append(f"\n\U0001f50d Searching: *{query}*\n")
         else:
             tokens.append(token)
-
     think.chat(message, token_callback=_cb)
     return "".join(tokens)
 
 
-# ── JS fired by Gradio on submit (before Python runs) ────────────────────────
-# This is passed to gr.ChatInterface(js=...) and executes client-side
-# the moment the user submits — giving us reliable orb trigger timing.
-SUBMIT_JS = """
-async (message, history) => {
-    window.aikoSetThinking && window.aikoSetThinking(true);
-    return [message, history];
+# ── dark lavender glassmorphic CSS ────────────────────────────────────────────
+_CSS = """
+html, body {
+    background: #080612 !important;
+    color-scheme: dark !important;
 }
+body, .gradio-container {
+    background: #080612 !important;
+    color: #d4c8f0 !important;
+}
+.gradio-container {
+    max-width: 1200px !important;
+    background:
+        radial-gradient(ellipse 80% 60% at 15% 20%, rgba(91,47,168,0.18) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 85% 80%, rgba(155,127,212,0.10) 0%, transparent 55%),
+        #080612 !important;
+    min-height: 100vh;
+}
+
+/* Force dark on Gradio's theme root vars */
+:root, .dark {
+    --body-background-fill: #080612 !important;
+    --background-fill-primary: #0d0920 !important;
+    --background-fill-secondary: #110d24 !important;
+    --color-accent: #9b7fd4 !important;
+    --neutral-950: #d4c8f0 !important;
+    --neutral-900: #c4b8e0 !important;
+    --neutral-800: #b4a8d0 !important;
+    --neutral-100: #1a1030 !important;
+    --neutral-50: #0d0920 !important;
+    --input-background-fill: rgba(15,10,30,0.85) !important;
+    --input-border-color: rgba(155,127,212,0.3) !important;
+    --chatbot-background: rgba(10,7,20,0.8) !important;
+    --border-color-primary: rgba(155,127,212,0.2) !important;
+    --color-text-body: #d4c8f0 !important;
+    --body-text-color: #d4c8f0 !important;
+    --block-label-text-color: rgba(196,168,255,0.8) !important;
+}
+
+/* Nuke any white panels Gradio injects */
+.app, .wrap, footer,
+.svelte-1ipelgc, .svelte-byatnx,
+[class*="gradio-"] > div,
+.block, .form, .gap, .panel {
+    background: transparent !important;
+    border-color: transparent !important;
+}
+
+/* Chat panel */
+.gradio-container h1 {
+    color: #c4a8ff !important;
+    font-family: 'Georgia', serif !important;
+    letter-spacing: 0.06em !important;
+}
+
+#aiko-chatbot,
+.chatbot,
+[data-testid="chatbot"] {
+    background: rgba(15,10,30,0.65) !important;
+    border: 1px solid rgba(155,127,212,0.2) !important;
+    border-radius: 16px !important;
+    height: 480px !important;
+}
+
+/* Message bubbles */
+.message.user, [data-testid="user"],
+.bubble-wrap.user .bubble {
+    background: rgba(91,47,168,0.35) !important;
+    border: 1px solid rgba(155,127,212,0.25) !important;
+    border-radius: 14px 14px 4px 14px !important;
+    color: #e8deff !important;
+}
+.message.bot, [data-testid="bot"],
+.bubble-wrap.bot .bubble {
+    background: rgba(20,12,42,0.6) !important;
+    border: 1px solid rgba(155,127,212,0.15) !important;
+    border-radius: 14px 14px 14px 4px !important;
+    color: #d4c8f0 !important;
+}
+
+/* Ensure all text inside chatbot is bright enough */
+.chatbot *, [data-testid="chatbot"] * {
+    color: inherit !important;
+}
+.message.user *, .bubble-wrap.user * { color: #e8deff !important; }
+.message.bot *, .bubble-wrap.bot * { color: #d4c8f0 !important; }
+
+/* Input box */
+.gradio-container textarea,
+.gradio-container input[type="text"],
+textarea, input[type="text"] {
+    background: rgba(15,10,30,0.85) !important;
+    border: 1px solid rgba(155,127,212,0.25) !important;
+    border-radius: 12px !important;
+    color: #e8deff !important;
+    caret-color: #9b7fd4 !important;
+}
+textarea:focus, input[type="text"]:focus {
+    border-color: rgba(155,127,212,0.5) !important;
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgba(123,79,212,0.15) !important;
+}
+textarea::placeholder { color: rgba(155,127,212,0.4) !important; }
+
+/* Submit button */
+button[aria-label="Submit"],
+button.submit,
+#component-submit-btn,
+button[type="submit"] {
+    background: linear-gradient(135deg, rgba(91,47,168,0.8), rgba(123,79,212,0.7)) !important;
+    border: 1px solid rgba(155,127,212,0.4) !important;
+    border-radius: 10px !important;
+    color: #f0e8ff !important;
+}
+button[aria-label="Submit"]:hover { background: linear-gradient(135deg, rgba(123,79,212,0.9), rgba(155,127,212,0.8)) !important; }
+
+/* All other buttons and labels */
+.gradio-container button { color: #c4a8ff !important; }
+.gradio-container button:hover { color: #e8deff !important; }
+.gradio-container label,
+.gradio-container .label-wrap span,
+.gradio-container p,
+label, p { color: rgba(196,168,255,0.8) !important; }
+
+/* Scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgba(123,79,212,0.4) rgba(15,10,30,0.3); }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: rgba(15,10,30,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: rgba(123,79,212,0.4); border-radius: 3px; }
+
+#aiko-col { padding: 0 !important; }
+.gradio-container .row { gap: 16px !important; }
 """
 
-
-# ── Layout ────────────────────────────────────────────────────────────────────
-with gr.Blocks(title="Aiko-chan 🌸", css=CSS) as demo:
-
-    # Setup JS (orb controller + input pill styler)
-    gr.HTML(SETUP_JS)
+# ── gradio ui ─────────────────────────────────────────────────────────────────
+with gr.Blocks(title="Aiko-chan \U0001f338", css=_CSS) as demo:
+    gr.HTML(_SPEECH_JS)
 
     with gr.Row():
-        # ── Left: chat column ──────────────────────────────────────────────
         with gr.Column(scale=6):
-
-            # Orb + greeting
-            gr.HTML(ORB_HEADER)
-
-            # Speech JS
-            gr.HTML(SPEECH_JS)
-
-            # Chat interface
-            # js= runs client-side on submit, before the Python fn
             gr.ChatInterface(
                 fn=chat,
-                chatbot=gr.Chatbot(
-                    elem_id="aiko-chatbot",
-                    height=500,
-                    placeholder="",
-                    show_label=False,
-                    layout="bubble",
-                    avatar_images=(None, None),
-                ),
-                textbox=gr.Textbox(
-                    placeholder="Message Aiko...",
-                    show_label=False,
-                    lines=1,
-                    max_lines=6,
-                    submit_btn=True,
-                    stop_btn=True,
-                    container=False,
-                ),
-                title=None,
-                fill_height=False,
+                title="Aiko-chan \U0001f338",
+                chatbot=gr.Chatbot(elem_id="aiko-chatbot"),
             )
-
-        # ── Right: VRM viewer column ───────────────────────────────────────
         with gr.Column(scale=4, elem_id="aiko-col"):
-            gr.HTML(VRM_VIEWER)
-
+            gr.HTML(_VRM_VIEWER)
 
 demo.launch(
     server_name="0.0.0.0",
     server_port=7860,
     ssr_mode=False,
-    share=False,
-    allowed_paths=["static"],
+    share=False,   # HF Spaces handles routing; share=True only needed for local tunneling
 )
