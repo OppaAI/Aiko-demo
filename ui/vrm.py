@@ -192,6 +192,19 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let exprResetTimer = null;
     const EXPR_RESET_DELAY = 4000;
 
+    // --- Idle procedural animation ---
+    // Same parade-rest baseline used by aiko.html, with tiny sine offsets so the
+    // avatar breathes and weight-shifts instead of staying in the loader T-pose.
+    let idleTime = 0;
+    const REST = window._REST = {{
+      leftUpperArm: {{ x: -1.1, z: -0.6 }},
+      rightUpperArm: {{ x: -1.1, z: 0.6 }},
+      leftLowerArm: {{ x: -0.5, z: -0.4 }},
+      rightLowerArm: {{ x: -0.5, z: 0.4 }},
+      leftHand: {{ y: 0.4 }},
+      rightHand: {{ y: -0.4 }},
+    }};
+
     const dot = document.getElementById('dot');
     const statusText = document.getElementById('status-text');
     const emotion = document.getElementById('emotion');
@@ -254,6 +267,69 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       statusText.textContent = speaking ? 'speaking' : 'idle';
       setExpression(speaking ? 'happy' : 'relaxed', speaking ? 0.55 : 0.25);
       if (!speaking) clearMouth();
+    }}
+
+    function getBone(name) {{
+      const humanoid = vrm?.humanoid;
+      if (!humanoid) return null;
+      return humanoid.getRawBoneNode?.(name) || humanoid.getNormalizedBoneNode?.(name) || null;
+    }}
+
+    function applyIdle(dt) {{
+      if (!vrm?.humanoid) return;
+      idleTime += dt;
+
+      const breath = Math.sin(idleTime * 0.83) * 0.013;
+      const chest = getBone('chest');
+      const spine = getBone('spine');
+      if (chest) chest.rotation.x = breath;
+      if (spine) spine.rotation.x = breath * 0.5;
+
+      const hips = getBone('hips');
+      if (hips) {{
+        hips.rotation.z = Math.sin(idleTime * 0.41) * 0.012;
+        hips.rotation.x = Math.sin(idleTime * 0.67) * 0.008;
+        hips.position.x = Math.sin(idleTime * 0.41) * 0.003;
+      }}
+
+      const head = getBone('head');
+      if (head) {{
+        head.rotation.y = Math.sin(idleTime * 0.31) * 0.055 + Math.sin(idleTime * 1.13) * 0.012;
+        head.rotation.z = Math.sin(idleTime * 0.27 + 1.1) * 0.018 + Math.sin(idleTime * 0.71) * 0.006;
+        head.rotation.x = Math.sin(idleTime * 0.53) * 0.012;
+      }}
+
+      const neck = getBone('neck');
+      if (neck && head) {{
+        neck.rotation.y = head.rotation.y * 0.3;
+        neck.rotation.z = head.rotation.z * 0.3;
+      }}
+
+      const leftUpperArm = getBone('leftUpperArm');
+      const rightUpperArm = getBone('rightUpperArm');
+      const leftLowerArm = getBone('leftLowerArm');
+      const rightLowerArm = getBone('rightLowerArm');
+      const leftHand = getBone('leftHand');
+      const rightHand = getBone('rightHand');
+
+      if (leftUpperArm) {{
+        leftUpperArm.rotation.x = REST.leftUpperArm.x + Math.sin(idleTime * 0.47) * 0.012;
+        leftUpperArm.rotation.z = REST.leftUpperArm.z + Math.sin(idleTime * 0.41) * 0.008;
+      }}
+      if (rightUpperArm) {{
+        rightUpperArm.rotation.x = REST.rightUpperArm.x + Math.sin(idleTime * 0.53 + 0.9) * 0.012;
+        rightUpperArm.rotation.z = REST.rightUpperArm.z + Math.sin(idleTime * 0.37 + 0.7) * 0.008;
+      }}
+      if (leftLowerArm) {{
+        leftLowerArm.rotation.x = REST.leftLowerArm.x + Math.sin(idleTime * 0.61) * 0.010;
+        leftLowerArm.rotation.z = REST.leftLowerArm.z + Math.sin(idleTime * 0.43) * 0.006;
+      }}
+      if (rightLowerArm) {{
+        rightLowerArm.rotation.x = REST.rightLowerArm.x + Math.sin(idleTime * 0.57 + 1.4) * 0.010;
+        rightLowerArm.rotation.z = REST.rightLowerArm.z + Math.sin(idleTime * 0.51 + 0.5) * 0.006;
+      }}
+      if (leftHand) leftHand.rotation.y = REST.leftHand.y + Math.sin(idleTime * 0.33) * 0.008;
+      if (rightHand) rightHand.rotation.y = REST.rightHand.y + Math.sin(idleTime * 0.29 + 1.2) * 0.008;
     }}
 
     function applyBlink(dt) {{
@@ -345,12 +421,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       resize();
       const dt = Math.min(clock.getDelta(), 0.05);
       controls.update();
+      if (vrm) vrm.update(dt);
+      applyIdle(dt);
       if (speaking) {{
         mouth = 0.12 + Math.abs(Math.sin(performance.now() / 110)) * 0.65;
         setMouth(mouth, 'aa');
       }}
       applyBlink(dt);
-      if (vrm) vrm.update(dt);
       renderer.render(scene, camera);
     }}
     tick();
