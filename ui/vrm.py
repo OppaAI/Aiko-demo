@@ -229,45 +229,52 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     function applyIdle(dt) {{
       if (!vrm?.humanoid) return;
       idleTime += dt;
+      const t = idleTime;
 
-      const chest = rawBone('chest');
-      const spine = rawBone('spine');
-      const breath = Math.sin(idleTime * 0.83) * 0.013;
-      if (chest) chest.rotation.x = breath;
-      if (spine) spine.rotation.x = breath * 0.5;
-
-      const hips = rawBone('hips');
-      if (hips) {{
-        hips.rotation.z = Math.sin(idleTime * 0.41) * 0.012;
-        hips.rotation.x = Math.sin(idleTime * 0.67) * 0.008;
-        hips.position.x = Math.sin(idleTime * 0.41) * 0.003;
+      // VRM1: use setNormalizedPose() so rotations survive vrm.update().
+      // Rotations are quaternions expressed as {{x,y,z,w}}; we build them
+      // from small Euler angles using the small-angle approximation (sin≈angle).
+      function eq(rx=0, ry=0, rz=0) {{
+        // Euler XYZ → quaternion (small angles, no gimbal concern here)
+        const cx=Math.cos(rx/2), sx=Math.sin(rx/2);
+        const cy=Math.cos(ry/2), sy=Math.sin(ry/2);
+        const cz=Math.cos(rz/2), sz=Math.sin(rz/2);
+        return {{
+          x: sx*cy*cz + cx*sy*sz,
+          y: cx*sy*cz - sx*cy*sz,
+          z: cx*cy*sz + sx*sy*cz,
+          w: cx*cy*cz - sx*sy*sz,
+        }};
       }}
 
-      const head = rawBone('head');
-      if (head) {{
-        head.rotation.y = Math.sin(idleTime * 0.31) * 0.055 + Math.sin(idleTime * 1.13) * 0.012;
-        head.rotation.z = Math.sin(idleTime * 0.27 + 1.1) * 0.018 + Math.sin(idleTime * 0.71) * 0.006;
-        head.rotation.x = Math.sin(idleTime * 0.53) * 0.012;
-      }}
+      const breath = Math.sin(t * 0.83) * 0.013;
+      const sway   = Math.sin(t * 0.41) * 0.012;
+      const rock   = Math.sin(t * 0.67) * 0.008;
+      const headY  = Math.sin(t * 0.31) * 0.055 + Math.sin(t * 1.13) * 0.012;
+      const headZ  = Math.sin(t * 0.27 + 1.1) * 0.018 + Math.sin(t * 0.71) * 0.006;
+      const headX  = Math.sin(t * 0.53) * 0.012;
 
-      const neck = rawBone('neck');
-      if (neck && head) {{
-        neck.rotation.y = head.rotation.y * 0.3;
-        neck.rotation.z = head.rotation.z * 0.3;
-      }}
+      // Arms: VRM1 normalised space — z brings arm down (left=+z, right=-z)
+      const luaZ = REST.leftUpperArm.z  + Math.sin(t * 0.41) * 0.008;
+      const ruaZ = REST.rightUpperArm.z + Math.sin(t * 0.37 + 0.7) * 0.008;
+      const luaX = REST.leftUpperArm.x  + Math.sin(t * 0.47) * 0.012;
+      const ruaX = REST.rightUpperArm.x + Math.sin(t * 0.53 + 0.9) * 0.012;
+      const llaX = REST.leftLowerArm.x  + Math.sin(t * 0.61) * 0.010;
+      const rlaX = REST.rightLowerArm.x + Math.sin(t * 0.57 + 1.4) * 0.010;
 
-      const lUA = rawBone('leftUpperArm');
-      const rUA = rawBone('rightUpperArm');
-      const lLA = rawBone('leftLowerArm');
-      const rLA = rawBone('rightLowerArm');
-      const lH  = rawBone('leftHand');
-      const rH  = rawBone('rightHand');
-      if (lUA) {{ lUA.rotation.x = REST.leftUpperArm.x  + Math.sin(idleTime * 0.47) * 0.012; lUA.rotation.z = REST.leftUpperArm.z  + Math.sin(idleTime * 0.41) * 0.008; }}
-      if (rUA) {{ rUA.rotation.x = REST.rightUpperArm.x + Math.sin(idleTime * 0.53 + 0.9) * 0.012; rUA.rotation.z = REST.rightUpperArm.z + Math.sin(idleTime * 0.37 + 0.7) * 0.008; }}
-      if (lLA) {{ lLA.rotation.x = REST.leftLowerArm.x  + Math.sin(idleTime * 0.61) * 0.010; lLA.rotation.z = REST.leftLowerArm.z  + Math.sin(idleTime * 0.43) * 0.006; }}
-      if (rLA) {{ rLA.rotation.x = REST.rightLowerArm.x + Math.sin(idleTime * 0.57 + 1.4) * 0.010; rLA.rotation.z = REST.rightLowerArm.z + Math.sin(idleTime * 0.51 + 0.5) * 0.006; }}
-      if (lH) lH.rotation.y = REST.leftHand.y  + Math.sin(idleTime * 0.33) * 0.008;
-      if (rH) rH.rotation.y = REST.rightHand.y + Math.sin(idleTime * 0.29 + 1.2) * 0.008;
+      vrm.humanoid.setNormalizedPose({{
+        hips:          {{ rotation: eq(rock, 0, sway) }},
+        spine:         {{ rotation: eq(breath * 0.5) }},
+        chest:         {{ rotation: eq(breath) }},
+        neck:          {{ rotation: eq(headX * 0.3, headY * 0.3, headZ * 0.3) }},
+        head:          {{ rotation: eq(headX, headY, headZ) }},
+        leftUpperArm:  {{ rotation: eq(luaX, 0, luaZ) }},
+        rightUpperArm: {{ rotation: eq(ruaX, 0, ruaZ) }},
+        leftLowerArm:  {{ rotation: eq(llaX) }},
+        rightLowerArm: {{ rotation: eq(rlaX) }},
+        leftHand:      {{ rotation: eq(0, Math.sin(t * 0.33) * 0.008) }},
+        rightHand:     {{ rotation: eq(0, Math.sin(t * 0.29 + 1.2) * 0.008) }},
+      }});
     }}
 
     function applyBlink(dt) {{
@@ -401,14 +408,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       log.textContent = url;
       loader.load(url, gltf => {{
         vrm = gltf.userData.vrm;
-        // DEBUG — open browser devtools console to read this
-        console.log(`[aiko] VRM meta version: ${{vrm.meta?.metaVersion ?? vrm.meta?.version ?? "unknown"}}`);
-        const _dbones = ["hips","spine","chest","neck","head","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand"];
-        for (const _n of _dbones) {{
-          const _r = vrm.humanoid?.getRawBoneNode(_n);
-          const _norm = vrm.humanoid?.getNormalizedBoneNode(_n);
-          console.log(`[bone] ${{_n.padEnd(20)}} raw=${{_r ? _r.name : "NULL"}}  norm=${{_norm ? _norm.name : "NULL"}}`);
-        }}
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
         vrm.scene.rotation.y = Math.PI;
@@ -446,9 +445,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }}
       setMouth(mouth);
 
+      if (vrm) vrm.update(dt);
       applyIdle(dt);
       applyBlink(dt);
-      if (vrm) vrm.update(dt);
       renderer.render(scene, camera);
     }}
     tick();
