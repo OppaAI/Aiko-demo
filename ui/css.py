@@ -6,18 +6,18 @@ CSS = """
 /* ── Keyframes ── */
 @keyframes orb-idle {
     0%, 100% {
-        box-shadow: 0 0 22px rgba(160,120,255,0.30), 0 0 6px rgba(160,120,255,0.15);
+        box-shadow: 0 0 22px rgba(0,180,180,0.30), 0 0 6px rgba(0,180,180,0.15);
     }
     50% {
-        box-shadow: 0 0 36px rgba(160,120,255,0.48), 0 0 12px rgba(160,120,255,0.25);
+        box-shadow: 0 0 36px rgba(0,180,180,0.48), 0 0 12px rgba(0,180,180,0.25);
     }
 }
 @keyframes orb-thinking {
-    0%   { box-shadow: 0 0 18px rgba(200,160,255,0.40), 0 0 6px rgba(200,160,255,0.20); transform: scale(1);    }
-    25%  { box-shadow: 0 0 52px rgba(200,160,255,0.75), 0 0 20px rgba(200,160,255,0.45); transform: scale(1.06); }
-    50%  { box-shadow: 0 0 32px rgba(200,160,255,0.55), 0 0 10px rgba(200,160,255,0.30); transform: scale(0.97); }
-    75%  { box-shadow: 0 0 58px rgba(200,160,255,0.80), 0 0 22px rgba(200,160,255,0.50); transform: scale(1.08); }
-    100% { box-shadow: 0 0 18px rgba(200,160,255,0.40), 0 0 6px rgba(200,160,255,0.20); transform: scale(1);    }
+    0%   { box-shadow: 0 0 18px rgba(0,230,230,0.50), 0 0 6px rgba(0,230,230,0.25);  transform: scale(1);    }
+    25%  { box-shadow: 0 0 60px rgba(0,240,240,0.90), 0 0 24px rgba(0,240,240,0.55); transform: scale(1.06); }
+    50%  { box-shadow: 0 0 36px rgba(0,230,230,0.65), 0 0 12px rgba(0,230,230,0.38); transform: scale(0.97); }
+    75%  { box-shadow: 0 0 68px rgba(0,245,245,0.95), 0 0 28px rgba(0,245,245,0.60); transform: scale(1.08); }
+    100% { box-shadow: 0 0 18px rgba(0,230,230,0.50), 0 0 6px rgba(0,230,230,0.25);  transform: scale(1);    }
 }
 @keyframes orb-ring {
     0%   { transform: scale(1);    opacity: 0.30; }
@@ -34,7 +34,7 @@ CSS = """
     40%           { transform: translateY(-6px); opacity: 1;   }
 }
 
-/* ── Root vars — lavender theme ── */
+/* ── Root vars ── */
 :root {
     --ak-bg:          #0a0812;
     --ak-surface:     #100e1c;
@@ -46,10 +46,16 @@ CSS = """
     --ak-lav-glow:    rgba(160,120,255,0.30);
     --ak-text:        #e8e0ff;
     --ak-text-muted:  rgba(200,185,255,0.42);
-    --ak-user-bg:     rgba(120,80,220,0.26);
-    --ak-user-border: rgba(170,130,255,0.28);
-    --ak-bot-bg:      rgba(255,255,255,0.045);
-    --ak-bot-border:  rgba(160,120,255,0.18);
+
+    /* ── Swapped bubble colours ──────────────────────────────────────
+       User  → dark cyan  (was purple)
+       Bot   → purple     (was near-white/transparent)
+    ───────────────────────────────────────────────────────────────── */
+    --ak-user-bg:     rgba(0,100,100,0.38);
+    --ak-user-border: rgba(0,180,180,0.35);
+    --ak-bot-bg:      rgba(120,80,220,0.26);
+    --ak-bot-border:  rgba(170,130,255,0.28);
+
     --ak-radius:      16px;
 }
 
@@ -181,23 +187,24 @@ div[data-testid="block"] > div,
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    border: 1px solid rgba(160,120,255,0.20);
+    border: 1px solid rgba(0,160,160,0.22);
     animation: orb-ring 3.8s ease-in-out infinite;
 }
 #aiko-orb-ring-inner {
     position: absolute;
     inset: 15px;
     border-radius: 50%;
-    border: 1px solid rgba(160,120,255,0.30);
+    border: 1px solid rgba(0,180,180,0.32);
     animation: orb-ring 3.8s ease-in-out infinite 0.6s;
 }
 
-/* Idle state */
+/* ── Orb: dark cyan idle ── */
 #aiko-orb {
     width: 68px;
     height: 68px;
     border-radius: 50%;
-    background: radial-gradient(circle at 38% 34%, #d4aaff, #7040c8 52%, #1a0840);
+    /* Dark teal/cyan — deep at centre, dark at edge */
+    background: radial-gradient(circle at 38% 34%, #40c8c8, #006868 52%, #001a1a);
     animation: orb-idle 3.2s ease-in-out infinite;
     position: relative;
     z-index: 1;
@@ -213,18 +220,19 @@ div[data-testid="block"] > div,
     transform: rotate(-30deg);
 }
 
-/* Thinking state */
+/* ── Orb: light cyan glowing thinking ── */
 #aiko-orb-wrap.thinking #aiko-orb {
-    background: radial-gradient(circle at 38% 34%, #f0d0ff, #9050e0 45%, #2a0860) !important;
+    /* Bright cyan core → pale at edges — clearly "lit up" */
+    background: radial-gradient(circle at 38% 34%, #e0ffff, #00d4d4 45%, #004444) !important;
     animation: orb-thinking 1.1s ease-in-out infinite !important;
 }
 #aiko-orb-wrap.thinking #aiko-orb-ring-outer {
     animation: orb-ring-fast 0.9s ease-in-out infinite !important;
-    border-color: rgba(200,150,255,0.45) !important;
+    border-color: rgba(0,210,210,0.55) !important;
 }
 #aiko-orb-wrap.thinking #aiko-orb-ring-inner {
     animation: orb-ring-fast 0.9s ease-in-out infinite 0.2s !important;
-    border-color: rgba(200,150,255,0.55) !important;
+    border-color: rgba(0,230,230,0.65) !important;
 }
 
 #aiko-greeting {
@@ -270,27 +278,30 @@ div[data-testid="block"] > div,
     box-shadow: none !important;
 }
 
-/* User bubble */
+/* User bubble — dark cyan */
 #aiko-chatbot [data-testid="user"] {
     background: var(--ak-user-bg) !important;
     border: 1px solid var(--ak-user-border) !important;
     border-radius: 16px 4px 16px 16px !important;
-    color: rgba(230,215,255,0.92) !important;
+    color: rgba(200,255,255,0.92) !important;
     margin-left: auto !important;
     margin-right: 6px !important;
 }
 
-/* Bot bubble — outermost element only */
+/* Bot bubble — purple (was user's colour) */
 #aiko-chatbot [data-testid="bot"] {
     background: var(--ak-bot-bg) !important;
     border: 1px solid var(--ak-bot-border) !important;
     border-radius: 4px 16px 16px 16px !important;
-    color: rgba(220,210,255,0.88) !important;
+    color: rgba(230,215,255,0.92) !important;
     margin-right: auto !important;
     margin-left: 6px !important;
 }
 
-/* Punch through every Gradio 5 inner wrapper inside bot bubble */
+/* ── Transparent inner wrappers — bubble colour shows through ──
+   Every Gradio 5 inner div must be transparent so the outer
+   bubble background is the only visible background.
+─────────────────────────────────────────────────────────────── */
 #aiko-chatbot [data-testid="bot"] > div,
 #aiko-chatbot [data-testid="bot"] > div > div,
 #aiko-chatbot [data-testid="bot"] > div > div > div,
@@ -298,33 +309,31 @@ div[data-testid="block"] > div,
 #aiko-chatbot [data-testid="bot"] .prose > *,
 #aiko-chatbot [data-testid="bot"] .message,
 #aiko-chatbot [data-testid="bot"] .message > div,
+#aiko-chatbot [data-testid="user"] > div,
+#aiko-chatbot [data-testid="user"] > div > div,
+#aiko-chatbot [data-testid="user"] .prose,
+#aiko-chatbot [data-testid="user"] .message,
 #aiko-chatbot .bubble-wrap,
 #aiko-chatbot .bubble-wrap > div,
 #aiko-chatbot .wrap.svelte-byatnx,
 #aiko-chatbot .wrap {
     background: transparent !important;
+    background-color: transparent !important;
     border: none !important;
     box-shadow: none !important;
 }
 
-/* User bubble inner wrappers */
-#aiko-chatbot [data-testid="user"] > div,
-#aiko-chatbot [data-testid="user"] > div > div,
-#aiko-chatbot [data-testid="user"] .prose,
-#aiko-chatbot [data-testid="user"] .message {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
-/* Text colour inside bubbles */
+/* Text colour inside user bubble */
 #aiko-chatbot [data-testid="user"],
 #aiko-chatbot [data-testid="user"] * {
-    color: rgba(230,215,255,0.92) !important;
+    color: rgba(200,255,255,0.92) !important;
 }
+
+/* Text colour inside bot bubble — all regular weight, no italic */
 #aiko-chatbot [data-testid="bot"],
 #aiko-chatbot [data-testid="bot"] * {
-    color: rgba(220,210,255,0.88) !important;
+    color: rgba(230,215,255,0.92) !important;
+    font-style: normal !important;
 }
 
 /* Last-resort: kill any inline background-color style Gradio injects */
@@ -334,10 +343,10 @@ div[data-testid="block"] > div,
     background-color: transparent !important;
 }
 
-/* Italic search status */
+/* Search status line — styled but NOT italic */
 #aiko-chatbot [data-testid="bot"] em {
     color: var(--ak-lav) !important;
-    font-style: italic !important;
+    font-style: normal !important;
     font-size: 0.80rem !important;
     display: block !important;
     margin-bottom: 6px !important;
@@ -349,7 +358,7 @@ div[data-testid="block"] > div,
 #aiko-chatbot .dot  {
     width: 6px !important; height: 6px !important;
     border-radius: 50% !important;
-    background: rgba(180,142,255,0.65) !important;
+    background: rgba(0,200,200,0.65) !important;
     animation: dot-bounce 1.3s ease-in-out infinite !important;
 }
 #aiko-chatbot .dot:nth-child(2) { animation-delay: 0.16s !important; }
@@ -423,10 +432,10 @@ div[data-testid="block"] > div,
 #aiko-col { padding: 0 0 0 12px !important; }
 
 /* ── Scrollbars ── */
-* { scrollbar-width: thin; scrollbar-color: rgba(160,120,255,0.22) transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgba(0,160,160,0.22) transparent; }
 ::-webkit-scrollbar       { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(160,120,255,0.22); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: rgba(0,160,160,0.22); border-radius: 2px; }
 
 /* ── General text ── */
 .gradio-container p,
