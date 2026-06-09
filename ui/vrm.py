@@ -24,7 +24,7 @@ def gradio_file_urls(path: Path) -> list[str]:
     """Build Gradio file-serving URL candidates for an allowed local path.
 
     Gradio 5/6 serves files from /gradio_api/file=<path>, while older builds
-    accepted /file=<path>.  Returning both lets the browser retry instead of
+    accepted /file=<path>. Returning both lets the browser retry instead of
     showing a silent VRM failure when the Space runtime changes.
     """
     encoded_path = quote(path.as_posix(), safe="/:")
@@ -41,7 +41,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     The iframe keeps module scripts/import maps isolated from Gradio's own DOM,
     then watches the parent gr.Audio element (#aiko-audio) to drive simple
-    amplitude-based lip sync while Edge TTS MP3 playback is active.
+    amplitude-style lip sync while Edge TTS MP3 playback is active.
+
+    The mouth is driven through VRM expression presets first (aa/ih/ou/ee/oh),
+    because many VRM avatars do not expose a normalized ``jaw`` bone. A jaw-bone
+    rotation is used only as an optional fallback.
 
     Expression/viseme control is via postMessage (works in HF Spaces):
         parent.frames['aiko-vrm-frame'].postMessage({expression:'happy',intensity:0.8}, '*')
@@ -112,7 +116,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     <div id=\"bottom\"><div id=\"emotion\">neutral</div><div id=\"log\">waiting for Aiko's voice…</div></div>
   </div>
   <div id=\"loader\"><h1>Aiko-chan</h1><p id=\"load-msg\">loading VRM…</p></div>
-
   <script type=\"module\">
     import * as THREE from 'three';
     import {{ OrbitControls }} from 'three/addons/controls/OrbitControls.js';
@@ -120,11 +123,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     import {{ VRMLoaderPlugin, VRMUtils }} from '@pixiv/three-vrm';
 
     const RAW_VRM_URLS = {vrm_urls!r};
+    const VISEME_MAP = {{ A: 'aa', I: 'ih', U: 'ou', E: 'ee', O: 'oh' }};
+    const VISEME_PRESETS = ['aa', 'ih', 'ou', 'ee', 'oh'];
 
-    function withTrailingSlash(url) {{
-      return url.endsWith('/') ? url : url + '/';
-    }}
-
+    function withTrailingSlash(url) {{ return url.endsWith('/') ? url : url + '/'; }}
     function buildVrmUrls(rawUrls) {{
       const urls = [];
       let parentHref = null;
@@ -169,7 +171,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     controls.minDistance = 1.4;
     controls.maxDistance = 4.2;
 
-    // Lighting
     scene.add(new THREE.HemisphereLight(0xded4ff, 0x21182f, 2.4));
     const key = new THREE.DirectionalLight(0xffffff, 2.7);
     key.position.set(1.8, 3.0, 2.5);
@@ -177,71 +178,34 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     const rim = new THREE.DirectionalLight(0x9b7cff, 1.5);
     rim.position.set(-2.5, 1.4, -1.2);
     scene.add(rim);
-
-    // Grid (from standalone viewer)
     scene.add(new THREE.GridHelper(10, 20, 0x1a0a2a, 0x100820));
 
     let vrm = null;
     let mouth = 0;
     let speaking = false;
     const clock = new THREE.Clock();
-
     let blinkTimer = 3.0 + Math.random() * 4.0;
     let blinkPhase = 'wait';
     let blinkT = 0;
     const BLINK_CLOSE_DUR = 0.07;
     const BLINK_OPEN_DUR = 0.10;
-
-
-    // Expression state for postMessage control
-    const exprTargets = {{}};
-    const exprCurrent = {{}};
-    const EXPR_LERP = 6;
     let exprResetTimer = null;
     const EXPR_RESET_DELAY = 4000;
-    const VISEME_MAP = {{ A: 'aa', I: 'ih', U: 'ou', E: 'ee', O: 'oh' }};
 
-    function nextBlinkWait() {{
-      return 3.0 + Math.random() * 4.0;
-    }}
-
-    function rawBone(name) {{
-      // getNormalizedBoneNode is the correct API for applying rotations in VRM v3;
-      // getRawBoneNode returns the bind-pose node which gets overwritten each update.
-      try {{
-        return vrm?.humanoid?.getNormalizedBoneNode(name) || null;
-      }} catch {{ return null; }}
-    }}
-
-    // Bone animation removed — VRM1 autoUpdateHumanBones resets poses every frame
-    // and the workaround causes the model to disappear. Expressions + blinks work fine.
-    function applyIdle(dt) {{}}
-
-    function applyBlink(dt) {{
-      if (!vrm?.expressionManager) return;
-      const em = vrm.expressionManager;
-      if (blinkPhase === 'wait') {{
-        blinkTimer -= dt;
-        if (blinkTimer <= 0) {{ blinkPhase = 'closing'; blinkT = 0; }}
-      }} else if (blinkPhase === 'closing') {{
-        blinkT += dt;
-        try {{ em.setValue('blink', Math.min(blinkT / BLINK_CLOSE_DUR, 1)); }} catch {{}}
-        if (blinkT >= BLINK_CLOSE_DUR) {{ blinkPhase = 'opening'; blinkT = 0; }}
-      }} else if (blinkPhase === 'opening') {{
-        blinkT += dt;
-        try {{ em.setValue('blink', 1 - Math.min(blinkT / BLINK_OPEN_DUR, 1)); }} catch {{}}
-        if (blinkT >= BLINK_OPEN_DUR) {{
-          blinkPhase = 'wait';
-          blinkTimer = nextBlinkWait();
-          try {{ em.setValue('blink', 0); }} catch {{}}
-        }}
-      }}
-    }}
-
-    const dot        = document.getElementById('dot');
+    const dot = document.getElementById('dot');
     const statusText = document.getElementById('status-text');
-    const emotion    = document.getElementById('emotion');
-    const log        = document.getElementById('log');
+    const emotion = document.getElementById('emotion');
+    const log = document.getElementById('log');
+
+    function nextBlinkWait() {{ return 3.0 + Math.random() * 4.0; }}
+    function expressionNames() {{
+      const expressions = vrm?.expressionManager?.expressions ?? [];
+      return expressions.map((expr) => expr.expressionName ?? expr.name).filter(Boolean);
+    }}
+    function hasExpression(name) {{ return expressionNames().includes(name); }}
+    function safeSetExpression(name, weight) {{
+      try {{ vrm?.expressionManager?.setValue(name, weight); }} catch (_) {{}}
+    }}
 
     function resize() {{
       const w = Math.max(1, canvas.clientWidth);
@@ -254,39 +218,68 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function setExpression(name, weight = 1) {{
       if (!vrm?.expressionManager) return;
-      const em = vrm.expressionManager;
       for (const key of ['happy', 'relaxed', 'angry', 'sad', 'surprised']) {{
-        try {{ em.setValue(key, key === name ? weight : 0); }} catch {{}}
+        safeSetExpression(key, key === name ? weight : 0);
       }}
       emotion.textContent = name || 'neutral';
     }}
 
-    function setMouth(weight) {
+    function setMouth(weight, viseme = 'aa') {{
       if (!vrm) return;
-      const em = vrm.expressionManager;
-      if (!em) return;
-      try {{
-        em.setValue('aa', Math.max(0, Math.min(1, weight)));
-      }} catch (_) {{}}
-    }
+      const clamped = Math.max(0, Math.min(1, Number(weight) || 0));
+      const preset = VISEME_MAP[viseme] ?? viseme ?? 'aa';
+      let usedExpression = false;
 
-    function setSpeaking(active) {{
-      speaking = active;
-      dot.className = active ? 'speaking' : '';
-      statusText.textContent = active ? 'speaking' : 'idle';
-      setExpression(active ? 'happy' : 'relaxed', active ? 0.55 : 0.25);
-      if (!active) setMouth(0);
+      if (vrm.expressionManager) {{
+        for (const key of VISEME_PRESETS) {{
+          if (hasExpression(key)) {{
+            safeSetExpression(key, key === preset ? clamped : 0);
+            usedExpression = true;
+          }}
+        }}
+      }}
+
+      // Fallback only: many VRMs do not expose a normalized jaw bone.
+      if (!usedExpression) {{
+        const jaw = vrm.humanoid?.getNormalizedBoneNode?.('jaw') || vrm.humanoid?.getRawBoneNode?.('jaw');
+        if (jaw) jaw.rotation.x = clamped * 0.5;
+      }}
     }}
 
-    // Lip sync: parent.document access works in HF Spaces (srcdoc + allow-same-origin).
-    // We skip AudioContext/analyser (cross-frame MediaElementSource is blocked)
-    // and drive mouth with a sine fallback while audio is playing.
-    let lastAudio = null;
+    function clearMouth() {{ setMouth(0, 'aa'); }}
 
+    function setSpeaking(active) {{
+      speaking = Boolean(active);
+      dot.className = speaking ? 'speaking' : '';
+      statusText.textContent = speaking ? 'speaking' : 'idle';
+      setExpression(speaking ? 'happy' : 'relaxed', speaking ? 0.55 : 0.25);
+      if (!speaking) clearMouth();
+    }}
+
+    function applyBlink(dt) {{
+      if (!vrm?.expressionManager) return;
+      if (blinkPhase === 'wait') {{
+        blinkTimer -= dt;
+        if (blinkTimer <= 0) {{ blinkPhase = 'closing'; blinkT = 0; }}
+      }} else if (blinkPhase === 'closing') {{
+        blinkT += dt;
+        safeSetExpression('blink', Math.min(blinkT / BLINK_CLOSE_DUR, 1));
+        if (blinkT >= BLINK_CLOSE_DUR) {{ blinkPhase = 'opening'; blinkT = 0; }}
+      }} else if (blinkPhase === 'opening') {{
+        blinkT += dt;
+        safeSetExpression('blink', 1 - Math.min(blinkT / BLINK_OPEN_DUR, 1));
+        if (blinkT >= BLINK_OPEN_DUR) {{
+          blinkPhase = 'wait';
+          blinkTimer = nextBlinkWait();
+          safeSetExpression('blink', 0);
+        }}
+      }}
+    }}
+
+    let lastAudio = null;
     function findParentAudio() {{
       try {{ return parent.document.querySelector('#aiko-audio audio'); }} catch {{ return null; }}
     }}
-
     function attachAudio(audio) {{
       if (!audio || audio === lastAudio) return;
       lastAudio = audio;
@@ -295,32 +288,23 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       audio.addEventListener('pause', () => setSpeaking(false));
       audio.addEventListener('ended', () => setSpeaking(false));
     }}
-
     setInterval(() => attachAudio(findParentAudio()), 700);
 
-    // postMessage API — works across iframe boundary in HF Spaces
-    // Usage from parent page:
-    //   iframe.contentWindow.postMessage({{expression:'happy', intensity:0.8}}, '*')
-    //   iframe.contentWindow.postMessage({{viseme:'A', weight:0.6}}, '*')
     window.addEventListener('message', (e) => {{
       try {{
         const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
         if (msg.speaking !== undefined) setSpeaking(msg.speaking);
         if (msg.expression !== undefined) {{
           setExpression(msg.expression, msg.intensity ?? 1.0);
-          emotion.textContent = msg.expression || 'neutral';
           clearTimeout(exprResetTimer);
           if (msg.expression && msg.expression !== 'neutral') {{
             exprResetTimer = setTimeout(() => setExpression('relaxed', 0.25), EXPR_RESET_DELAY);
           }}
         }}
         if (msg.viseme !== undefined) {{
-          const v = VISEME_MAP[msg.viseme] ?? msg.viseme;
-          if (vrm?.expressionManager) {{
-            for (const k of ['aa','ih','ou','ee','oh']) {{
-              try {{ vrm.expressionManager.setValue(k, k === v ? (msg.weight ?? 1.0) : 0); }} catch {{}}
-            }}
-          }}
+          setMouth(msg.weight ?? 1.0, msg.viseme);
+          clearTimeout(window._aikoMouthTimer);
+          window._aikoMouthTimer = setTimeout(clearMouth, 180);
         }}
       }} catch (_) {{}}
     }});
@@ -339,14 +323,14 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       log.textContent = url;
       loader.load(url, gltf => {{
         vrm = gltf.userData.vrm;
+        window._aikoVrm = vrm;
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
         vrm.scene.rotation.y = Math.PI;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
-
+        log.textContent = `loaded: Aiko.vrm; mouth presets: ${{expressionNames().filter(n => VISEME_PRESETS.includes(n)).join(', ') || 'none, using jaw fallback'}}`;
         document.getElementById('load-msg').textContent = 'ready';
-        log.textContent = 'loaded: Aiko.vrm';
         document.getElementById('loader').classList.add('fade');
         setTimeout(() => document.getElementById('loader').remove(), 550);
       }}, undefined, err => {{
@@ -354,29 +338,19 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         loadVrm(index + 1);
       }});
     }}
-
     loadVrm();
-    setSpeaking(true); 
 
     function tick() {{
       requestAnimationFrame(tick);
       resize();
-      const dt = clock.getDelta();
+      const dt = Math.min(clock.getDelta(), 0.05);
       controls.update();
-
-        mouth =
-          0.12 +
-          Math.abs(
-            Math.sin(performance.now() / 110)
-          ) * 0.65;
-        
-        if (vrm) {{
-            vrm.update(dt);
-        }}
-        
-        setMouth(mouth);
-      applyIdle(dt);
+      if (speaking) {{
+        mouth = 0.12 + Math.abs(Math.sin(performance.now() / 110)) * 0.65;
+        setMouth(mouth, 'aa');
+      }}
       applyBlink(dt);
+      if (vrm) vrm.update(dt);
       renderer.render(scene, camera);
     }}
     tick();
