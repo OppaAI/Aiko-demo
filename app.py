@@ -4,6 +4,7 @@ load_dotenv()
 import gradio as gr
 from core.wakeup import AikoWakeup
 from ui.css import AIKO_CSS
+from ui.speech import speak_to_array
 
 result = AikoWakeup(text_mode=True).boot(
     on_loading=lambda k: print(f"[boot] loading: {k}"),
@@ -26,17 +27,26 @@ def chat(message, history):
         else:
             tokens.append(token)
     think.chat(message, token_callback=_cb)
-    return "".join(tokens)
+    text  = "".join(tokens)
+    audio = speak_to_array(text)   # (24000, np.ndarray) or None
+    return text, audio
 
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
+    audio_out = gr.Audio(
+        autoplay=True,
+        visible=False,
+        label="voice",
+        type="numpy",
+    )
     gr.ChatInterface(
         fn=chat,
         title="Aiko-chan 🌸",
         chatbot=gr.Chatbot(
             elem_id="aiko-chatbot",
-            show_label=False,   # ← hides the "Chatbot" tab
+            show_label=False,
         ),
+        additional_outputs=[audio_out],
     )
 
 demo.launch(
