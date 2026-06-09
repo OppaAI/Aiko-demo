@@ -48,13 +48,12 @@ CSS = """
     --ak-text-muted:  rgba(200,185,255,0.42);
     --ak-user-bg:     rgba(120,80,220,0.26);
     --ak-user-border: rgba(170,130,255,0.28);
-    --ak-bot-bg:      rgba(255,255,255,0.035);
-    --ak-bot-border:  rgba(160,120,255,0.13);
+    --ak-bot-bg:      rgba(255,255,255,0.045);
+    --ak-bot-border:  rgba(160,120,255,0.18);
     --ak-radius:      16px;
 }
 
-/* ── Nuclear dark override — must come before everything else ── */
-/* Targets Gradio's custom element host and every div it renders  */
+/* ── Nuclear dark override ── */
 html,
 body,
 gradio-app,
@@ -63,10 +62,9 @@ gradio-app > div > div,
 .gradio-container,
 .gradio-container * {
     background-color: var(--ak-bg) !important;
-    /* don't force color here — child rules handle text */
 }
 
-/* Override Gradio theme CSS variables so Base() tokens go dark too */
+/* Override Gradio theme CSS variables */
 :root, .dark {
     --body-background-fill:          #0a0812 !important;
     --block-background-fill:         #0a0812 !important;
@@ -79,7 +77,6 @@ gradio-app > div > div,
     --chatbot-background-fill:       #0a0812 !important;
 }
 
-/* Gradio v4-5 wraps everything in <gradio-app> shadow-ish divs */
 gradio-app {
     background: var(--ak-bg) !important;
     --body-background-fill: var(--ak-bg) !important;
@@ -102,14 +99,13 @@ footer { display: none !important; }
 /* Blanket dark override for ALL block/panel/wrap divs */
 .app, .wrap, .gap, .form, .panel, .block,
 [class*="gradio-"] > div,
-.svelte-1ipelgc, .svelte-pjtdv1,
 div[data-testid="block"] {
     background: transparent !important;
     border-color: transparent !important;
     box-shadow: none !important;
 }
 
-/* Kill any block that has a visible border/bg Gradio 5+ injects */
+/* Kill Gradio 5 block wrappers */
 div[data-testid="block"],
 div[data-testid="block"] > div,
 .block.padded,
@@ -263,7 +259,7 @@ div[data-testid="block"] > div,
 #aiko-chatbot .message-row.user-row { justify-content: flex-end !important; }
 #aiko-chatbot .message-row.bot-row  { justify-content: flex-start !important; }
 
-/* Individual bubbles */
+/* ── Bubbles ── */
 #aiko-chatbot [data-testid="user"],
 #aiko-chatbot [data-testid="bot"] {
     font-size: 0.875rem !important;
@@ -271,27 +267,72 @@ div[data-testid="block"] > div,
     padding: 10px 14px !important;
     max-width: 78% !important;
     word-break: break-word !important;
-    border: 1px solid transparent !important;
     box-shadow: none !important;
 }
+
+/* User bubble */
 #aiko-chatbot [data-testid="user"] {
     background: var(--ak-user-bg) !important;
-    border-color: var(--ak-user-border) !important;
+    border: 1px solid var(--ak-user-border) !important;
     border-radius: 16px 4px 16px 16px !important;
     color: rgba(230,215,255,0.92) !important;
     margin-left: auto !important;
     margin-right: 6px !important;
 }
+
+/* Bot bubble — outermost element only */
 #aiko-chatbot [data-testid="bot"] {
     background: var(--ak-bot-bg) !important;
-    border-color: var(--ak-bot-border) !important;
+    border: 1px solid var(--ak-bot-border) !important;
     border-radius: 4px 16px 16px 16px !important;
-    color: rgba(220,210,255,0.84) !important;
+    color: rgba(220,210,255,0.88) !important;
     margin-right: auto !important;
     margin-left: 6px !important;
 }
-#aiko-chatbot [data-testid="user"] * { color: rgba(230,215,255,0.92) !important; }
-#aiko-chatbot [data-testid="bot"]  * { color: rgba(220,210,255,0.84) !important; }
+
+/* Punch through every Gradio 5 inner wrapper inside bot bubble */
+#aiko-chatbot [data-testid="bot"] > div,
+#aiko-chatbot [data-testid="bot"] > div > div,
+#aiko-chatbot [data-testid="bot"] > div > div > div,
+#aiko-chatbot [data-testid="bot"] .prose,
+#aiko-chatbot [data-testid="bot"] .prose > *,
+#aiko-chatbot [data-testid="bot"] .message,
+#aiko-chatbot [data-testid="bot"] .message > div,
+#aiko-chatbot .bubble-wrap,
+#aiko-chatbot .bubble-wrap > div,
+#aiko-chatbot .wrap.svelte-byatnx,
+#aiko-chatbot .wrap {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* User bubble inner wrappers */
+#aiko-chatbot [data-testid="user"] > div,
+#aiko-chatbot [data-testid="user"] > div > div,
+#aiko-chatbot [data-testid="user"] .prose,
+#aiko-chatbot [data-testid="user"] .message {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Text colour inside bubbles */
+#aiko-chatbot [data-testid="user"],
+#aiko-chatbot [data-testid="user"] * {
+    color: rgba(230,215,255,0.92) !important;
+}
+#aiko-chatbot [data-testid="bot"],
+#aiko-chatbot [data-testid="bot"] * {
+    color: rgba(220,210,255,0.88) !important;
+}
+
+/* Last-resort: kill any inline background-color style Gradio injects */
+#aiko-chatbot div[style*="background"],
+#aiko-chatbot div[style*="background-color"] {
+    background: transparent !important;
+    background-color: transparent !important;
+}
 
 /* Italic search status */
 #aiko-chatbot [data-testid="bot"] em {
@@ -323,20 +364,26 @@ div[data-testid="block"] > div,
     border: none !important;
     padding: 4px 0 0 !important;
 }
-.gradio-container .input-row {
+
+/* Visible frame around the entire input row */
+.gradio-container .input-row,
+.gradio-container div:has(> textarea[data-testid="textbox"]) {
     background: var(--ak-surface2) !important;
-    border: 1px solid var(--ak-border2) !important;
+    border: 1px solid rgba(160,120,255,0.42) !important;
     border-radius: 28px !important;
     padding: 6px 8px 6px 18px !important;
     display: flex !important;
     align-items: center !important;
     gap: 6px !important;
-    transition: border-color 0.2s !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
 }
-.gradio-container .input-row:focus-within {
-    border-color: rgba(160,120,255,0.50) !important;
-    box-shadow: 0 0 0 3px rgba(160,120,255,0.08) !important;
+.gradio-container .input-row:focus-within,
+.gradio-container div:has(> textarea[data-testid="textbox"]):focus-within {
+    border-color: rgba(180,142,255,0.70) !important;
+    box-shadow: 0 0 0 3px rgba(160,120,255,0.10) !important;
 }
+
+/* The textarea itself stays transparent — frame is on the wrapper */
 .gradio-container textarea[data-testid="textbox"] {
     background: transparent !important;
     border: none !important;
