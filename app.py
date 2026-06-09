@@ -36,7 +36,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
         autoplay=True,
         visible=False,
         label="voice",
-        type="numpy",
+        type="filepath",
     )
     gr.ChatInterface(
         fn=chat,
