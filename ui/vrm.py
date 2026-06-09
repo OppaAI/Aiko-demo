@@ -1,5 +1,3 @@
-"""VRM avatar embed for the Gradio/Hugging Face Space UI."""
-
 from __future__ import annotations
 
 import html
@@ -183,6 +181,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let vrm = null;
     let mouth = 0;
     let speaking = false;
+    let mouthPreviewUntil = 0;
     const clock = new THREE.Clock();
     let blinkTimer = 3.0 + Math.random() * 4.0;
     let blinkPhase = 'wait';
@@ -250,6 +249,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
             usedExpression = true;
           }}
         }}
+        // three-vrm applies expression weights during update(); when we change
+        // them after update() in this render loop, force the manager to flush so
+        // the mouth movement is visible on the same frame.
+        try {{ vrm.expressionManager.update?.(); }} catch (_) {{}}
       }}
 
       // Fallback only: many VRMs do not expose a normalized jaw bone.
@@ -354,17 +357,25 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     let lastAudio = null;
     function findParentAudio() {{
-      try {{ return parent.document.querySelector('#aiko-audio audio'); }} catch {{ return null; }}
+      try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }} catch {{ return null; }}
+    }}
+    function syncAudioState(audio = lastAudio) {{
+      if (!audio) return;
+      setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
     }}
     function attachAudio(audio) {{
-      if (!audio || audio === lastAudio) return;
-      lastAudio = audio;
-      log.textContent = 'linked to Gradio MP3 output';
-      audio.addEventListener('play',  () => setSpeaking(true));
-      audio.addEventListener('pause', () => setSpeaking(false));
-      audio.addEventListener('ended', () => setSpeaking(false));
+      if (!audio) return;
+      if (audio !== lastAudio) {{
+        lastAudio = audio;
+        log.textContent = 'linked to Gradio MP3 output';
+        audio.addEventListener('play',  () => setSpeaking(true));
+        audio.addEventListener('playing', () => setSpeaking(true));
+        audio.addEventListener('pause', () => setSpeaking(false));
+        audio.addEventListener('ended', () => setSpeaking(false));
+      }}
+      syncAudioState(audio);
     }}
-    setInterval(() => attachAudio(findParentAudio()), 700);
+    setInterval(() => attachAudio(findParentAudio()), 500);
 
     window.addEventListener('message', (e) => {{
       try {{
@@ -402,9 +413,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         window._aikoVrm = vrm;
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
-        vrm.scene.rotation.y = Math.PI;
+        // Aiko.vrm already faces the camera in the standalone aiko.html viewer.
+        // Do not rotate by Math.PI here, or HF Spaces starts by showing her back.
+        vrm.scene.rotation.y = 0;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
+        mouthPreviewUntil = performance.now() + 1800;
         log.textContent = `loaded: Aiko.vrm; mouth presets: ${{expressionNames().filter(n => VISEME_PRESETS.includes(n)).join(', ') || 'none, using jaw fallback'}}`;
         document.getElementById('load-msg').textContent = 'ready';
         document.getElementById('loader').classList.add('fade');
@@ -423,9 +437,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       controls.update();
       if (vrm) vrm.update(dt);
       applyIdle(dt);
-      if (speaking) {{
+      if (speaking || performance.now() < mouthPreviewUntil) {{
         mouth = 0.12 + Math.abs(Math.sin(performance.now() / 110)) * 0.65;
         setMouth(mouth, 'aa');
+      }} else {{
+        clearMouth();
       }}
       applyBlink(dt);
       renderer.render(scene, camera);
