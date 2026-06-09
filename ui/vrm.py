@@ -184,10 +184,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let vrm = null;
     let mouth = 0;
     let speaking = false;
-    let lastAudio = null;
-    let analyser = null;
-    let freq = null;
-    let audioContext = null;
     const clock = new THREE.Clock();
 
     let idleTime = 0;
@@ -231,50 +227,41 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       idleTime += dt;
       const t = idleTime;
 
-      // VRM1: use setNormalizedPose() so rotations survive vrm.update().
-      // Rotations are quaternions expressed as {{x,y,z,w}}; we build them
-      // from small Euler angles using the small-angle approximation (sin≈angle).
-      function eq(rx=0, ry=0, rz=0) {{
-        // Euler XYZ → quaternion (small angles, no gimbal concern here)
-        const cx=Math.cos(rx/2), sx=Math.sin(rx/2);
-        const cy=Math.cos(ry/2), sy=Math.sin(ry/2);
-        const cz=Math.cos(rz/2), sz=Math.sin(rz/2);
-        return {{
-          x: sx*cy*cz + cx*sy*sz,
-          y: cx*sy*cz - sx*cy*sz,
-          z: cx*cy*sz + sx*sy*cz,
-          w: cx*cy*cz - sx*sy*sz,
-        }};
+      // Direct normalized bone rotation — correct for @pixiv/three-vrm v3.
+      // Must run AFTER vrm.update(dt) in the tick loop.
+      function nb(name) {{
+        try {{ return vrm.humanoid.getNormalizedBoneNode(name); }} catch {{ return null; }}
       }}
 
       const breath = Math.sin(t * 0.83) * 0.013;
-      const sway   = Math.sin(t * 0.41) * 0.012;
-      const rock   = Math.sin(t * 0.67) * 0.008;
-      const headY  = Math.sin(t * 0.31) * 0.055 + Math.sin(t * 1.13) * 0.012;
-      const headZ  = Math.sin(t * 0.27 + 1.1) * 0.018 + Math.sin(t * 0.71) * 0.006;
-      const headX  = Math.sin(t * 0.53) * 0.012;
+      const b = nb('chest'); if (b) b.rotation.x = breath;
+      const s = nb('spine'); if (s) s.rotation.x = breath * 0.5;
 
-      // Arms: VRM1 normalised space — z brings arm down (left=+z, right=-z)
-      const luaZ = REST.leftUpperArm.z  + Math.sin(t * 0.41) * 0.008;
-      const ruaZ = REST.rightUpperArm.z + Math.sin(t * 0.37 + 0.7) * 0.008;
-      const luaX = REST.leftUpperArm.x  + Math.sin(t * 0.47) * 0.012;
-      const ruaX = REST.rightUpperArm.x + Math.sin(t * 0.53 + 0.9) * 0.012;
-      const llaX = REST.leftLowerArm.x  + Math.sin(t * 0.61) * 0.010;
-      const rlaX = REST.rightLowerArm.x + Math.sin(t * 0.57 + 1.4) * 0.010;
+      const h = nb('hips');
+      if (h) {{
+        h.rotation.z = Math.sin(t * 0.41) * 0.012;
+        h.rotation.x = Math.sin(t * 0.67) * 0.008;
+        h.position.x = Math.sin(t * 0.41) * 0.003;
+      }}
 
-      vrm.humanoid.setNormalizedPose({{
-        hips:          {{ rotation: eq(rock, 0, sway) }},
-        spine:         {{ rotation: eq(breath * 0.5) }},
-        chest:         {{ rotation: eq(breath) }},
-        neck:          {{ rotation: eq(headX * 0.3, headY * 0.3, headZ * 0.3) }},
-        head:          {{ rotation: eq(headX, headY, headZ) }},
-        leftUpperArm:  {{ rotation: eq(luaX, 0, luaZ) }},
-        rightUpperArm: {{ rotation: eq(ruaX, 0, ruaZ) }},
-        leftLowerArm:  {{ rotation: eq(llaX) }},
-        rightLowerArm: {{ rotation: eq(rlaX) }},
-        leftHand:      {{ rotation: eq(0, Math.sin(t * 0.33) * 0.008) }},
-        rightHand:     {{ rotation: eq(0, Math.sin(t * 0.29 + 1.2) * 0.008) }},
-      }});
+      const hd = nb('head');
+      if (hd) {{
+        hd.rotation.y = Math.sin(t * 0.31) * 0.055 + Math.sin(t * 1.13) * 0.012;
+        hd.rotation.z = Math.sin(t * 0.27 + 1.1) * 0.018 + Math.sin(t * 0.71) * 0.006;
+        hd.rotation.x = Math.sin(t * 0.53) * 0.012;
+      }}
+      const nk = nb('neck');
+      if (nk && hd) {{
+        nk.rotation.y = hd.rotation.y * 0.3;
+        nk.rotation.z = hd.rotation.z * 0.3;
+      }}
+
+      const lUA = nb('leftUpperArm');  if (lUA) {{ lUA.rotation.x = REST.leftUpperArm.x  + Math.sin(t*0.47)*0.012; lUA.rotation.z = REST.leftUpperArm.z  + Math.sin(t*0.41)*0.008; }}
+      const rUA = nb('rightUpperArm'); if (rUA) {{ rUA.rotation.x = REST.rightUpperArm.x + Math.sin(t*0.53+0.9)*0.012; rUA.rotation.z = REST.rightUpperArm.z + Math.sin(t*0.37+0.7)*0.008; }}
+      const lLA = nb('leftLowerArm');  if (lLA) {{ lLA.rotation.x = REST.leftLowerArm.x  + Math.sin(t*0.61)*0.010; }}
+      const rLA = nb('rightLowerArm'); if (rLA) {{ rLA.rotation.x = REST.rightLowerArm.x + Math.sin(t*0.57+1.4)*0.010; }}
+      const lH  = nb('leftHand');  if (lH)  lH.rotation.y  = Math.sin(t*0.33)*0.008;
+      const rH  = nb('rightHand'); if (rH)  rH.rotation.y  = Math.sin(t*0.29+1.2)*0.008;
     }}
 
     function applyBlink(dt) {{
@@ -336,37 +323,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (!active) setMouth(0);
     }}
 
-    function findParentAudio() {{
-      try {{ return parent.document.querySelector('#aiko-audio audio'); }} catch {{ return null; }}
-    }}
-
-    function attachAudio(audio) {{
-      if (!audio || audio === lastAudio) return;
-      lastAudio = audio;
-      log.textContent = 'linked to Gradio MP3 output';
-      audio.addEventListener('play', async () => {{
-        try {{
-          audioContext ||= new AudioContext();
-          if (audioContext.state === 'suspended') await audioContext.resume();
-          if (!analyser) {{
-            analyser = audioContext.createAnalyser();
-            analyser.fftSize = 512;
-            freq = new Uint8Array(analyser.frequencyBinCount);
-            const source = audioContext.createMediaElementSource(audio);
-            source.connect(analyser);
-            analyser.connect(audioContext.destination);
-          }}
-        }} catch (err) {{
-          log.textContent = 'audio analyser unavailable; using fallback lip sync';
-          console.warn('[aiko-vrm] analyser unavailable', err);
-        }}
-        setSpeaking(true);
-      }});
-      audio.addEventListener('pause',  () => setSpeaking(false));
-      audio.addEventListener('ended',  () => setSpeaking(false));
-    }}
-
-    setInterval(() => attachAudio(findParentAudio()), 700);
+    // Lip sync driven by parent page via postMessage (see lipsync_html())
 
     // postMessage API — works across iframe boundary in HF Spaces
     // Usage from parent page:
@@ -375,6 +332,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     window.addEventListener('message', (e) => {{
       try {{
         const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+        if (msg.speaking !== undefined) setSpeaking(msg.speaking);
         if (msg.expression !== undefined) {{
           setExpression(msg.expression, msg.intensity ?? 1.0);
           emotion.textContent = msg.expression || 'neutral';
@@ -431,19 +389,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const dt = clock.getDelta();
       controls.update();
 
-      if (speaking) {{
-        if (analyser && freq) {{
-          analyser.getByteFrequencyData(freq);
-          let sum = 0;
-          for (let i = 4; i < Math.min(freq.length, 80); i++) sum += freq[i];
-          mouth = THREE.MathUtils.lerp(mouth, Math.min(1, (sum / 76) / 86), 0.38);
-        }} else {{
-          mouth = 0.15 + Math.abs(Math.sin(performance.now() / 95)) * 0.7;
-        }}
-      }} else {{
+      // mouth weight is set directly by postMessage({viseme:'A', weight})
+      // so we only need to lerp back to 0 when not speaking
+      if (!speaking) {{
         mouth = THREE.MathUtils.lerp(mouth, 0, 0.22);
+        setMouth(mouth);
       }}
-      setMouth(mouth);
 
       if (vrm) vrm.update(dt);
       applyIdle(dt);
@@ -459,3 +410,81 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         'sandbox="allow-scripts allow-same-origin" '
         f'srcdoc="{html.escape(srcdoc, quote=True)}"></iframe>'
     )
+
+
+def lipsync_html() -> str:
+    """Parent-page JS that reads the Gradio audio element amplitude and
+    forwards it to the VRM iframe via postMessage.
+
+    Drop this anywhere inside the gr.Blocks layout:
+        gr.HTML(value=lipsync_html())
+
+    It works because the AudioContext lives in the same origin as the
+    #aiko-audio element, avoiding the cross-origin analyser restriction.
+    """
+    return """
+<script>
+(function () {
+  let ctx, analyser, freq, lastAudio, rafId;
+
+  function getIframe() {
+    return document.getElementById('aiko-vrm-frame');
+  }
+
+  function post(msg) {
+    const f = getIframe();
+    if (f && f.contentWindow) f.contentWindow.postMessage(msg, '*');
+  }
+
+  function tick() {
+    if (!analyser || !freq) return;
+    analyser.getByteFrequencyData(freq);
+    let sum = 0;
+    for (let i = 4; i < Math.min(freq.length, 80); i++) sum += freq[i];
+    const weight = Math.min(1, (sum / 76) / 86);
+    post({ viseme: 'A', weight });
+    rafId = requestAnimationFrame(tick);
+  }
+
+  async function attachAudio(audio) {
+    if (!audio || audio === lastAudio) return;
+    lastAudio = audio;
+
+    audio.addEventListener('play', async () => {
+      try {
+        ctx = ctx || new AudioContext();
+        if (ctx.state === 'suspended') await ctx.resume();
+        if (!analyser) {
+          analyser = ctx.createAnalyser();
+          analyser.fftSize = 512;
+          freq = new Uint8Array(analyser.frequencyBinCount);
+          ctx.createMediaElementSource(audio).connect(analyser);
+          analyser.connect(ctx.destination);
+        }
+      } catch (e) {
+        console.warn('[aiko-lipsync] analyser failed, using fallback', e);
+      }
+      post({ speaking: true });
+      cancelAnimationFrame(rafId);
+      tick();
+    });
+
+    audio.addEventListener('pause', () => {
+      cancelAnimationFrame(rafId);
+      post({ speaking: false });
+    });
+
+    audio.addEventListener('ended', () => {
+      cancelAnimationFrame(rafId);
+      post({ speaking: false });
+    });
+  }
+
+  // Poll for the Gradio audio element — it may not exist on page load
+  setInterval(() => {
+    const audio = document.querySelector('#aiko-audio audio');
+    if (audio) attachAudio(audio);
+  }, 700);
+})();
+</script>
+"""
