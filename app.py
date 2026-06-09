@@ -58,7 +58,8 @@ def text_chat(message, history):
     if not message:
         return history, None, ""
     text, audio = _assistant_response(message)
-    history.append((message, text))
+    history.append({"role": "user", "content": message})        # <-- dict
+    history.append({"role": "assistant", "content": text})      # <-- dict
     return history, audio, ""
 
 
@@ -70,7 +71,8 @@ def voice_chat(audio_path, history):
     if not transcript:
         return history, None, None
     text, audio = _assistant_response(transcript)
-    history.append((f"🎙️ {transcript}", text))
+    history.append({"role": "user", "content": f"🎙️ {transcript}"})   # <-- dict
+    history.append({"role": "assistant", "content": text})             # <-- dict
     return history, audio, None
 
 
@@ -97,6 +99,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     elem_id="aiko-chatbot",
                     show_label=False,
                     height=520,
+                    type="messages",
                 )
                 with gr.Row(elem_id="aiko-input-row"):
                     msg = gr.Textbox(
