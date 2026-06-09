@@ -4,7 +4,7 @@ load_dotenv()
 import gradio as gr
 from core.wakeup import AikoWakeup
 from ui.css import AIKO_CSS
-from ui.speech import speak_to_array
+from ui.speak import speak_to_array
 
 result = AikoWakeup(text_mode=True).boot(
     on_loading=lambda k: print(f"[boot] loading: {k}"),
