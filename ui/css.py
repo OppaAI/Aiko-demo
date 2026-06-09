@@ -109,6 +109,26 @@ div[data-testid="block"] {
     box-shadow: none !important;
 }
 
+/* Kill any block that has a visible border/bg Gradio 5+ injects */
+div[data-testid="block"],
+div[data-testid="block"] > div,
+.block.padded,
+.block.border_focus,
+.block.hide-container,
+.form {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+/* Nuke Gradio 5 svelte-generated wrapper panels */
+[class^="svelte-"], [class*=" svelte-"] {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}
+
 /* Kill the white chatbot panel */
 #aiko-chatbot,
 #aiko-chatbot > div,
