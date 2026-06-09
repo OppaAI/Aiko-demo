@@ -99,7 +99,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     elem_id="aiko-chatbot",
                     show_label=False,
                     height=520,
-                    type="messages",
+                    #type="messages",
                 )
                 with gr.Row(elem_id="aiko-input-row"):
                     msg = gr.Textbox(
