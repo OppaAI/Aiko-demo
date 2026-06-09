@@ -44,49 +44,64 @@ ORB_THINKING_JS = """
     var orbWrap = document.getElementById('aiko-orb-wrap');
     if (!orbWrap) { setTimeout(watchOrb, 300); return; }
 
-    // Observe the chatbot log div for aria-busy changes
-    var mo = new MutationObserver(function(mutations) {
-      mutations.forEach(function(m) {
-        if (m.type === 'attributes' && m.attributeName === 'aria-busy') {
-          var busy = m.target.getAttribute('aria-busy') === 'true';
-          if (busy) {
-            orbWrap.classList.add('thinking');
-          } else {
-            orbWrap.classList.remove('thinking');
-          }
+    var isThinking = false;
+    function setThinking(val) {
+      if (val === isThinking) return;
+      isThinking = val;
+      if (val) orbWrap.classList.add('thinking');
+      else orbWrap.classList.remove('thinking');
+    }
+
+    // Strategy 1: watch for Gradio 5's status-tracker element (shows while generating)
+    function watchStatusTracker() {
+      var tracker = document.querySelector('.status-tracker, [data-testid="status-tracker"], .progress-bar');
+      if (tracker) {
+        new MutationObserver(function() {
+          var visible = !!document.querySelector(
+            '.status-tracker:not(.hide), .progress-bar, .eta-bar, [data-testid="status-tracker"] .wrap'
+          );
+          setThinking(visible);
+        }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class','style'] });
+      }
+    }
+
+    // Strategy 2: watch aria-busy on the chatbot log div (Gradio 4-6)
+    function watchAriaBusy() {
+      function attach() {
+        var log = document.querySelector('[role="log"]');
+        if (log) {
+          new MutationObserver(function(muts) {
+            muts.forEach(function(m) {
+              if (m.attributeName === 'aria-busy') {
+                setThinking(m.target.getAttribute('aria-busy') === 'true');
+              }
+            });
+          }).observe(log, { attributes: true });
+        } else {
+          setTimeout(attach, 400);
         }
-      });
-    });
-
-    // The chatbot log has role="log" aria-live="polite"
-    function attachObserver() {
-      var log = document.querySelector('[role="log"][aria-label="chatbot conversation"]');
-      if (log) {
-        mo.observe(log, { attributes: true });
-      } else {
-        setTimeout(attachObserver, 400);
       }
+      attach();
     }
-    attachObserver();
 
-    // Fallback: also watch for the loading spinner appearing/disappearing
-    var spinnerObs = new MutationObserver(function() {
-      var spinner = document.querySelector('#aiko-chatbot .loading-spinner');
-      var dots    = document.querySelector('#aiko-chatbot .dots');
-      if (spinner || dots) {
-        orbWrap.classList.add('thinking');
-      } else {
-        orbWrap.classList.remove('thinking');
-      }
-    });
-    var chatbot = document.getElementById('aiko-chatbot');
-    if (chatbot) {
-      spinnerObs.observe(chatbot, { childList: true, subtree: true });
-    }
+    // Strategy 3: poll for the loading dots or pending bot bubble (most reliable fallback)
+    setInterval(function() {
+      var pending = document.querySelector(
+        '#aiko-chatbot .message.pending, ' +
+        '#aiko-chatbot .dots, ' +
+        '#aiko-chatbot .loading, ' +
+        '#aiko-chatbot [data-testid="bot"].pending, ' +
+        '.eta-bar, .progress-bar'
+      );
+      setThinking(!!pending);
+    }, 250);
+
+    watchStatusTracker();
+    watchAriaBusy();
   }
-  document.addEventListener('DOMContentLoaded', watchOrb);
-  // Also try immediately in case DOM is already ready
+
   if (document.readyState !== 'loading') watchOrb();
+  else document.addEventListener('DOMContentLoaded', watchOrb);
 })();
 </script>
 """
