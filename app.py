@@ -36,6 +36,8 @@ ORB_HEADER = """
 
 # ── Orb thinking animation JS ─────────────────────────────────────────────────
 # Three parallel strategies so it works across Gradio 4/5/6.
+# Drop-in replacement for ORB_THINKING_JS in app.py
+
 ORB_THINKING_JS = """
 <script>
 (function() {
@@ -44,27 +46,68 @@ ORB_THINKING_JS = """
     if (!orbWrap) { setTimeout(watchOrb, 300); return; }
 
     var isThinking = false;
+    var clearTimer  = null;
+
     function setThinking(val) {
       if (val === isThinking) return;
       isThinking = val;
-      if (val) orbWrap.classList.add('thinking');
-      else orbWrap.classList.remove('thinking');
+      if (val) {
+        orbWrap.classList.add('thinking');
+      } else {
+        orbWrap.classList.remove('thinking');
+      }
     }
 
-    // Strategy 1: watch Gradio 5's status-tracker / progress elements
-    new MutationObserver(function() {
-      var active = !!document.querySelector(
-        '.status-tracker:not(.hide), .progress-bar, .eta-bar, ' +
-        '[data-testid="status-tracker"] .wrap, .generating'
+    // ── Strategy 1: hook the submit button click ───────────────────
+    // Fire thinking=true the instant the user submits; this works even
+    // when the Python fn is synchronous/blocking (no streaming DOM cues).
+    function attachSubmitHook() {
+      // Gradio's submit button lives inside the chatinterface form area
+      var btn = document.querySelector(
+        '#aiko-chatbot ~ * button[aria-label="Submit"],'+
+        '.submit-btn, button[data-testid="submit-btn"],'+
+        'button.primary[type="submit"]'
       );
-      if (active) setThinking(true);
-    }).observe(document.body, {
-      childList: true, subtree: true,
-      attributes: true, attributeFilter: ['class', 'style']
-    });
+      // Broader fallback: any send/submit button near the textbox
+      if (!btn) {
+        btn = document.querySelector(
+          'button svg[data-testid="send-btn"], ' +
+          '[data-testid="submit-btn"]'
+        );
+        if (btn) btn = btn.closest('button');
+      }
+      // Final fallback: the Gradio ChatInterface submit button
+      if (!btn) {
+        var btns = document.querySelectorAll('button');
+        for (var i = 0; i < btns.length; i++) {
+          var svg = btns[i].querySelector('svg');
+          if (svg && (btns[i].title === 'Submit' || btns[i].getAttribute('aria-label') === 'Submit')) {
+            btn = btns[i]; break;
+          }
+        }
+      }
+      if (btn && !btn._aikoHooked) {
+        btn._aikoHooked = true;
+        btn.addEventListener('click', function() {
+          setThinking(true);
+        });
+      }
+      // Also hook Enter key in the textarea
+      var ta = document.querySelector('textarea[data-testid="textbox"]');
+      if (ta && !ta._aikoHooked) {
+        ta._aikoHooked = true;
+        ta.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' && !e.shiftKey) setThinking(true);
+        });
+      }
+    }
+    attachSubmitHook();
+    // Re-run hook attempt a few times in case DOM isn't ready yet
+    setTimeout(attachSubmitHook, 800);
+    setTimeout(attachSubmitHook, 2000);
 
-    // Strategy 2: watch aria-busy on the chatbot log div (Gradio 4-6)
-    (function attach() {
+    // ── Strategy 2: aria-busy on the chatbot log (Gradio 4-6) ──────
+    (function attachAriaWatcher() {
       var log = document.querySelector('[role="log"]');
       if (log) {
         new MutationObserver(function(muts) {
@@ -75,21 +118,45 @@ ORB_THINKING_JS = """
           });
         }).observe(log, { attributes: true });
       } else {
-        setTimeout(attach, 400);
+        setTimeout(attachAriaWatcher, 400);
       }
     })();
 
-    // Strategy 3: interval poll — most reliable fallback
-    setInterval(function() {
-      var pending = document.querySelector(
-        '#aiko-chatbot .message.pending, ' +
-        '#aiko-chatbot .dots, ' +
-        '#aiko-chatbot .loading, ' +
-        '#aiko-chatbot [data-testid="bot"].pending, ' +
-        '.eta-bar, .progress-bar, .generating'
+    // ── Strategy 3: MutationObserver on body for .generating ───────
+    new MutationObserver(function() {
+      var active = !!document.querySelector(
+        '.status-tracker:not(.hide), .progress-bar, .eta-bar, .generating,' +
+        '[data-testid="status-tracker"] .wrap'
       );
-      setThinking(!!pending);
-    }, 250);
+      if (active) setThinking(true);
+    }).observe(document.body, {
+      childList: true, subtree: true,
+      attributes: true, attributeFilter: ['class', 'style']
+    });
+
+    // ── Strategy 4: interval poll — counts new bot messages ────────
+    // When a new bot message appears after we went thinking=true, clear.
+    var lastBotCount = 0;
+    setInterval(function() {
+      var botMsgs = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
+      var count   = botMsgs.length;
+
+      // Still generating?
+      var pending = !!document.querySelector(
+        '#aiko-chatbot .message.pending, #aiko-chatbot .dots,' +
+        '#aiko-chatbot .loading, .eta-bar, .progress-bar, .generating'
+      );
+
+      if (pending) {
+        setThinking(true);
+      } else if (isThinking && count > lastBotCount) {
+        // New bot message landed → done
+        setThinking(false);
+      } else if (!pending && !isThinking) {
+        // Idle — just keep lastBotCount in sync
+      }
+      lastBotCount = count;
+    }, 200);
   }
 
   if (document.readyState !== 'loading') watchOrb();
