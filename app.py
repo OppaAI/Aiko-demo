@@ -19,130 +19,124 @@ if hasattr(think, "join_warmup"):
     think.join_warmup()
 
 
+# ── Orb HTML (shown when no VRM is available, or above the chat column) ──────
+ORB_HEADER = """
+<div id="aiko-orb-section">
+  <div id="aiko-orb-wrap">
+    <div id="aiko-orb-ring-outer"></div>
+    <div id="aiko-orb-ring-inner"></div>
+    <div id="aiko-orb"></div>
+  </div>
+  <div id="aiko-greeting">
+    <h2>Hi Oppa! How can I help you today?</h2>
+    <p>AI companion &middot; always here</p>
+  </div>
+</div>
+"""
+
+# ── Suggestion pills ──────────────────────────────────────────────────────────
+# Each pill calls sendMessage() injected below via JS
+SUGGESTION_PILLS = """
+<div id="aiko-suggestions">
+  <span class="aiko-pill" onclick="aikoPill(this)">What are you thinking?</span>
+  <span class="aiko-pill" onclick="aikoPill(this)">Tell me something</span>
+  <span class="aiko-pill" onclick="aikoPill(this)">Debug help</span>
+  <span class="aiko-pill" onclick="aikoPill(this)">How is Aiko feeling?</span>
+</div>
+<script>
+(function() {
+  // Click a pill → put its text into the Gradio textbox and submit
+  window.aikoPill = function(el) {
+    var txt = document.querySelector('textarea[data-testid="textbox"]');
+    if (!txt) return;
+    var nativeSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype, 'value').set;
+    nativeSetter.call(txt, el.innerText);
+    txt.dispatchEvent(new Event('input', { bubbles: true }));
+
+    // Hide the suggestions once used
+    var pills = document.getElementById('aiko-suggestions');
+    if (pills) pills.style.display = 'none';
+
+    // Trigger submit after a tick
+    setTimeout(function() {
+      var btn = document.querySelector(
+        '.input-row button, [data-testid="submit-btn"], button[aria-label="Submit"]'
+      );
+      if (btn) btn.click();
+    }, 50);
+  };
+
+  // Auto-hide pills once user sends first real message
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      var pills = document.getElementById('aiko-suggestions');
+      if (pills) pills.style.display = 'none';
+    }
+  }, { once: true });
+})();
+</script>
+"""
+
+# ── Chat function ─────────────────────────────────────────────────────────────
 def chat(message, history):
     tokens = []
+
     def _cb(token):
         if token.startswith("__SEARCHING__:"):
             query = token.split(":", 1)[1].strip()
-            tokens.append(f"\n🔍 Searching: *{query}*\n")
+            tokens.append(f"\n🔍 *Searching: {query}*\n")
         else:
             tokens.append(token)
+
     think.chat(message, token_callback=_cb)
     return "".join(tokens)
 
 
-# ── Header HTML ──
-HEADER_HTML = """
-<div id="aiko-header">
-    <div class="header-avatar">🌸</div>
-    <div class="header-text">
-        <h1>Aiko-chan</h1>
-        <p class="header-status">
-            <span class="status-dot"></span>
-            Online · Ready to chat
-        </p>
-    </div>
-</div>
-"""
-
-# ── Welcome screen (injected via first bot message or HTML) ──
-WELCOME_HTML = """
-<div class="aiko-welcome">
-    <div class="welcome-icon">🌸</div>
-    <h2>Hi, I'm Aiko!</h2>
-    <p>Your personal AI assistant. Ask me anything — I can search the web, remember our conversations, and help you out.</p>
-    <div class="suggestion-chips">
-        <span class="chip">✨ Tell me about yourself</span>
-        <span class="chip">🔍 Search for something</span>
-        <span class="chip">💡 Help me brainstorm</span>
-        <span class="chip">📝 Summarize a topic</span>
-    </div>
-</div>
-"""
-
-
+# ── Layout ────────────────────────────────────────────────────────────────────
 with gr.Blocks(title="Aiko-chan 🌸", css=CSS) as demo:
+
+    # Speech JS (VAD, TTS hooks)
     gr.HTML(SPEECH_JS)
 
-    # ── Header ──
-    gr.HTML(HEADER_HTML)
+    with gr.Row():
+        # ── Left: chat column ──────────────────────────────────────────────
+        with gr.Column(scale=6):
 
-    with gr.Row(equal_height=True):
-        # ── Chat column ──
-        with gr.Column(scale=6, min_width=400):
-            chatbot = gr.Chatbot(
-                elem_id="aiko-chatbot",
-                type="messages",
-                height=600,
-            )
-            with gr.Row(elem_id="aiko-input-row"):
-                msg_input = gr.Textbox(
-                    placeholder="Message Aiko-chan...",
+            # Orb + greeting
+            gr.HTML(ORB_HEADER)
+
+            # Suggestion pills
+            gr.HTML(SUGGESTION_PILLS)
+
+            # Chat interface — no built-in title (orb header replaces it)
+            gr.ChatInterface(
+                fn=chat,
+                chatbot=gr.Chatbot(
+                    elem_id="aiko-chatbot",
+                    height=460,
+                    placeholder="",       # suppress the default placeholder
                     show_label=False,
+                    layout="bubble",      # bubble layout for left/right alignment
+                    avatar_images=(None, None),
+                ),
+                textbox=gr.Textbox(
+                    placeholder="Message Aiko...",
+                    show_label=False,
+                    lines=1,
+                    max_lines=6,
+                    submit_btn=True,
+                    stop_btn=True,
                     container=False,
-                    elem_id="aiko-input-wrap",
-                    scale=9,
-                )
-                send_btn = gr.Button(
-                    "➤",
-                    variant="primary",
-                    elem_id="aiko-send-btn",
-                    scale=1,
-                )
-            with gr.Row(elem_id="aiko-actions-row"):
-                clear_btn = gr.Button("✕ Clear", variant="secondary", size="sm")
-
-            # ── Chat logic ──
-            def user_submit(message, history):
-                return "", history + [{"role": "user", "content": message}]
-
-            def bot_respond(history):
-                if not history:
-                    return history
-                last_msg = history[-1]["content"]
-                tokens = []
-                def _cb(token):
-                    if token.startswith("__SEARCHING__:"):
-                        query = token.split(":", 1)[1].strip()
-                        tokens.append(f"\n🔍 Searching: *{query}*\n")
-                    else:
-                        tokens.append(token)
-                think.chat(last_msg, token_callback=_cb)
-                history.append({"role": "assistant", "content": "".join(tokens)})
-                return history
-
-            def clear_chat():
-                return [], ""
-
-            # Wire up interactions
-            msg_input.submit(
-                user_submit,
-                inputs=[msg_input, chatbot],
-                outputs=[msg_input, chatbot],
-            ).then(
-                bot_respond,
-                inputs=[chatbot],
-                outputs=[chatbot],
+                ),
+                title=None,
+                fill_height=False,
             )
 
-            send_btn.click(
-                user_submit,
-                inputs=[msg_input, chatbot],
-                outputs=[msg_input, chatbot],
-            ).then(
-                bot_respond,
-                inputs=[chatbot],
-                outputs=[chatbot],
-            )
-
-            clear_btn.click(
-                clear_chat,
-                outputs=[chatbot, msg_input],
-            )
-
-        # ── VRM Viewer column ──
-        with gr.Column(scale=4, elem_id="aiko-col", min_width=300):
+        # ── Right: VRM viewer column ───────────────────────────────────────
+        with gr.Column(scale=4, elem_id="aiko-col"):
             gr.HTML(VRM_VIEWER)
+
 
 demo.launch(
     server_name="0.0.0.0",
