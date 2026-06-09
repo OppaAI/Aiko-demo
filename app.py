@@ -28,8 +28,8 @@ def chat(message, history):
             tokens.append(token)
     think.chat(message, token_callback=_cb)
     text  = "".join(tokens)
-    audio = speak_to_array(text)   # (24000, np.ndarray) or None
-    return text, audio
+    audio = speak_to_array(text)
+    yield text, audio   # ← yield instead of return
 
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
