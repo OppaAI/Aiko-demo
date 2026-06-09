@@ -9,7 +9,7 @@ import uuid
 
 import edge_tts
 
-EDGE_VOICE     = os.getenv("EDGE_VOICE", "en-US-JennyNeural")
+EDGE_VOICE     = os.getenv("EDGE_VOICE", "en-US-AriaNeural")
 _AUDIO_DIR     = "/tmp/aiko_tts"
 _SYNTH_TIMEOUT = 15
 
