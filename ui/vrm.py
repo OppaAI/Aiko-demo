@@ -401,6 +401,14 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       log.textContent = url;
       loader.load(url, gltf => {{
         vrm = gltf.userData.vrm;
+        // DEBUG — open browser devtools console to read this
+        console.log(`[aiko] VRM meta version: ${{vrm.meta?.metaVersion ?? vrm.meta?.version ?? "unknown"}}`);
+        const _dbones = ["hips","spine","chest","neck","head","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand"];
+        for (const _n of _dbones) {{
+          const _r = vrm.humanoid?.getRawBoneNode(_n);
+          const _norm = vrm.humanoid?.getNormalizedBoneNode(_n);
+          console.log(`[bone] ${{_n.padEnd(20)}} raw=${{_r ? _r.name : "NULL"}}  norm=${{_norm ? _norm.name : "NULL"}}`);
+        }}
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
         vrm.scene.rotation.y = Math.PI;
