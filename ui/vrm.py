@@ -262,10 +262,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
 
     function setMouth(weight) {
-      if (!vrm?.expressionManager) return;
-      try {
-        vrm.expressionManager.setValue('aa', Math.max(0, Math.min(1, weight)));
-      } catch (_) {}
+      if (!vrm) return;
+      const em = vrm.expressionManager;
+      if (!em) return;
+      try {{
+        em.setValue('aa', Math.max(0, Math.min(1, weight)));
+      }} catch (_) {{}}
     }
 
     function setSpeaking(active) {{
