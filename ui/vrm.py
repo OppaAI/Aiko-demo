@@ -389,7 +389,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const dt = clock.getDelta();
       controls.update();
 
-      // mouth weight is set directly by postMessage({viseme:'A', weight})
+      // mouth weight is set directly by postMessage({{viseme:'A', weight}})
       // so we only need to lerp back to 0 when not speaking
       if (!speaking) {{
         mouth = THREE.MathUtils.lerp(mouth, 0, 0.22);
