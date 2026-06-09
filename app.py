@@ -29,6 +29,7 @@ def chat(message, history):
     think.chat(message, token_callback=_cb)
     text  = "".join(tokens)
     audio = speak_to_file(text)
+    print(f"[chat] audio path: {audio}")  # ← add this
     yield text, audio   # ← yield instead of return
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
