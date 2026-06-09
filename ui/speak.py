@@ -1,5 +1,5 @@
 """
-ui/speech.py
+ui/speak.py
 Aiko TTS via edge-tts — returns a filepath for gr.Audio(type="filepath").
 """
 import asyncio
@@ -9,8 +9,8 @@ import uuid
 
 import edge_tts
 
-EDGE_VOICE = os.getenv("EDGE_VOICE", "en-US-AnaNeural")
-_AUDIO_DIR  = "/tmp/aiko_tts"
+EDGE_VOICE     = os.getenv("EDGE_VOICE", "en-US-AnaNeural")
+_AUDIO_DIR     = "/tmp/aiko_tts"
 _SYNTH_TIMEOUT = 15
 
 
