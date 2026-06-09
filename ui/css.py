@@ -1,53 +1,50 @@
 CSS = """
-/* ═══════════════════════════════════════════════════════
-   Aiko-chan — Professional Chat AI Interface
-   ═══════════════════════════════════════════════════════ */
-
-/* ── Reset & root variables ── */
-:root {
-    --ak-bg:           #0a0f1a;
-    --ak-surface:      #111827;
-    --ak-surface2:     #1a2235;
-    --ak-surface3:     #212d45;
-    --ak-border:       rgba(99, 140, 200, 0.10);
-    --ak-border-focus: rgba(99, 160, 255, 0.35);
-    --ak-accent:       #6c9fff;
-    --ak-accent-dim:   rgba(108, 159, 255, 0.10);
-    --ak-accent-glow:  rgba(108, 159, 255, 0.25);
-    --ak-pink:         #d4a0ff;
-    --ak-pink-dim:     rgba(212, 160, 255, 0.12);
-    --ak-teal:         #5eead4;
-    --ak-teal-dim:     rgba(94, 234, 212, 0.10);
-    --ak-text:         #e2e8f0;
-    --ak-text-muted:   rgba(226, 232, 240, 0.45);
-    --ak-text-dim:     rgba(226, 232, 240, 0.65);
-    --ak-user-bg:      linear-gradient(135deg, rgba(108,159,255,0.22), rgba(212,160,255,0.18));
-    --ak-user-border:  rgba(140, 170, 255, 0.25);
-    --ak-bot-bg:       rgba(30, 41, 59, 0.70);
-    --ak-bot-border:   rgba(99, 140, 200, 0.12);
-    --ak-radius:       16px;
-    --ak-radius-sm:    10px;
-    --ak-chat-height:  calc(100vh - 200px);
-    --ak-shadow:       0 1px 3px rgba(0,0,0,0.30), 0 4px 16px rgba(0,0,0,0.15);
+/* ── Keyframes ── */
+@keyframes orb-pulse {
+    0%, 100% { box-shadow: 0 0 28px rgba(80,150,255,0.35), 0 0 8px rgba(80,150,255,0.2); }
+    50%       { box-shadow: 0 0 44px rgba(80,150,255,0.55), 0 0 16px rgba(80,150,255,0.35); }
+}
+@keyframes orb-ring {
+    0%   { transform: scale(1);   opacity: 0.35; }
+    50%  { transform: scale(1.08); opacity: 0.15; }
+    100% { transform: scale(1);   opacity: 0.35; }
+}
+@keyframes dot-bounce {
+    0%, 80%, 100% { transform: translateY(0);    opacity: 0.4; }
+    40%           { transform: translateY(-6px); opacity: 1;   }
 }
 
-html, body {
+/* ── Root vars ── */
+:root {
+    --ak-bg:          #070d1a;
+    --ak-surface:     #0d1527;
+    --ak-surface2:    #111d35;
+    --ak-border:      rgba(80,140,255,0.14);
+    --ak-border2:     rgba(80,140,255,0.22);
+    --ak-blue:        #4a8fff;
+    --ak-blue-dim:    rgba(74,143,255,0.12);
+    --ak-text:        #dde8ff;
+    --ak-text-muted:  rgba(180,200,255,0.45);
+    --ak-user-bg:     rgba(60,90,220,0.28);
+    --ak-user-border: rgba(100,140,255,0.30);
+    --ak-bot-bg:      rgba(255,255,255,0.04);
+    --ak-bot-border:  rgba(80,140,255,0.14);
+    --ak-radius:      16px;
+}
+
+/* ── Global reset ── */
+html, body, .gradio-container {
     background: var(--ak-bg) !important;
     color: var(--ak-text) !important;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
-/* ── Hide all Gradio chrome ── */
+/* ── Hide Gradio chrome ── */
 footer,
-.svelte-1ipelgc,
 .gradio-container > .app > .wrap > .gap > .block > .label-wrap,
-.block > .label-wrap,
-.gradio-container .prose,
-.chat-interface .disclaimer {
-    display: none !important;
-}
+.block > .label-wrap { display: none !important; }
 
 .app, .wrap, .gap, .form, .panel,
 .block, [class*="gradio-"] > div {
@@ -56,487 +53,339 @@ footer,
     box-shadow: none !important;
 }
 
-/* ── Main container ── */
+/* ── Page layout ── */
 .gradio-container {
-    max-width: 1360px !important;
+    max-width: 1200px !important;
     min-height: 100vh !important;
-    padding: 0 !important;
     background: var(--ak-bg) !important;
 }
 
-/* ══════════════════════════════════════════════════════
-   HEADER
-   ══════════════════════════════════════════════════════ */
-#aiko-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    padding: 18px 24px;
-    background: rgba(17, 24, 39, 0.60) !important;
-    backdrop-filter: blur(20px) saturate(1.2);
-    -webkit-backdrop-filter: blur(20px) saturate(1.2);
-    border-bottom: 1px solid var(--ak-border);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-}
-
-#aiko-header .header-avatar {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--ak-accent), var(--ak-pink));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
-    flex-shrink: 0;
-    box-shadow: 0 0 20px var(--ak-accent-glow);
-}
-
-#aiko-header .header-text {
+/* ── Orb section ── */
+#aiko-orb-section {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
+    padding: 32px 0 20px;
+    gap: 0;
 }
 
-#aiko-header h1 {
+#aiko-orb-wrap {
+    position: relative;
+    width: 110px;
+    height: 110px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#aiko-orb-ring-outer {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(80,140,255,0.18);
+    animation: orb-ring 3.5s ease-in-out infinite;
+}
+
+#aiko-orb-ring-inner {
+    position: absolute;
+    inset: 14px;
+    border-radius: 50%;
+    border: 1px solid rgba(80,140,255,0.28);
+    animation: orb-ring 3.5s ease-in-out infinite 0.5s;
+}
+
+#aiko-orb {
+    width: 66px;
+    height: 66px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 34%, #60b0ff, #2060d0 52%, #0a1550);
+    animation: orb-pulse 3s ease-in-out infinite;
+    position: relative;
+    z-index: 1;
+}
+
+#aiko-orb::after {
+    content: '';
+    position: absolute;
+    top: 13px;
+    left: 17px;
+    width: 16px;
+    height: 9px;
+    background: rgba(255,255,255,0.26);
+    border-radius: 50%;
+    transform: rotate(-30deg);
+}
+
+#aiko-greeting {
+    text-align: center;
+    margin-top: 16px;
+}
+
+#aiko-greeting h2 {
     font-size: 1.15rem !important;
-    font-weight: 600 !important;
-    color: #fff !important;
+    font-weight: 500 !important;
+    color: rgba(220,235,255,0.92) !important;
+    margin: 0 0 5px !important;
+    letter-spacing: 0.01em !important;
+}
+
+#aiko-greeting p {
+    font-size: 0.75rem !important;
+    color: var(--ak-text-muted) !important;
     margin: 0 !important;
-    letter-spacing: 0.02em !important;
-    line-height: 1.3 !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase !important;
 }
 
-#aiko-header .header-status {
+/* ── Suggestion pills ── */
+#aiko-suggestions {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.72rem !important;
-    color: var(--ak-teal) !important;
-    margin: 0 !important;
-    letter-spacing: 0.03em !important;
+    gap: 7px;
+    justify-content: center;
+    flex-wrap: wrap;
+    padding: 14px 16px 8px;
 }
 
-#aiko-header .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--ak-teal);
-    animation: pulse-dot 2s ease-in-out infinite;
+.aiko-pill {
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(80,140,255,0.20) !important;
+    border-radius: 20px !important;
+    padding: 5px 14px !important;
+    font-size: 0.76rem !important;
+    color: rgba(160,195,255,0.75) !important;
+    cursor: pointer !important;
+    transition: background 0.2s, border-color 0.2s !important;
+    white-space: nowrap !important;
+}
+.aiko-pill:hover {
+    background: rgba(80,140,255,0.12) !important;
+    border-color: rgba(80,140,255,0.40) !important;
+    color: rgba(190,215,255,0.9) !important;
 }
 
-@keyframes pulse-dot {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(94,234,212,0.5); }
-    50%      { opacity: 0.7; box-shadow: 0 0 0 4px rgba(94,234,212,0); }
-}
-
-/* ══════════════════════════════════════════════════════
-   CHAT INTERFACE WRAPPER
-   ══════════════════════════════════════════════════════ */
-.chat-interface {
-    display: flex;
-    flex-direction: column;
-    height: var(--ak-chat-height) !important;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
-/* ── Chatbot message area ── */
+/* ── Chatbot container ── */
 #aiko-chatbot {
     background: transparent !important;
     border: none !important;
-    border-radius: 0 !important;
-    height: 100% !important;
-    flex: 1 !important;
-    overflow-y: auto !important;
-    padding: 20px 16px !important;
+    box-shadow: none !important;
 }
 
 #aiko-chatbot > div {
     background: transparent !important;
     border: none !important;
+    padding: 0 8px !important;
 }
 
-/* ── Message row wrappers ── */
-#aiko-chatbot .message-row {
-    padding: 4px 0 !important;
-    background: transparent !important;
-}
-
+/* ── Scrollable message area ── */
 #aiko-chatbot .message-wrap {
     background: transparent !important;
     border: none !important;
-    padding: 0 !important;
+    padding: 4px 0 !important;
 }
 
-/* ══════════════════════════════════════════════════════
-   MESSAGE BUBBLES
-   ══════════════════════════════════════════════════════ */
-#aiko-chatbot .message {
-    padding: 12px 16px !important;
+/* ── Message rows ── */
+#aiko-chatbot .message-row {
+    gap: 8px !important;
+    padding: 2px 4px !important;
+}
+
+/* ── Individual message bubbles ── */
+#aiko-chatbot [data-testid="user"],
+#aiko-chatbot [data-testid="bot"] {
+    font-size: 0.875rem !important;
+    line-height: 1.6 !important;
     border-radius: var(--ak-radius) !important;
-    font-size: 0.9rem !important;
-    line-height: 1.65 !important;
+    padding: 10px 14px !important;
     max-width: 78% !important;
-    word-wrap: break-word !important;
-    background: transparent !important;
-    border: none !important;
+    word-break: break-word !important;
+    border: 1px solid transparent !important;
     box-shadow: none !important;
-    position: relative !important;
-    animation: msg-appear 0.35s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
-@keyframes msg-appear {
-    from { opacity: 0; transform: translateY(10px) scale(0.97); }
-    to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-/* ── User bubble ── */
-#aiko-chatbot .message.user {
+/* User bubble */
+#aiko-chatbot [data-testid="user"] {
     background: var(--ak-user-bg) !important;
-    border: 1px solid var(--ak-user-border) !important;
-    border-radius: 20px 6px 20px 20px !important;
-    color: #f0eeff !important;
+    border-color: var(--ak-user-border) !important;
+    border-radius: 16px 4px 16px 16px !important;
+    color: rgba(210,225,255,0.92) !important;
     margin-left: auto !important;
-    margin-right: 4px !important;
-    backdrop-filter: blur(8px);
+    margin-right: 6px !important;
 }
 
-/* ── Bot bubble ── */
-#aiko-chatbot .message.bot,
-#aiko-chatbot .message.assistant {
+/* Bot bubble */
+#aiko-chatbot [data-testid="bot"] {
     background: var(--ak-bot-bg) !important;
-    border: 1px solid var(--ak-bot-border) !important;
-    border-radius: 6px 20px 20px 20px !important;
-    color: var(--ak-text) !important;
+    border-color: var(--ak-bot-border) !important;
+    border-radius: 4px 16px 16px 16px !important;
+    color: rgba(210,225,255,0.82) !important;
     margin-right: auto !important;
-    margin-left: 4px !important;
-    backdrop-filter: blur(8px);
+    margin-left: 6px !important;
 }
 
-/* ── Text color inside bubbles ── */
-#aiko-chatbot .message.user *       { color: #f0eeff !important; }
-#aiko-chatbot .message.bot *        { color: var(--ak-text) !important; }
-#aiko-chatbot .message.assistant *  { color: var(--ak-text) !important; }
+/* Force text color inside bubbles */
+#aiko-chatbot [data-testid="user"]  * { color: rgba(210,225,255,0.92) !important; }
+#aiko-chatbot [data-testid="bot"]   * { color: rgba(210,225,255,0.82) !important; }
 
-/* ── Bot message accent for search indicators ── */
-#aiko-chatbot .message.bot em,
-#aiko-chatbot .message.assistant em {
-    color: var(--ak-accent) !important;
+/* ── message-row alignment ── */
+#aiko-chatbot .message-row.user-row {
+    justify-content: flex-end !important;
+}
+#aiko-chatbot .message-row.bot-row {
+    justify-content: flex-start !important;
+}
+
+/* ── Italic search status inside bot bubble ── */
+#aiko-chatbot [data-testid="bot"] em {
+    color: var(--ak-blue) !important;
     font-style: italic !important;
-    font-size: 0.82rem !important;
+    font-size: 0.80rem !important;
     display: block !important;
     margin-bottom: 6px !important;
-    opacity: 0.80 !important;
+    opacity: 0.85 !important;
 }
 
-/* ── Code blocks inside messages ── */
-#aiko-chatbot .message pre {
-    background: rgba(0,0,0,0.35) !important;
-    border: 1px solid rgba(99,140,200,0.10) !important;
-    border-radius: var(--ak-radius-sm) !important;
-    padding: 12px !important;
-    font-size: 0.82rem !important;
-    overflow-x: auto !important;
-    margin: 8px 0 !important;
+/* ── Loading dots ── */
+#aiko-chatbot .dots {
+    display: flex !important;
+    gap: 4px !important;
+    padding: 4px 2px !important;
 }
-
-#aiko-chatbot .message code {
-    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace !important;
-    font-size: 0.82rem !important;
+#aiko-chatbot .dot {
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 50% !important;
+    background: rgba(100,160,255,0.6) !important;
+    animation: dot-bounce 1.3s ease-in-out infinite !important;
 }
+#aiko-chatbot .dot:nth-child(2) { animation-delay: 0.16s !important; }
+#aiko-chatbot .dot:nth-child(3) { animation-delay: 0.32s !important; }
 
-/* ══════════════════════════════════════════════════════
-   INPUT AREA
-   ══════════════════════════════════════════════════════ */
-.chat-interface .input-row {
-    padding: 12px 16px 20px !important;
-    background: rgba(17, 24, 39, 0.50) !important;
-    backdrop-filter: blur(20px) saturate(1.2);
-    -webkit-backdrop-filter: blur(20px) saturate(1.2);
-    border-top: 1px solid var(--ak-border);
-}
+/* ── Avatar containers — hide by default (no avatars set) ── */
+#aiko-chatbot .avatar-container { display: none !important; }
 
-#aiko-input-wrap {
-    display: flex;
-    align-items: flex-end;
-    gap: 10px;
-    background: var(--ak-surface2) !important;
-    border: 1px solid var(--ak-border) !important;
-    border-radius: 28px !important;
-    padding: 6px 6px 6px 18px !important;
-    transition: border-color 0.25s ease, box-shadow 0.25s ease !important;
-}
-
-#aiko-input-wrap:focus-within {
-    border-color: var(--ak-border-focus) !important;
-    box-shadow: 0 0 0 3px var(--ak-accent-dim), var(--ak-shadow) !important;
-}
-
-.gradio-container textarea {
+/* ── Input area outer wrapper ── */
+.gradio-container .block:has(textarea[data-testid="textbox"]) {
     background: transparent !important;
     border: none !important;
-    border-radius: 0 !important;
+    padding: 4px 0 0 !important;
+}
+
+/* ── Input row ── */
+.gradio-container .input-row {
+    background: var(--ak-surface2) !important;
+    border: 1px solid var(--ak-border2) !important;
+    border-radius: 28px !important;
+    padding: 6px 8px 6px 18px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    transition: border-color 0.2s !important;
+}
+.gradio-container .input-row:focus-within {
+    border-color: rgba(80,140,255,0.45) !important;
+    box-shadow: 0 0 0 3px rgba(74,143,255,0.08) !important;
+}
+
+/* ── Textarea inside input-row ── */
+.gradio-container textarea[data-testid="textbox"] {
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
     color: var(--ak-text) !important;
-    caret-color: var(--ak-accent) !important;
-    padding: 8px 0 !important;
-    font-size: 0.9rem !important;
-    resize: none !important;
+    caret-color: var(--ak-blue) !important;
+    font-size: 0.875rem !important;
     line-height: 1.5 !important;
-    min-height: 24px !important;
-    max-height: 120px !important;
+    resize: none !important;
+    padding: 4px 0 !important;
     flex: 1 !important;
-    outline: none !important;
-    box-shadow: none !important;
 }
-
-.gradio-container textarea:focus {
-    border-color: transparent !important;
-    outline: none !important;
-    box-shadow: none !important;
-}
-
-.gradio-container textarea::placeholder {
+.gradio-container textarea[data-testid="textbox"]::placeholder {
     color: var(--ak-text-muted) !important;
 }
 
-/* ── Send button ── */
-#aiko-send-btn,
-.chat-interface button[aria-label="Submit"],
-.chat-interface button.submit-btn {
-    background: linear-gradient(135deg, var(--ak-accent), #8b6fff) !important;
-    border: none !important;
+/* ── Submit button (icon button inside textbox) ── */
+.gradio-container .textarea-wrapper button[aria-label],
+.gradio-container [data-testid="submit-btn"],
+.gradio-container button.submit-btn,
+.gradio-container .input-row > button {
+    background: rgba(74,143,255,0.18) !important;
+    border: 1px solid rgba(74,143,255,0.35) !important;
     border-radius: 50% !important;
-    color: #fff !important;
-    width: 40px !important;
-    height: 40px !important;
-    min-width: 40px !important;
+    color: rgba(160,200,255,0.9) !important;
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
     padding: 0 !important;
-    flex-shrink: 0 !important;
-    transition: transform 0.15s ease, box-shadow 0.25s ease, opacity 0.2s ease !important;
-    box-shadow: 0 2px 10px rgba(108, 159, 255, 0.30) !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
+    flex-shrink: 0 !important;
+    transition: background 0.2s !important;
+}
+.gradio-container .textarea-wrapper button[aria-label]:hover,
+.gradio-container .input-row > button:hover {
+    background: rgba(74,143,255,0.30) !important;
 }
 
-#aiko-send-btn:hover,
-.chat-interface button[aria-label="Submit"]:hover,
-.chat-interface button.submit-btn:hover {
-    transform: scale(1.08) !important;
-    box-shadow: 0 4px 20px rgba(108, 159, 255, 0.45) !important;
-}
-
-#aiko-send-btn:active,
-.chat-interface button[aria-label="Submit"]:active,
-.chat-interface button.submit-btn:active {
-    transform: scale(0.95) !important;
-}
-
-/* ── Secondary buttons (clear, etc.) ── */
-.chat-interface .secondary-btn,
-.chat-interface button:not([aria-label="Submit"]):not(.submit-btn):not(#aiko-send-btn) {
-    background: var(--ak-surface2) !important;
-    border: 1px solid var(--ak-border) !important;
-    border-radius: 12px !important;
-    color: var(--ak-text-dim) !important;
-    font-size: 0.78rem !important;
-    padding: 6px 14px !important;
-    transition: background 0.2s ease, color 0.2s ease !important;
-}
-
-.chat-interface .secondary-btn:hover {
-    background: var(--ak-surface3) !important;
-    color: var(--ak-text) !important;
-}
-
-/* ══════════════════════════════════════════════════════
-   SIDEBAR (VRM Viewer Column)
-   ══════════════════════════════════════════════════════ */
+/* ── Sidebar ── */
 #aiko-col {
     padding: 0 0 0 12px !important;
 }
 
-#aiko-sidebar {
-    background: var(--ak-surface) !important;
-    border: 1px solid var(--ak-border) !important;
-    border-radius: var(--ak-radius) !important;
-    padding: 16px !important;
-    height: 100% !important;
-    box-shadow: var(--ak-shadow) !important;
-    overflow: hidden;
-}
-
-/* ══════════════════════════════════════════════════════
-   STATUS & BADGE COMPONENTS
-   ══════════════════════════════════════════════════════ */
+/* ── Status pill ── */
 .aiko-status {
     display: inline-flex !important;
     align-items: center !important;
     gap: 6px !important;
     font-size: 0.74rem !important;
-    color: var(--ak-accent) !important;
-    background: var(--ak-accent-dim) !important;
-    border: 1px solid rgba(108,159,255,0.18) !important;
+    color: var(--ak-blue) !important;
+    background: var(--ak-blue-dim) !important;
+    border: 1px solid rgba(74,143,255,0.22) !important;
     border-radius: 20px !important;
     padding: 3px 10px !important;
     margin-bottom: 8px !important;
     letter-spacing: 0.02em !important;
 }
 
-.aiko-mem-badge {
-    background: var(--ak-pink-dim) !important;
-    border: 1px solid rgba(212,160,255,0.18) !important;
-    border-radius: 10px !important;
-    padding: 10px 14px !important;
-    font-size: 0.78rem !important;
-    color: var(--ak-pink) !important;
-    margin-bottom: 8px !important;
+/* ── Date divider ── */
+.aiko-date-divider {
+    text-align: center !important;
+    font-size: 0.70rem !important;
+    color: var(--ak-text-muted) !important;
+    letter-spacing: 0.07em !important;
+    text-transform: uppercase !important;
+    margin: 8px 0 6px !important;
+    position: relative !important;
 }
-
-/* ══════════════════════════════════════════════════════
-   TYPING INDICATOR
-   ══════════════════════════════════════════════════════ */
-.typing-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 0;
+.aiko-date-divider::before,
+.aiko-date-divider::after {
+    content: '' !important;
+    position: absolute !important;
+    top: 50% !important;
+    width: 30% !important;
+    height: 1px !important;
+    background: var(--ak-border) !important;
 }
+.aiko-date-divider::before { left: 0; }
+.aiko-date-divider::after  { right: 0; }
 
-.typing-indicator span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--ak-accent);
-    opacity: 0.4;
-    animation: typing-bounce 1.4s ease-in-out infinite;
-}
-
-.typing-indicator span:nth-child(2) { animation-delay: 0.15s; }
-.typing-indicator span:nth-child(3) { animation-delay: 0.30s; }
-
-@keyframes typing-bounce {
-    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-    30%           { transform: translateY(-6px); opacity: 1; }
-}
-
-/* ══════════════════════════════════════════════════════
-   SCROLLBAR
-   ══════════════════════════════════════════════════════ */
-* {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(108,159,255,0.20) transparent;
-}
-
-::-webkit-scrollbar       { width: 5px; }
+/* ── Scrollbars ── */
+* { scrollbar-width: thin; scrollbar-color: rgba(74,143,255,0.25) transparent; }
+::-webkit-scrollbar       { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-    background: rgba(108,159,255,0.20);
-    border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-    background: rgba(108,159,255,0.35);
-}
+::-webkit-scrollbar-thumb { background: rgba(74,143,255,0.25); border-radius: 2px; }
 
-/* ══════════════════════════════════════════════════════
-   MISC
-   ══════════════════════════════════════════════════════ */
+/* ── General text ── */
 .gradio-container p,
 .gradio-container label,
-.gradio-container span {
-    color: var(--ak-text) !important;
-}
+.gradio-container span { color: var(--ak-text) !important; }
 
-.gradio-container .row { gap: 0 !important; }
+/* ── Layout row gap ── */
+.gradio-container .row { gap: 12px !important; }
 
-/* ── Welcome screen ── */
-.aiko-welcome {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 60px 20px;
-    text-align: center;
-}
-
-.aiko-welcome .welcome-icon {
-    font-size: 2.8rem;
-    margin-bottom: 4px;
-}
-
-.aiko-welcome h2 {
-    font-size: 1.3rem !important;
-    font-weight: 600 !important;
-    color: #fff !important;
-    margin: 0 !important;
-}
-
-.aiko-welcome p {
-    font-size: 0.85rem !important;
-    color: var(--ak-text-muted) !important;
-    max-width: 400px;
-    line-height: 1.6;
-}
-
-.aiko-welcome .suggestion-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
-    margin-top: 8px;
-}
-
-.aiko-welcome .chip {
-    background: var(--ak-surface2);
-    border: 1px solid var(--ak-border);
-    border-radius: 20px;
-    padding: 8px 16px;
-    font-size: 0.8rem;
-    color: var(--ak-text-dim);
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.aiko-welcome .chip:hover {
-    background: var(--ak-surface3);
-    border-color: var(--ak-border-focus);
-    color: var(--ak-accent);
-}
-
-/* ── Responsive ── */
-@media (max-width: 768px) {
-    .gradio-container { max-width: 100vw !important; }
-    #aiko-chatbot .message { max-width: 88% !important; }
-    #aiko-header h1 { font-size: 1rem !important; }
-}
-
-/* ── Selection color ── */
-::selection {
-    background: rgba(108,159,255,0.30);
-    color: #fff;
-}
-
-/* ── Date separator ── */
-.aiko-date-sep {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin: 16px 0;
-    font-size: 0.72rem;
-    color: var(--ak-text-muted);
-    letter-spacing: 0.04em;
-}
-.aiko-date-sep::before,
-.aiko-date-sep::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--ak-border);
+/* ── Placeholder empty state ── */
+#aiko-chatbot .placeholder {
+    display: none !important;
 }
 """
