@@ -42,6 +42,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     The iframe keeps module scripts/import maps isolated from Gradio's own DOM,
     then watches the parent gr.Audio element (#aiko-audio) to drive simple
     amplitude-based lip sync while Edge TTS MP3 playback is active.
+
+    Expression/viseme control is via postMessage (works in HF Spaces):
+        parent.frames['aiko-vrm-frame'].postMessage({expression:'happy',intensity:0.8}, '*')
+        parent.frames['aiko-vrm-frame'].postMessage({viseme:'A',weight:0.6}, '*')
     """
     if isinstance(vrm_urls, str):
         vrm_urls = [vrm_urls]
@@ -165,6 +169,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     controls.minDistance = 1.4;
     controls.maxDistance = 4.2;
 
+    // Lighting
     scene.add(new THREE.HemisphereLight(0xded4ff, 0x21182f, 2.4));
     const key = new THREE.DirectionalLight(0xffffff, 2.7);
     key.position.set(1.8, 3.0, 2.5);
@@ -172,6 +177,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     const rim = new THREE.DirectionalLight(0x9b7cff, 1.5);
     rim.position.set(-2.5, 1.4, -1.2);
     scene.add(rim);
+
+    // Grid (from standalone viewer)
+    scene.add(new THREE.GridHelper(10, 20, 0x1a0a2a, 0x100820));
 
     let vrm = null;
     let mouth = 0;
@@ -182,8 +190,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let audioContext = null;
     const clock = new THREE.Clock();
 
-    // Procedural idle state copied from the standalone viewer: relaxed
-    // breathing, gentle head motion, parade-rest arms, and natural blinks.
     let idleTime = 0;
     let blinkTimer = 3.0 + Math.random() * 4.0;
     let blinkPhase = 'wait';
@@ -198,6 +204,14 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       leftHand: {{ y: 0.4 }},
       rightHand: {{ y: -0.4 }},
     }};
+
+    // Expression state for postMessage control
+    const exprTargets = {{}};
+    const exprCurrent = {{}};
+    const EXPR_LERP = 6;
+    let exprResetTimer = null;
+    const EXPR_RESET_DELAY = 4000;
+    const VISEME_MAP = {{ A: 'aa', I: 'ih', U: 'ou', E: 'ee', O: 'oh' }};
 
     function nextBlinkWait() {{
       return 3.0 + Math.random() * 4.0;
@@ -241,25 +255,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const rUA = rawBone('rightUpperArm');
       const lLA = rawBone('leftLowerArm');
       const rLA = rawBone('rightLowerArm');
-      const lH = rawBone('leftHand');
-      const rH = rawBone('rightHand');
-      if (lUA) {{
-        lUA.rotation.x = REST.leftUpperArm.x + Math.sin(idleTime * 0.47) * 0.012;
-        lUA.rotation.z = REST.leftUpperArm.z + Math.sin(idleTime * 0.41) * 0.008;
-      }}
-      if (rUA) {{
-        rUA.rotation.x = REST.rightUpperArm.x + Math.sin(idleTime * 0.53 + 0.9) * 0.012;
-        rUA.rotation.z = REST.rightUpperArm.z + Math.sin(idleTime * 0.37 + 0.7) * 0.008;
-      }}
-      if (lLA) {{
-        lLA.rotation.x = REST.leftLowerArm.x + Math.sin(idleTime * 0.61) * 0.010;
-        lLA.rotation.z = REST.leftLowerArm.z + Math.sin(idleTime * 0.43) * 0.006;
-      }}
-      if (rLA) {{
-        rLA.rotation.x = REST.rightLowerArm.x + Math.sin(idleTime * 0.57 + 1.4) * 0.010;
-        rLA.rotation.z = REST.rightLowerArm.z + Math.sin(idleTime * 0.51 + 0.5) * 0.006;
-      }}
-      if (lH) lH.rotation.y = REST.leftHand.y + Math.sin(idleTime * 0.33) * 0.008;
+      const lH  = rawBone('leftHand');
+      const rH  = rawBone('rightHand');
+      if (lUA) {{ lUA.rotation.x = REST.leftUpperArm.x  + Math.sin(idleTime * 0.47) * 0.012; lUA.rotation.z = REST.leftUpperArm.z  + Math.sin(idleTime * 0.41) * 0.008; }}
+      if (rUA) {{ rUA.rotation.x = REST.rightUpperArm.x + Math.sin(idleTime * 0.53 + 0.9) * 0.012; rUA.rotation.z = REST.rightUpperArm.z + Math.sin(idleTime * 0.37 + 0.7) * 0.008; }}
+      if (lLA) {{ lLA.rotation.x = REST.leftLowerArm.x  + Math.sin(idleTime * 0.61) * 0.010; lLA.rotation.z = REST.leftLowerArm.z  + Math.sin(idleTime * 0.43) * 0.006; }}
+      if (rLA) {{ rLA.rotation.x = REST.rightLowerArm.x + Math.sin(idleTime * 0.57 + 1.4) * 0.010; rLA.rotation.z = REST.rightLowerArm.z + Math.sin(idleTime * 0.51 + 0.5) * 0.006; }}
+      if (lH) lH.rotation.y = REST.leftHand.y  + Math.sin(idleTime * 0.33) * 0.008;
       if (rH) rH.rotation.y = REST.rightHand.y + Math.sin(idleTime * 0.29 + 1.2) * 0.008;
     }}
 
@@ -268,10 +270,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const em = vrm.expressionManager;
       if (blinkPhase === 'wait') {{
         blinkTimer -= dt;
-        if (blinkTimer <= 0) {{
-          blinkPhase = 'closing';
-          blinkT = 0;
-        }}
+        if (blinkTimer <= 0) {{ blinkPhase = 'closing'; blinkT = 0; }}
       }} else if (blinkPhase === 'closing') {{
         blinkT += dt;
         try {{ em.setValue('blink', Math.min(blinkT / BLINK_CLOSE_DUR, 1)); }} catch {{}}
@@ -287,10 +286,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }}
     }}
 
-    const dot = document.getElementById('dot');
+    const dot        = document.getElementById('dot');
     const statusText = document.getElementById('status-text');
-    const emotion = document.getElementById('emotion');
-    const log = document.getElementById('log');
+    const emotion    = document.getElementById('emotion');
+    const log        = document.getElementById('log');
 
     function resize() {{
       const w = Math.max(1, canvas.clientWidth);
@@ -351,11 +350,37 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         }}
         setSpeaking(true);
       }});
-      audio.addEventListener('pause', () => setSpeaking(false));
-      audio.addEventListener('ended', () => setSpeaking(false));
+      audio.addEventListener('pause',  () => setSpeaking(false));
+      audio.addEventListener('ended',  () => setSpeaking(false));
     }}
 
     setInterval(() => attachAudio(findParentAudio()), 700);
+
+    // postMessage API — works across iframe boundary in HF Spaces
+    // Usage from parent page:
+    //   iframe.contentWindow.postMessage({{expression:'happy', intensity:0.8}}, '*')
+    //   iframe.contentWindow.postMessage({{viseme:'A', weight:0.6}}, '*')
+    window.addEventListener('message', (e) => {{
+      try {{
+        const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+        if (msg.expression !== undefined) {{
+          setExpression(msg.expression, msg.intensity ?? 1.0);
+          emotion.textContent = msg.expression || 'neutral';
+          clearTimeout(exprResetTimer);
+          if (msg.expression && msg.expression !== 'neutral') {{
+            exprResetTimer = setTimeout(() => setExpression('relaxed', 0.25), EXPR_RESET_DELAY);
+          }}
+        }}
+        if (msg.viseme !== undefined) {{
+          const v = VISEME_MAP[msg.viseme] ?? msg.viseme;
+          if (vrm?.expressionManager) {{
+            for (const k of ['aa','ih','ou','ee','oh']) {{
+              try {{ vrm.expressionManager.setValue(k, k === v ? (msg.weight ?? 1.0) : 0); }} catch {{}}
+            }}
+          }}
+        }}
+      }} catch (_) {{}}
+    }});
 
     const loader = new GLTFLoader();
     loader.register(parser => new VRMLoaderPlugin(parser));
