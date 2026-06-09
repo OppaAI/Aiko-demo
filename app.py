@@ -12,7 +12,7 @@ from core.wakeup import AikoWakeup
 from ui.css import AIKO_CSS
 from ui.asr import transcribe_file
 from ui.speak import speak_to_file
-from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path, lipsync_html
+from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
 
 result = AikoWakeup(text_mode=True).boot(
     on_loading=lambda k: print(f"[boot] loading: {k}"),
@@ -93,16 +93,13 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     "Aiko's VRM mouth is driven by the MP3 playback level in your browser.",
                     elem_id="aiko-note",
                 )
-                # Lip sync bridge: reads #aiko-audio amplitude in the parent
-                # page and forwards viseme weights to the VRM iframe via postMessage.
-                gr.HTML(value=lipsync_html())
             with gr.Column(scale=6, elem_id="aiko-chat-card"):
                 gr.Markdown("# Aiko-chan 🌸", elem_id="aiko-title")
                 chatbot = gr.Chatbot(
                     elem_id="aiko-chatbot",
                     show_label=False,
                     height=520,
-                    #type="messages",
+                    type="messages",
                 )
                 with gr.Row(elem_id="aiko-input-row"):
                     msg = gr.Textbox(
