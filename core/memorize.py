@@ -48,6 +48,12 @@ Custom backend (replaces Qdrant + mem0):
   - All schema fields (memory, user_id, created_at, access_count,
     last_accessed_at, pinned) are owned by this module — no hidden schema.
 
+Extraction LLM routing:
+  - If LLAMA_BASE_URL is set (Modal / llama.cpp OpenAI-compat endpoint),
+    extraction uses the same endpoint as think.py (OpenAI /v1 format).
+  - Falls back to OLLAMA_BASE_URL + /api/chat (Ollama format) for local dev.
+  - Model resolved via: EXTRACT_MODEL → LLAMA_MODEL → OLLAMA_MODEL.
+
 Dependencies:
   pip install sqlite-vec fastembed
 """
@@ -326,6 +332,63 @@ def _sqlite_knn_search(
     return rows
 
 
+# ── extraction LLM call ───────────────────────────────────────────────────────
+
+def _call_extraction_llm(
+    prompt:          str,
+    llama_base_url:  str,
+    llama_model:     str,
+    ollama_base_url: str,
+    ollama_model:    str,
+) -> str:
+    """
+    Send the extraction prompt to whichever LLM backend is configured.
+
+    Routing priority:
+      1. LLAMA_BASE_URL (Modal / llama.cpp OpenAI-compat) — uses OpenAI
+         /v1/chat/completions format, same as think.py's _stream_response.
+      2. OLLAMA_BASE_URL fallback — uses Ollama /api/chat format for local dev.
+
+    Returns the raw response string, or raises on failure.
+    """
+    if llama_base_url:
+        # OpenAI-compatible endpoint (Modal / llama.cpp) — mirrors think.py
+        base = llama_base_url.rstrip("/")
+        resp = httpx.post(
+            f"{base}/",
+            json={
+                "model":       llama_model,
+                "messages":    [{"role": "user", "content": prompt}],
+                "stream":      False,
+                "temperature": 0.1,
+                "max_tokens":  512,
+            },
+            timeout=45,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"].strip()
+
+    # local Ollama fallback
+    base = ollama_base_url.rstrip("/")
+    resp = httpx.post(
+        f"{base}/api/chat",
+        json={
+            "model":    ollama_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream":   False,
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 512,
+                "num_ctx":     int(os.getenv("OLLAMA_NUM_CTX", 3072)),
+            },
+        },
+        timeout=45,
+    )
+    resp.raise_for_status()
+    return resp.json()["message"]["content"].strip()
+
+
 # ── memory backend ────────────────────────────────────────────────────────────
 
 class _MemoryBackend:
@@ -346,14 +409,18 @@ class _MemoryBackend:
     def __init__(
         self,
         db_path:         str,
+        llama_base_url:  str,
+        llama_model:     str,
         ollama_base_url: str,
-        model:           str,
+        ollama_model:    str,
         fastembed_cache: Optional[str] = None,
     ) -> None:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._db_path  = db_path
-        self._ollama   = ollama_base_url.rstrip("/")
-        self._model    = model
+        self._db_path        = db_path
+        self._llama_base_url = llama_base_url   # Modal / llama.cpp (preferred)
+        self._llama_model    = llama_model
+        self._ollama         = ollama_base_url   # local Ollama fallback
+        self._ollama_model   = ollama_model
         self._embedder = TextEmbedding(
             model_name=EMBED_MODEL,
             cache_dir=fastembed_cache,
@@ -398,7 +465,8 @@ class _MemoryBackend:
 
     def _extract_facts(self, messages: list[dict]) -> list[str]:
         """
-        Send conversation to Ollama LLM and parse the returned JSON fact array.
+        Send conversation to extraction LLM and parse the returned JSON fact array.
+        Routes to Modal (OpenAI-compat) if LLAMA_BASE_URL is set, else Ollama.
         Only user/assistant turns are included. Orphaned roles (system, tool,
         empty content) are stripped before formatting to prevent LLM confusion.
         """
@@ -440,22 +508,13 @@ class _MemoryBackend:
         prompt = _EXTRACT_PROMPT.format(conversation=convo)
 
         try:
-            resp = httpx.post(
-                f"{self._ollama}/api/chat",
-                json={
-                    "model":    self._model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream":   False,
-                    "options": {
-                        "temperature": 0.1,
-                        "num_predict": 512,
-                        "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", 3072)),
-                    },
-                },
-                timeout=45,
+            raw = _call_extraction_llm(
+                prompt=prompt,
+                llama_base_url=self._llama_base_url,
+                llama_model=self._llama_model,
+                ollama_base_url=self._ollama,
+                ollama_model=self._ollama_model,
             )
-            resp.raise_for_status()
-            raw = resp.json()["message"]["content"].strip()
         except Exception as e:
             log.warning(f"Extraction LLM call failed: {e}")
             return []
@@ -637,8 +696,15 @@ class AikoMemorize:
     """
     Persistent memory with Ebbinghaus decay lifecycle and nightly dream() pass.
 
-    Uses a custom _MemoryBackend (Ollama extraction + fastembed + sqlite-vec)
+    Uses a custom _MemoryBackend (LLM extraction + fastembed + sqlite-vec)
     instead of Qdrant + mem0. Public API and all lifecycle behaviour are unchanged.
+
+    Extraction LLM routing (env vars):
+      LLAMA_BASE_URL  — Modal / llama.cpp OpenAI-compat endpoint (preferred on HF Spaces)
+      LLAMA_MODEL     — model name for the above
+      EXTRACT_MODEL   — override model name for extraction specifically
+      OLLAMA_BASE_URL — local Ollama fallback (default: http://localhost:11434)
+      OLLAMA_MODEL    — model name for Ollama fallback
 
     Boot sequence (called by wakeup.py in order):
         memorize = AikoMemorize()   # opens sqlite-vec store + loads fastembed
@@ -657,7 +723,7 @@ class AikoMemorize:
         2. Merge near-duplicate vectors — keeps higher-access copy.
            Pinned memories are never deleted as a merge loser.
         3. Prune decayed memories via cleanup().
-           Pinned memories are skipped entirely.
+           Pinned memories are always kept.
 
     Cleanup:
         Also available standalone — deletes memories below decay threshold,
@@ -674,10 +740,22 @@ class AikoMemorize:
         if not silent:
             log.info("Opening sqlite-vec memory store...")
 
+        # resolve extraction model: EXTRACT_MODEL > LLAMA_MODEL > OLLAMA_MODEL
+        extract_model = (
+            os.getenv("EXTRACT_MODEL")
+            or os.getenv("LLAMA_MODEL",  "ministral-3:3b-instruct-2512-q4_K_M")
+        )
+        ollama_model = (
+            os.getenv("EXTRACT_MODEL")
+            or os.getenv("OLLAMA_MODEL", "ministral-3:3b-instruct-2512-q4_K_M")
+        )
+
         self._mem = _MemoryBackend(
             db_path=db_path,
+            llama_base_url=os.getenv("LLAMA_BASE_URL", ""),   # Modal / llama.cpp (preferred)
+            llama_model=extract_model,
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            model=os.getenv("EXTRACT_MODEL") or os.getenv("OLLAMA_MODEL"),
+            ollama_model=ollama_model,
             fastembed_cache=os.getenv("FASTEMBED_CACHE_PATH"),
         )
         # direct connection handle for payload operations (access tracking,
@@ -780,7 +858,7 @@ class AikoMemorize:
                     continue
                 try:
                     # fetch current access_count before incrementing
-                    payload      = _sqlite_get_payload(self._conn, mem_id)
+                    payload       = _sqlite_get_payload(self._conn, mem_id)
                     current_count = payload.get("access_count", 0) or 0
 
                     # update access tracking — cap at 255 to bound the column
