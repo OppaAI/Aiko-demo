@@ -332,6 +332,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     window.addEventListener('message', (e) => {{
       try {{
         const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+        console.log('[aiko] postMessage received:', JSON.stringify(msg));
         if (msg.speaking !== undefined) setSpeaking(msg.speaking);
         if (msg.expression !== undefined) {{
           setExpression(msg.expression, msg.intensity ?? 1.0);
@@ -371,6 +372,16 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         vrm.scene.rotation.y = Math.PI;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
+
+        // DEBUG: test if bone rotation works at all
+        setTimeout(() => {{
+          const testBone = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+          console.log('[aiko] leftUpperArm node:', testBone);
+          if (testBone) {{
+            testBone.rotation.z = 1.0; // big rotation — should visibly move arm
+            console.log('[aiko] set leftUpperArm.rotation.z = 1.0 — did arm move?');
+          }}
+        }}, 2000);
         document.getElementById('load-msg').textContent = 'ready';
         log.textContent = 'loaded: Aiko.vrm';
         document.getElementById('loader').classList.add('fade');
@@ -432,6 +443,7 @@ def lipsync_html() -> str:
   }
 
   function post(msg) {
+    console.log('[aiko-lipsync] posting:', JSON.stringify(msg));
     const f = getIframe();
     if (f && f.contentWindow) f.contentWindow.postMessage(msg, '*');
   }
@@ -483,6 +495,7 @@ def lipsync_html() -> str:
   // Poll for the Gradio audio element — it may not exist on page load
   setInterval(() => {
     const audio = document.querySelector('#aiko-audio audio');
+    console.log('[aiko-lipsync] poll — audio found:', !!audio, '| iframe found:', !!getIframe());
     if (audio) attachAudio(audio);
   }, 700);
 })();
