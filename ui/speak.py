@@ -1,59 +1,58 @@
+"""Browser-friendly TTS helper for the Gradio Space.
+
+The local terminal app plays MioTTS WAV bytes through sounddevice.  In a Space the
+browser must do playback, so this helper writes an MP3 file that Gradio's Audio
+component can return to the client.
 """
-ui/speak.py
-Aiko TTS via edge-tts — returns a filepath for gr.Audio(type="filepath").
-"""
+
+from __future__ import annotations
+
 import asyncio
+import hashlib
 import os
-import threading
-import uuid
+import re
+import time
+from pathlib import Path
 
-import edge_tts
+TTS_DIR = Path(os.getenv("AIKO_TTS_DIR", "/tmp/aiko_tts"))
+EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "en-US-AvaMultilingualNeural")
+EDGE_TTS_RATE = os.getenv("EDGE_TTS_RATE", "+0%")
+EDGE_TTS_PITCH = os.getenv("EDGE_TTS_PITCH", "+0Hz")
 
-EDGE_VOICE     = os.getenv("EDGE_VOICE", "en-US-AriaNeural")
-_AUDIO_DIR     = "/tmp/aiko_tts"
-_SYNTH_TIMEOUT = 15
+
+def _clean_text(text: str) -> str:
+    """Strip markdown/control tokens that make TTS sound awkward."""
+    text = re.sub(r"__SEARCHING__:[^\n]+", "", text)
+    text = re.sub(r"\[(?:think|search)[^\]]*\]", "", text, flags=re.I)
+    text = re.sub(r"[`*_#>~]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 
-async def _synthesize(text: str, path: str) -> None:
-    communicate = edge_tts.Communicate(text, voice=EDGE_VOICE)
-    await communicate.save(path)
+async def _edge_tts_to_file(text: str, out_path: Path) -> None:
+    import edge_tts
+
+    communicate = edge_tts.Communicate(
+        text,
+        voice=EDGE_TTS_VOICE,
+        rate=EDGE_TTS_RATE,
+        pitch=EDGE_TTS_PITCH,
+    )
+    await communicate.save(str(out_path))
 
 
 def speak_to_file(text: str) -> str | None:
-    """Synthesize text and return an .mp3 filepath for gr.Audio(type='filepath')."""
-    if not text or not text.strip():
+    """Synthesize *text* to an MP3 and return the filepath for gr.Audio.
+
+    Returns None when the text is empty.  Exceptions are intentionally allowed to
+    surface so Space logs show TTS failures clearly.
+    """
+    text = _clean_text(text)
+    if not text:
         return None
 
-    os.makedirs(_AUDIO_DIR, exist_ok=True)
-    output_path = os.path.join(_AUDIO_DIR, f"{uuid.uuid4()}.mp3")
-
-    print(f"[speech] synthesizing {len(text)} chars via {EDGE_VOICE} → {output_path}")
-
-    exc: list[Exception | None] = [None]
-
-    def _run() -> None:
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(_synthesize(text, output_path))
-            loop.close()
-        except Exception as e:
-            exc[0] = e
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    t.join(timeout=_SYNTH_TIMEOUT)
-
-    if t.is_alive():
-        print(f"[speech] edge-tts timed out after {_SYNTH_TIMEOUT}s")
-        return None
-
-    if exc[0]:
-        print(f"[speech] edge-tts error: {exc[0]}")
-        return None
-
-    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        print("[speech] output file missing or empty")
-        return None
-
-    return output_path
+    TTS_DIR.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha1(f"{time.time_ns()}:{text}".encode("utf-8")).hexdigest()[:16]
+    out_path = TTS_DIR / f"aiko_{digest}.mp3"
+    asyncio.run(_edge_tts_to_file(text[:4000], out_path))
+    return str(out_path)
