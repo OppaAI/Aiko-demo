@@ -40,8 +40,8 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     """Return an iframe containing the Three/VRM viewer.
 
     The iframe keeps module scripts/import maps isolated from Gradio's own DOM,
-    then watches the parent gr.Audio element (#aiko-audio) to drive simple
-    amplitude-style lip sync while Edge TTS MP3 playback is active.
+    then watches the parent gr.Audio element (#aiko-audio) with Web Audio to
+    drive lip sync from the actual TTS MP3 playback level.
 
     The mouth is driven through VRM expression presets first (aa/ih/ou/ee/oh),
     because many VRM avatars do not expose a normalized ``jaw`` bone. A jaw-bone
@@ -190,8 +190,8 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     let vrm = null;
     let mouth = 0;
+    let smoothedAudioMouth = 0;
     let speaking = false;
-    let mouthPreviewUntil = 0;
     const clock = new THREE.Clock();
     let blinkTimer = 3.0 + Math.random() * 4.0;
     let blinkPhase = 'wait';
@@ -373,7 +373,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         head.rotation.z = Math.sin(idleTime * 0.27 + 1.1) * 0.018 + Math.sin(idleTime * 0.71) * 0.006;
         head.rotation.x = Math.sin(idleTime * 0.53) * 0.012;
       }}
-      if (!speaking && performance.now() >= mouthPreviewUntil) {{
+      if (!speaking) {{
         safeSetExpression('relaxed', 0.20 + Math.sin(idleTime * 0.37) * 0.035);
         safeSetExpression('happy', Math.max(0, Math.sin(idleTime * 0.19 - 0.8)) * 0.035);
       }}
@@ -444,8 +444,50 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
 
     let lastAudio = null;
+    let audioContext = null;
+    let audioAnalyser = null;
+    let audioAnalyserData = null;
+    let analyserAudio = null;
+
     function findParentAudio() {{
       try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }} catch {{ return null; }}
+    }}
+
+    function attachAudioAnalyser(audio) {{
+      if (!audio || analyserAudio === audio) return;
+      try {{
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextCtor) return;
+        audioContext = audioContext || new AudioContextCtor();
+        const source = audioContext.createMediaElementSource(audio);
+        audioAnalyser = audioContext.createAnalyser();
+        audioAnalyser.fftSize = 1024;
+        audioAnalyser.smoothingTimeConstant = 0.72;
+        audioAnalyserData = new Uint8Array(audioAnalyser.fftSize);
+        source.connect(audioAnalyser);
+        audioAnalyser.connect(audioContext.destination);
+        analyserAudio = audio;
+        log.textContent = 'linked to Gradio MP3 output · audio-level lip sync';
+      }} catch (err) {{
+        audioAnalyser = null;
+        audioAnalyserData = null;
+        analyserAudio = null;
+        console.warn('[aiko-vrm] Web Audio analyser unavailable; falling back to timed mouth motion', err);
+      }}
+    }}
+
+    function getAudioMouth() {{
+      if (!audioAnalyser || !audioAnalyserData) return null;
+      audioAnalyser.getByteTimeDomainData(audioAnalyserData);
+      let sum = 0;
+      for (const sample of audioAnalyserData) {{
+        const centered = (sample - 128) / 128;
+        sum += centered * centered;
+      }}
+      const rms = Math.sqrt(sum / audioAnalyserData.length);
+      const opened = Math.max(0, Math.min(1, (rms - 0.012) * 7.5));
+      smoothedAudioMouth += (opened - smoothedAudioMouth) * 0.42;
+      return smoothedAudioMouth;
     }}
     function syncAudioState(audio = lastAudio) {{
       if (!audio) return;
@@ -457,11 +499,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (audio !== lastAudio) {{
         lastAudio = audio;
         log.textContent = 'linked to Gradio MP3 output';
-        audio.addEventListener('play',  () => setSpeaking(true));
-        audio.addEventListener('playing', () => setSpeaking(true));
+        audio.addEventListener('play',  () => {{ audioContext?.resume?.(); setSpeaking(true); }});
+        audio.addEventListener('playing', () => {{ audioContext?.resume?.(); setSpeaking(true); }});
         audio.addEventListener('pause', () => setSpeaking(false));
         audio.addEventListener('ended', () => setSpeaking(false));
       }}
+      attachAudioAnalyser(audio);
       syncAudioState(audio);
     }}
     setInterval(() => attachAudio(findParentAudio()), 500);
@@ -512,7 +555,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         vrm.scene.rotation.y = 0;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
-        mouthPreviewUntil = performance.now() + 1800;
         log.textContent = `loaded: Aiko.vrm; mouth presets: ${{expressionNames().filter(n => VISEME_PRESETS.includes(n)).join(', ') || 'none, using jaw fallback'}}`;
         document.getElementById('load-msg').textContent = 'ready';
         document.getElementById('loader').classList.add('fade');
@@ -533,12 +575,16 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       applyIdle(dt);
       const now = performance.now();
       const textMouth = speaking ? currentTextMouth(now) : null;
-      if (textMouth) {{
+      const audioMouth = speaking ? getAudioMouth() : null;
+      if (audioMouth !== null) {{
+        setMouth(audioMouth, textMouth?.viseme ?? 'aa');
+      }} else if (textMouth) {{
         setMouth(textMouth.weight, textMouth.viseme);
-      }} else if (speaking || now < mouthPreviewUntil) {{
+      }} else if (speaking) {{
         mouth = 0.12 + Math.abs(Math.sin(now / 110)) * 0.65;
         setMouth(mouth, 'aa');
       }} else {{
+        smoothedAudioMouth = 0;
         clearMouth();
       }}
       applyBlink(dt);
