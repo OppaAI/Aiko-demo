@@ -6,5 +6,5 @@ httpx
 requests
 numpy
 ddgs
-kokoro
+edge-tts
 soundfile
