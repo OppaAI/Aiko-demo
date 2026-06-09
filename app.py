@@ -31,7 +31,6 @@ def chat(message, history):
     audio = speak_to_array(text)
     yield text, audio   # ← yield instead of return
 
-
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
     audio_out = gr.Audio(
         autoplay=True,
@@ -42,11 +41,15 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
     gr.ChatInterface(
         fn=chat,
         title="Aiko-chan 🌸",
-        chatbot=gr.Chatbot(
-            elem_id="aiko-chatbot",
-            show_label=False,
-        ),
+        chatbot=gr.Chatbot(elem_id="aiko-chatbot", show_label=False),
         additional_outputs=[audio_out],
+    )
+    # Force autoplay on every update
+    audio_out.change(
+        fn=None,
+        inputs=None,
+        outputs=None,
+        js="() => { const a = document.querySelector('#aiko-audio audio'); if(a){ a.play(); } }"
     )
 
 demo.launch(
