@@ -186,21 +186,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let speaking = false;
     const clock = new THREE.Clock();
 
-    let idleTime = 0;
     let blinkTimer = 3.0 + Math.random() * 4.0;
     let blinkPhase = 'wait';
     let blinkT = 0;
     const BLINK_CLOSE_DUR = 0.07;
     const BLINK_OPEN_DUR = 0.10;
-    // Relaxed-at-sides pose using normalized bone space.
-    const REST = {{
-      leftUpperArm:  {{ x:  0.1, z:  0.08 }},
-      rightUpperArm: {{ x:  0.1, z: -0.08 }},
-      leftLowerArm:  {{ x:  0.2, z:  0.0  }},
-      rightLowerArm: {{ x:  0.2, z:  0.0  }},
-      leftHand:      {{ y:  0.0 }},
-      rightHand:     {{ y:  0.0 }},
-    }};
+
 
     // Expression state for postMessage control
     const exprTargets = {{}};
@@ -222,51 +213,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }} catch {{ return null; }}
     }}
 
-    function applyIdle(dt) {{
-      if (!vrm?.humanoid) return;
-      idleTime += dt;
-      const t = idleTime;
-
-      // autoUpdateHumanBones=false so vrm.update() won't reset these.
-      // We write to normalized bones then manually call humanoid.update()
-      // at the end to sync through to the raw skeleton.
-      function nb(name) {{
-        try {{ return vrm.humanoid.getNormalizedBoneNode(name); }} catch {{ return null; }}
-      }}
-
-      const breath = Math.sin(t * 0.83) * 0.013;
-      const b = nb('chest'); if (b) b.rotation.x = breath;
-      const s = nb('spine'); if (s) s.rotation.x = breath * 0.5;
-
-      const h = nb('hips');
-      if (h) {{
-        h.rotation.z = Math.sin(t * 0.41) * 0.012;
-        h.rotation.x = Math.sin(t * 0.67) * 0.008;
-        h.position.x = Math.sin(t * 0.41) * 0.003;
-      }}
-
-      const hd = nb('head');
-      if (hd) {{
-        hd.rotation.y = Math.sin(t * 0.31) * 0.055 + Math.sin(t * 1.13) * 0.012;
-        hd.rotation.z = Math.sin(t * 0.27 + 1.1) * 0.018 + Math.sin(t * 0.71) * 0.006;
-        hd.rotation.x = Math.sin(t * 0.53) * 0.012;
-      }}
-      const nk = nb('neck');
-      if (nk && hd) {{
-        nk.rotation.y = hd.rotation.y * 0.3;
-        nk.rotation.z = hd.rotation.z * 0.3;
-      }}
-
-      const lUA = nb('leftUpperArm');  if (lUA) {{ lUA.rotation.x = REST.leftUpperArm.x  + Math.sin(t*0.47)*0.012; lUA.rotation.z = REST.leftUpperArm.z  + Math.sin(t*0.41)*0.008; }}
-      const rUA = nb('rightUpperArm'); if (rUA) {{ rUA.rotation.x = REST.rightUpperArm.x + Math.sin(t*0.53+0.9)*0.012; rUA.rotation.z = REST.rightUpperArm.z + Math.sin(t*0.37+0.7)*0.008; }}
-      const lLA = nb('leftLowerArm');  if (lLA) {{ lLA.rotation.x = REST.leftLowerArm.x  + Math.sin(t*0.61)*0.010; }}
-      const rLA = nb('rightLowerArm'); if (rLA) {{ rLA.rotation.x = REST.rightLowerArm.x + Math.sin(t*0.57+1.4)*0.010; }}
-      const lH  = nb('leftHand');  if (lH)  lH.rotation.y = Math.sin(t*0.33)*0.008;
-      const rH  = nb('rightHand'); if (rH)  rH.rotation.y = Math.sin(t*0.29+1.2)*0.008;
-
-      // Manually sync normalized → raw now that autoUpdateHumanBones=false
-      vrm.humanoid.update();
-    }}
+    // Bone animation removed — VRM1 autoUpdateHumanBones resets poses every frame
+    // and the workaround causes the model to disappear. Expressions + blinks work fine.
+    function applyIdle(dt) {{}}
 
     function applyBlink(dt) {{
       if (!vrm?.expressionManager) return;
@@ -327,7 +276,25 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (!active) setMouth(0);
     }}
 
-    // Lip sync driven by parent page via postMessage (see lipsync_html())
+    // Lip sync: parent.document access works in HF Spaces (srcdoc + allow-same-origin).
+    // We skip AudioContext/analyser (cross-frame MediaElementSource is blocked)
+    // and drive mouth with a sine fallback while audio is playing.
+    let lastAudio = null;
+
+    function findParentAudio() {{
+      try {{ return parent.document.querySelector('#aiko-audio audio'); }} catch {{ return null; }}
+    }}
+
+    function attachAudio(audio) {{
+      if (!audio || audio === lastAudio) return;
+      lastAudio = audio;
+      log.textContent = 'linked to Gradio MP3 output';
+      audio.addEventListener('play',  () => setSpeaking(true));
+      audio.addEventListener('pause', () => setSpeaking(false));
+      audio.addEventListener('ended', () => setSpeaking(false));
+    }}
+
+    setInterval(() => attachAudio(findParentAudio()), 700);
 
     // postMessage API — works across iframe boundary in HF Spaces
     // Usage from parent page:
@@ -373,9 +340,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
         vrm.scene.rotation.y = Math.PI;
-        // Prevent vrm.update() from resetting our pose every frame.
-        // We manually call humanoid.update() after applyIdle instead.
-        vrm.humanoid.autoUpdateHumanBones = false;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
 
@@ -397,12 +361,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const dt = clock.getDelta();
       controls.update();
 
-      // mouth weight is set directly by postMessage({{viseme:'A', weight}})
-      // so we only need to lerp back to 0 when not speaking
-      if (!speaking) {{
+      if (speaking) {{
+        // sine fallback — no cross-frame AudioContext available
+        mouth = 0.12 + Math.abs(Math.sin(performance.now() / 110)) * 0.65;
+      }} else {{
         mouth = THREE.MathUtils.lerp(mouth, 0, 0.22);
-        setMouth(mouth);
       }}
+      setMouth(mouth);
 
       if (vrm) vrm.update(dt);
       applyIdle(dt);
@@ -418,81 +383,3 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         'sandbox="allow-scripts allow-same-origin" '
         f'srcdoc="{html.escape(srcdoc, quote=True)}"></iframe>'
     )
-
-
-def lipsync_html() -> str:
-    """Parent-page JS that reads the Gradio audio element amplitude and
-    forwards it to the VRM iframe via postMessage.
-
-    Drop this anywhere inside the gr.Blocks layout:
-        gr.HTML(value=lipsync_html())
-
-    It works because the AudioContext lives in the same origin as the
-    #aiko-audio element, avoiding the cross-origin analyser restriction.
-    """
-    return """
-<script>
-(function () {
-  let ctx, analyser, freq, lastAudio, rafId;
-
-  function getIframe() {
-    return document.getElementById('aiko-vrm-frame');
-  }
-
-  function post(msg) {
-    const f = getIframe();
-    if (f && f.contentWindow) f.contentWindow.postMessage(msg, '*');
-  }
-
-  function tick() {
-    if (!analyser || !freq) return;
-    analyser.getByteFrequencyData(freq);
-    let sum = 0;
-    for (let i = 4; i < Math.min(freq.length, 80); i++) sum += freq[i];
-    const weight = Math.min(1, (sum / 76) / 86);
-    post({ viseme: 'A', weight });
-    rafId = requestAnimationFrame(tick);
-  }
-
-  async function attachAudio(audio) {
-    if (!audio || audio === lastAudio) return;
-    lastAudio = audio;
-
-    audio.addEventListener('play', async () => {
-      try {
-        ctx = ctx || new AudioContext();
-        if (ctx.state === 'suspended') await ctx.resume();
-        if (!analyser) {
-          analyser = ctx.createAnalyser();
-          analyser.fftSize = 512;
-          freq = new Uint8Array(analyser.frequencyBinCount);
-          ctx.createMediaElementSource(audio).connect(analyser);
-          analyser.connect(ctx.destination);
-        }
-      } catch (e) {
-        console.warn('[aiko-lipsync] analyser failed, using fallback', e);
-      }
-      post({ speaking: true });
-      cancelAnimationFrame(rafId);
-      tick();
-    });
-
-    audio.addEventListener('pause', () => {
-      cancelAnimationFrame(rafId);
-      post({ speaking: false });
-    });
-
-    audio.addEventListener('ended', () => {
-      cancelAnimationFrame(rafId);
-      post({ speaking: false });
-    });
-  }
-
-  // Poll for the Gradio audio element — it may not exist on page load
-  setInterval(() => {
-    const audio = document.querySelector('#aiko-audio audio');
-    if (audio) attachAudio(audio);
-  }, 700);
-})();
-</script>
-"""
