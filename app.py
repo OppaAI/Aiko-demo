@@ -34,137 +34,95 @@ ORB_HEADER = """
 </div>
 """
 
-# ── Orb thinking animation JS ─────────────────────────────────────────────────
-# Three parallel strategies so it works across Gradio 4/5/6.
-# Drop-in replacement for ORB_THINKING_JS in app.py
-
-ORB_THINKING_JS = """
+# ── Setup JS: runs once on page load ─────────────────────────────────────────
+# Handles:
+#   1. Input pill styling (JS class injection — most reliable cross-browser)
+#   2. Exposes window.aikoSetThinking() for orb state
+#   3. Aria-busy watcher as secondary fallback
+SETUP_JS = """
 <script>
 (function() {
-  function watchOrb() {
-    var orbWrap = document.getElementById('aiko-orb-wrap');
-    if (!orbWrap) { setTimeout(watchOrb, 300); return; }
+  // ── 1. Orb state controller ─────────────────────────────────────
+  window.aikoSetThinking = function(val) {
+    var wrap = document.getElementById('aiko-orb-wrap');
+    if (!wrap) return;
+    if (val) wrap.classList.add('thinking');
+    else     wrap.classList.remove('thinking');
+  };
 
-    var isThinking = false;
-    var clearTimer  = null;
+  // ── 2. Input pill — JS-inject .aiko-input-pill on the wrapper ───
+  function styleInputPill() {
+    // Walk up from the textarea to find the right wrapper level
+    var ta = document.querySelector('textarea[data-testid="textbox"]');
+    if (!ta) return false;
 
-    function setThinking(val) {
-      if (val === isThinking) return;
-      isThinking = val;
-      if (val) {
-        orbWrap.classList.add('thinking');
-      } else {
-        orbWrap.classList.remove('thinking');
-      }
-    }
-
-    // ── Strategy 1: hook the submit button click ───────────────────
-    // Fire thinking=true the instant the user submits; this works even
-    // when the Python fn is synchronous/blocking (no streaming DOM cues).
-    function attachSubmitHook() {
-      // Gradio's submit button lives inside the chatinterface form area
-      var btn = document.querySelector(
-        '#aiko-chatbot ~ * button[aria-label="Submit"],'+
-        '.submit-btn, button[data-testid="submit-btn"],'+
-        'button.primary[type="submit"]'
-      );
-      // Broader fallback: any send/submit button near the textbox
-      if (!btn) {
-        btn = document.querySelector(
-          'button svg[data-testid="send-btn"], ' +
-          '[data-testid="submit-btn"]'
-        );
-        if (btn) btn = btn.closest('button');
-      }
-      // Final fallback: the Gradio ChatInterface submit button
-      if (!btn) {
-        var btns = document.querySelectorAll('button');
-        for (var i = 0; i < btns.length; i++) {
-          var svg = btns[i].querySelector('svg');
-          if (svg && (btns[i].title === 'Submit' || btns[i].getAttribute('aria-label') === 'Submit')) {
-            btn = btns[i]; break;
-          }
+    // Try parent, grandparent, great-grandparent
+    var el = ta.parentElement;
+    for (var i = 0; i < 4; i++) {
+      if (!el) break;
+      // The wrapper we want contains the textarea AND at least one button
+      if (el.querySelector('button') && el.querySelector('textarea')) {
+        el.classList.add('aiko-input-pill');
+        // Also ensure the textarea's own wrapper has no extra border
+        var innerWrap = ta.parentElement;
+        if (innerWrap && innerWrap !== el) {
+          innerWrap.style.background = 'transparent';
+          innerWrap.style.border     = 'none';
+          innerWrap.style.boxShadow  = 'none';
         }
+        return true;
       }
-      if (btn && !btn._aikoHooked) {
-        btn._aikoHooked = true;
-        btn.addEventListener('click', function() {
-          setThinking(true);
-        });
-      }
-      // Also hook Enter key in the textarea
-      var ta = document.querySelector('textarea[data-testid="textbox"]');
-      if (ta && !ta._aikoHooked) {
-        ta._aikoHooked = true;
-        ta.addEventListener('keydown', function(e) {
-          if (e.key === 'Enter' && !e.shiftKey) setThinking(true);
-        });
-      }
+      el = el.parentElement;
     }
-    attachSubmitHook();
-    // Re-run hook attempt a few times in case DOM isn't ready yet
-    setTimeout(attachSubmitHook, 800);
-    setTimeout(attachSubmitHook, 2000);
-
-    // ── Strategy 2: aria-busy on the chatbot log (Gradio 4-6) ──────
-    (function attachAriaWatcher() {
-      var log = document.querySelector('[role="log"]');
-      if (log) {
-        new MutationObserver(function(muts) {
-          muts.forEach(function(m) {
-            if (m.attributeName === 'aria-busy') {
-              setThinking(m.target.getAttribute('aria-busy') === 'true');
-            }
-          });
-        }).observe(log, { attributes: true });
-      } else {
-        setTimeout(attachAriaWatcher, 400);
-      }
-    })();
-
-    // ── Strategy 3: MutationObserver on body for .generating ───────
-    new MutationObserver(function() {
-      var active = !!document.querySelector(
-        '.status-tracker:not(.hide), .progress-bar, .eta-bar, .generating,' +
-        '[data-testid="status-tracker"] .wrap'
-      );
-      if (active) setThinking(true);
-    }).observe(document.body, {
-      childList: true, subtree: true,
-      attributes: true, attributeFilter: ['class', 'style']
-    });
-
-    // ── Strategy 4: interval poll — counts new bot messages ────────
-    // When a new bot message appears after we went thinking=true, clear.
-    var lastBotCount = 0;
-    setInterval(function() {
-      var botMsgs = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
-      var count   = botMsgs.length;
-
-      // Still generating?
-      var pending = !!document.querySelector(
-        '#aiko-chatbot .message.pending, #aiko-chatbot .dots,' +
-        '#aiko-chatbot .loading, .eta-bar, .progress-bar, .generating'
-      );
-
-      if (pending) {
-        setThinking(true);
-      } else if (isThinking && count > lastBotCount) {
-        // New bot message landed → done
-        setThinking(false);
-      } else if (!pending && !isThinking) {
-        // Idle — just keep lastBotCount in sync
-      }
-      lastBotCount = count;
-    }, 200);
+    return false;
   }
 
-  if (document.readyState !== 'loading') watchOrb();
-  else document.addEventListener('DOMContentLoaded', watchOrb);
+  // ── 3. Aria-busy fallback for orb ───────────────────────────────
+  function attachAriaWatcher() {
+    var log = document.querySelector('[role="log"]');
+    if (!log) { setTimeout(attachAriaWatcher, 500); return; }
+    new MutationObserver(function(muts) {
+      muts.forEach(function(m) {
+        if (m.attributeName === 'aria-busy') {
+          window.aikoSetThinking(m.target.getAttribute('aria-busy') === 'true');
+        }
+      });
+    }).observe(log, { attributes: true });
+  }
+
+  // ── 4. Poll for .generating class as secondary orb fallback ─────
+  var lastBotCount = 0;
+  function pollOrb() {
+    var generating = !!document.querySelector('.generating, .progress-bar, .eta-bar');
+    if (generating) {
+      window.aikoSetThinking(true);
+    } else {
+      var bots = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
+      if (bots.length !== lastBotCount) {
+        window.aikoSetThinking(false);
+        lastBotCount = bots.length;
+      }
+    }
+  }
+
+  // ── Boot ─────────────────────────────────────────────────────────
+  function boot() {
+    if (!styleInputPill()) {
+      // Retry until Gradio renders the textarea
+      var attempts = 0;
+      var t = setInterval(function() {
+        if (styleInputPill() || ++attempts > 40) clearInterval(t);
+      }, 250);
+    }
+    attachAriaWatcher();
+    setInterval(pollOrb, 200);
+  }
+
+  if (document.readyState !== 'loading') boot();
+  else document.addEventListener('DOMContentLoaded', boot);
 })();
 </script>
 """
-
 
 # ── Chat function ─────────────────────────────────────────────────────────────
 def chat(message, history):
@@ -181,23 +139,35 @@ def chat(message, history):
     return "".join(tokens)
 
 
+# ── JS fired by Gradio on submit (before Python runs) ────────────────────────
+# This is passed to gr.ChatInterface(js=...) and executes client-side
+# the moment the user submits — giving us reliable orb trigger timing.
+SUBMIT_JS = """
+async (message, history) => {
+    window.aikoSetThinking && window.aikoSetThinking(true);
+    return [message, history];
+}
+"""
+
+
 # ── Layout ────────────────────────────────────────────────────────────────────
 with gr.Blocks(title="Aiko-chan 🌸", css=CSS) as demo:
 
-    # Speech JS (VAD, TTS hooks)
-    gr.HTML(SPEECH_JS)
-
-    # Orb thinking JS
-    gr.HTML(ORB_THINKING_JS)
+    # Setup JS (orb controller + input pill styler)
+    gr.HTML(SETUP_JS)
 
     with gr.Row():
         # ── Left: chat column ──────────────────────────────────────────────
         with gr.Column(scale=6):
 
-            # Orb + greeting (above chat, no suggestions)
+            # Orb + greeting
             gr.HTML(ORB_HEADER)
 
+            # Speech JS
+            gr.HTML(SPEECH_JS)
+
             # Chat interface
+            # js= runs client-side on submit, before the Python fn
             gr.ChatInterface(
                 fn=chat,
                 chatbot=gr.Chatbot(
