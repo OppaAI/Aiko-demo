@@ -261,17 +261,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       emotion.textContent = name || 'neutral';
     }}
 
-    function setMouth(weight) {{
-    
-      if (!vrm) return;
-    
-      const jaw =
-        vrm.humanoid?.getNormalizedBoneNode("jaw");
-    
-      if (!jaw) return;
-    
-      jaw.rotation.x = weight * 0.5;
-    }}
+    function setMouth(weight) {
+      if (!vrm?.expressionManager) return;
+      try {
+        vrm.expressionManager.setValue('aa', Math.max(0, Math.min(1, weight)));
+      } catch (_) {}
+    }
 
     function setSpeaking(active) {{
       speaking = active;
@@ -359,6 +354,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
 
     loadVrm();
+    setSpeaking(true); 
 
     function tick() {{
       requestAnimationFrame(tick);
