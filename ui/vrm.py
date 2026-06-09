@@ -182,6 +182,111 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let audioContext = null;
     const clock = new THREE.Clock();
 
+    // Procedural idle state copied from the standalone viewer: relaxed
+    // breathing, gentle head motion, parade-rest arms, and natural blinks.
+    let idleTime = 0;
+    let blinkTimer = 3.0 + Math.random() * 4.0;
+    let blinkPhase = 'wait';
+    let blinkT = 0;
+    const BLINK_CLOSE_DUR = 0.07;
+    const BLINK_OPEN_DUR = 0.10;
+    const REST = {{
+      leftUpperArm: {{ x: -1.1, z: -0.6 }},
+      rightUpperArm: {{ x: -1.1, z: 0.6 }},
+      leftLowerArm: {{ x: -0.5, z: -0.4 }},
+      rightLowerArm: {{ x: -0.5, z: 0.4 }},
+      leftHand: {{ y: 0.4 }},
+      rightHand: {{ y: -0.4 }},
+    }};
+
+    function nextBlinkWait() {{
+      return 3.0 + Math.random() * 4.0;
+    }}
+
+    function rawBone(name) {{
+      try {{ return vrm?.humanoid?.getRawBoneNode(name) || null; }} catch {{ return null; }}
+    }}
+
+    function applyIdle(dt) {{
+      if (!vrm?.humanoid) return;
+      idleTime += dt;
+
+      const chest = rawBone('chest');
+      const spine = rawBone('spine');
+      const breath = Math.sin(idleTime * 0.83) * 0.013;
+      if (chest) chest.rotation.x = breath;
+      if (spine) spine.rotation.x = breath * 0.5;
+
+      const hips = rawBone('hips');
+      if (hips) {{
+        hips.rotation.z = Math.sin(idleTime * 0.41) * 0.012;
+        hips.rotation.x = Math.sin(idleTime * 0.67) * 0.008;
+        hips.position.x = Math.sin(idleTime * 0.41) * 0.003;
+      }}
+
+      const head = rawBone('head');
+      if (head) {{
+        head.rotation.y = Math.sin(idleTime * 0.31) * 0.055 + Math.sin(idleTime * 1.13) * 0.012;
+        head.rotation.z = Math.sin(idleTime * 0.27 + 1.1) * 0.018 + Math.sin(idleTime * 0.71) * 0.006;
+        head.rotation.x = Math.sin(idleTime * 0.53) * 0.012;
+      }}
+
+      const neck = rawBone('neck');
+      if (neck && head) {{
+        neck.rotation.y = head.rotation.y * 0.3;
+        neck.rotation.z = head.rotation.z * 0.3;
+      }}
+
+      const lUA = rawBone('leftUpperArm');
+      const rUA = rawBone('rightUpperArm');
+      const lLA = rawBone('leftLowerArm');
+      const rLA = rawBone('rightLowerArm');
+      const lH = rawBone('leftHand');
+      const rH = rawBone('rightHand');
+      if (lUA) {{
+        lUA.rotation.x = REST.leftUpperArm.x + Math.sin(idleTime * 0.47) * 0.012;
+        lUA.rotation.z = REST.leftUpperArm.z + Math.sin(idleTime * 0.41) * 0.008;
+      }}
+      if (rUA) {{
+        rUA.rotation.x = REST.rightUpperArm.x + Math.sin(idleTime * 0.53 + 0.9) * 0.012;
+        rUA.rotation.z = REST.rightUpperArm.z + Math.sin(idleTime * 0.37 + 0.7) * 0.008;
+      }}
+      if (lLA) {{
+        lLA.rotation.x = REST.leftLowerArm.x + Math.sin(idleTime * 0.61) * 0.010;
+        lLA.rotation.z = REST.leftLowerArm.z + Math.sin(idleTime * 0.43) * 0.006;
+      }}
+      if (rLA) {{
+        rLA.rotation.x = REST.rightLowerArm.x + Math.sin(idleTime * 0.57 + 1.4) * 0.010;
+        rLA.rotation.z = REST.rightLowerArm.z + Math.sin(idleTime * 0.51 + 0.5) * 0.006;
+      }}
+      if (lH) lH.rotation.y = REST.leftHand.y + Math.sin(idleTime * 0.33) * 0.008;
+      if (rH) rH.rotation.y = REST.rightHand.y + Math.sin(idleTime * 0.29 + 1.2) * 0.008;
+    }}
+
+    function applyBlink(dt) {{
+      if (!vrm?.expressionManager) return;
+      const em = vrm.expressionManager;
+      if (blinkPhase === 'wait') {{
+        blinkTimer -= dt;
+        if (blinkTimer <= 0) {{
+          blinkPhase = 'closing';
+          blinkT = 0;
+        }}
+      }} else if (blinkPhase === 'closing') {{
+        blinkT += dt;
+        try {{ em.setValue('blink', Math.min(blinkT / BLINK_CLOSE_DUR, 1)); }} catch {{}}
+        if (blinkT >= BLINK_CLOSE_DUR) {{ blinkPhase = 'opening'; blinkT = 0; }}
+      }} else if (blinkPhase === 'opening') {{
+        blinkT += dt;
+        try {{ em.setValue('blink', 1 - Math.min(blinkT / BLINK_OPEN_DUR, 1)); }} catch {{}}
+        if (blinkT >= BLINK_OPEN_DUR) {{
+          blinkPhase = 'wait';
+          blinkTimer = nextBlinkWait();
+          try {{ em.setValue('blink', 0); }} catch {{}}
+        }}
+      }}
+    }}
+
     const dot = document.getElementById('dot');
     const statusText = document.getElementById('status-text');
     const emotion = document.getElementById('emotion');
@@ -303,6 +408,8 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }}
       setMouth(mouth);
 
+      applyIdle(dt);
+      applyBlink(dt);
       if (vrm) vrm.update(dt);
       renderer.render(scene, camera);
     }}
