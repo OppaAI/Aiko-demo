@@ -30,149 +30,141 @@ CSS = """
     40%           { transform: translateY(-6px); opacity: 1;   }
 }
 
-/* ── Root vars ── */
+/* ── Design tokens ── */
 :root {
     --ak-bg:          #0a0812;
-    --ak-surface:     #100e1c;
     --ak-surface2:    #161326;
-    --ak-border:      rgba(160,120,255,0.14);
-    --ak-border2:     rgba(160,120,255,0.24);
     --ak-lav:         #b48eff;
-    --ak-lav-dim:     rgba(160,120,255,0.12);
-    --ak-lav-glow:    rgba(160,120,255,0.30);
     --ak-text:        #e8e0ff;
     --ak-text-muted:  rgba(200,185,255,0.42);
-    --ak-user-bg:     rgba(0,100,100,0.38);
-    --ak-user-border: rgba(0,180,180,0.35);
-    --ak-bot-bg:      rgba(120,80,220,0.26);
-    --ak-bot-border:  rgba(170,130,255,0.28);
-    --ak-radius:      16px;
+    --ak-user-bg:     rgba(0,100,100,0.40);
+    --ak-user-border: rgba(0,180,180,0.38);
+    --ak-bot-bg:      rgba(120,80,220,0.28);
+    --ak-bot-border:  rgba(170,130,255,0.30);
 }
 
-/* ── Nuclear dark override ── */
-html, body, gradio-app, gradio-app > div, gradio-app > div > div,
-.gradio-container, .gradio-container * {
-    background-color: var(--ak-bg) !important;
+/* ══════════════════════════════════════════════════════════════════
+   BACKGROUND RESET
+   Do NOT use a wildcard (*) here — it fights bubble transparency.
+   Instead target every Gradio structural element by name.
+   ══════════════════════════════════════════════════════════════════ */
+html, body { background: var(--ak-bg) !important; margin: 0 !important; padding: 0 !important; }
+
+gradio-app,
+gradio-app > div,
+gradio-app > div > div,
+.gradio-container,
+.app,
+.contain,
+.gap,
+.tabs,
+.tabitem,
+.form,
+.panel,
+.prose,
+.block,
+div[data-testid="block"],
+div[data-testid="block"] > div,
+.block.padded,
+.block.border_focus,
+.block.hide-container,
+.wrap,
+.scroll-hide,
+[data-testid="chatbot"],
+[data-testid="chatbot"] > div,
+[data-testid="chatbot"] > div > div {
+    background: transparent !important;
+    background-color: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
 }
 
+/* Root page bg via CSS vars Gradio reads */
 :root, .dark {
     --body-background-fill:      #0a0812 !important;
-    --block-background-fill:     #0a0812 !important;
+    --block-background-fill:     transparent !important;
     --background-fill-primary:   #0a0812 !important;
-    --background-fill-secondary: #100e1c !important;
-    --border-color-primary:      rgba(160,120,255,0.14) !important;
+    --background-fill-secondary: transparent !important;
+    --border-color-primary:      transparent !important;
     --border-color-accent:       rgba(160,120,255,0.30) !important;
     --color-accent:              #b48eff !important;
     --input-background-fill:     #161326 !important;
-    --chatbot-background-fill:   #0a0812 !important;
+    --chatbot-background-fill:   transparent !important;
+    --panel-background-fill:     transparent !important;
+    --block-border-width:        0px !important;
+    --block-shadow:              none !important;
 }
 
-gradio-app {
-    background: var(--ak-bg) !important;
-    --body-background-fill: var(--ak-bg) !important;
-}
+gradio-app { background: var(--ak-bg) !important; }
 
-html, body, .gradio-container {
+.gradio-container {
     background: var(--ak-bg) !important;
     color: var(--ak-text) !important;
     font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
+    max-width: 1200px !important;
+    min-height: 100vh !important;
     margin: 0 !important;
     padding: 0 !important;
 }
 
-footer { display: none !important; }
+/* Kill svelte wrappers */
+[class^="svelte-"], [class*=" svelte-"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}
 
+footer,
 .gradio-container > .app > .wrap > .gap > .block > .label-wrap,
 .block > .label-wrap { display: none !important; }
 
-.app, .wrap, .gap, .form, .panel, .block,
-[class*="gradio-"] > div, div[data-testid="block"] {
-    background: transparent !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
-}
-
-div[data-testid="block"], div[data-testid="block"] > div,
-.block.padded, .block.border_focus, .block.hide-container, .form {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-}
-
-[class^="svelte-"], [class*=" svelte-"] {
-    background: transparent !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
-}
-
-#aiko-chatbot, #aiko-chatbot > div, #aiko-chatbot > div > div,
-.gradio-container div[data-testid="chatbot"],
-.gradio-container div[data-testid="chatbot"] > div {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
-#aiko-chatbot .message-row > div,
-#aiko-chatbot .flex-wrap {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
+/* Right column */
 #aiko-col, #aiko-col > div, #aiko-col > .block {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
 }
 
-.gradio-container {
-    max-width: 1200px !important;
-    min-height: 100vh !important;
-    background: var(--ak-bg) !important;
-}
-
-/* ── Orb section ── */
+/* ══════════════════════════════════════════════════════════════════
+   ORB
+   ══════════════════════════════════════════════════════════════════ */
 #aiko-orb-section {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    display: flex; flex-direction: column; align-items: center;
     padding: 28px 0 18px;
+    background: transparent !important;
 }
 #aiko-orb-wrap {
-    position: relative;
-    width: 112px; height: 112px;
+    position: relative; width: 112px; height: 112px;
     display: flex; align-items: center; justify-content: center;
+    background: transparent !important;
 }
 #aiko-orb-ring-outer {
     position: absolute; inset: 0; border-radius: 50%;
     border: 1px solid rgba(0,160,160,0.22);
     animation: orb-ring 3.8s ease-in-out infinite;
+    background: transparent !important;
 }
 #aiko-orb-ring-inner {
     position: absolute; inset: 15px; border-radius: 50%;
     border: 1px solid rgba(0,180,180,0.32);
     animation: orb-ring 3.8s ease-in-out infinite 0.6s;
+    background: transparent !important;
 }
 #aiko-orb {
     width: 68px; height: 68px; border-radius: 50%;
-    background: radial-gradient(circle at 38% 34%, #40c8c8, #006868 52%, #001a1a);
+    background: radial-gradient(circle at 38% 34%, #40c8c8, #006868 52%, #001a1a) !important;
     animation: orb-idle 3.2s ease-in-out infinite;
     position: relative; z-index: 1;
-    transition: background 0.4s ease;
+    transition: background 0.5s ease;
 }
 #aiko-orb::after {
-    content: '';
-    position: absolute;
-    top: 13px; left: 17px;
-    width: 16px; height: 9px;
+    content: ''; position: absolute;
+    top: 13px; left: 17px; width: 16px; height: 9px;
     background: rgba(255,255,255,0.24);
-    border-radius: 50%;
-    transform: rotate(-30deg);
+    border-radius: 50%; transform: rotate(-30deg);
 }
-
-/* Thinking — bright cyan glow */
+/* Thinking state — driven by JS adding .thinking to #aiko-orb-wrap */
 #aiko-orb-wrap.thinking #aiko-orb {
     background: radial-gradient(circle at 38% 34%, #e0ffff, #00d4d4 45%, #004444) !important;
     animation: orb-thinking 1.1s ease-in-out infinite !important;
@@ -186,7 +178,7 @@ div[data-testid="block"], div[data-testid="block"] > div,
     border-color: rgba(0,230,230,0.65) !important;
 }
 
-#aiko-greeting { text-align: center; margin-top: 16px; }
+#aiko-greeting { text-align: center; margin-top: 16px; background: transparent !important; }
 #aiko-greeting h2 {
     font-size: 1.15rem !important; font-weight: 500 !important;
     color: rgba(230,220,255,0.92) !important;
@@ -198,23 +190,26 @@ div[data-testid="block"], div[data-testid="block"] > div,
     text-transform: uppercase !important;
 }
 
-/* ── Chatbot area ── */
-#aiko-chatbot .message-wrap {
-    background: transparent !important; border: none !important; padding: 4px 0 !important;
-}
-#aiko-chatbot .message-row {
-    gap: 8px !important; padding: 2px 4px !important;
-}
+/* ══════════════════════════════════════════════════════════════════
+   CHAT BUBBLES
+   ══════════════════════════════════════════════════════════════════ */
+#aiko-chatbot { background: transparent !important; border: none !important; }
+#aiko-chatbot .message-wrap { background: transparent !important; border: none !important; padding: 4px 0 !important; }
+#aiko-chatbot .message-row  { gap: 8px !important; padding: 2px 4px !important; }
 #aiko-chatbot .message-row.user-row { justify-content: flex-end !important; }
 #aiko-chatbot .message-row.bot-row  { justify-content: flex-start !important; }
+#aiko-chatbot .message-row > div    { background: transparent !important; border: none !important; box-shadow: none !important; }
+#aiko-chatbot .flex-wrap            { background: transparent !important; border: none !important; }
+#aiko-chatbot .avatar-container     { display: none !important; }
 
-/* ── Bubble outer containers ── */
+/* Bubble shared */
 #aiko-chatbot [data-testid="user"],
 #aiko-chatbot [data-testid="bot"] {
     font-size: 0.875rem !important;
     line-height: 1.6 !important;
     padding: 10px 14px !important;
-    max-width: 78% !important;
+    min-width: 60px !important;
+    max-width: 82% !important;
     word-break: break-word !important;
     box-shadow: none !important;
 }
@@ -224,58 +219,87 @@ div[data-testid="block"], div[data-testid="block"] > div,
     background: var(--ak-user-bg) !important;
     border: 1px solid var(--ak-user-border) !important;
     border-radius: 16px 4px 16px 16px !important;
-    color: rgba(200,255,255,0.92) !important;
-    margin-left: auto !important; margin-right: 6px !important;
+    margin-left: auto !important;
+    margin-right: 6px !important;
 }
-
 /* Bot — purple */
 #aiko-chatbot [data-testid="bot"] {
     background: var(--ak-bot-bg) !important;
     border: 1px solid var(--ak-bot-border) !important;
     border-radius: 4px 16px 16px 16px !important;
-    color: rgba(230,215,255,0.92) !important;
-    margin-right: auto !important; margin-left: 6px !important;
+    margin-right: auto !important;
+    margin-left: 6px !important;
 }
 
-/* ── Transparent inner wrappers (all depths) ──
-   Gradio 5 injects style="background-color:..." on .bubble-wrap
-   and nested divs. We must nuke inline styles too.
-─────────────────────────────────────────────── */
-#aiko-chatbot [data-testid="user"] *,
-#aiko-chatbot [data-testid="bot"] * {
+/* ── Inner wrappers: transparent so bubble bg shows through ──
+   Gradio 5 injects style="background-color:..." inline on these.
+   We target both class-based AND inline style overrides.
+─────────────────────────────────────────────────────────────── */
+#aiko-chatbot [data-testid="user"] > *,
+#aiko-chatbot [data-testid="bot"]  > * {
     background: transparent !important;
     background-color: transparent !important;
     border: none !important;
     box-shadow: none !important;
 }
-
-/* Preserve text colours after the wildcard reset above */
-#aiko-chatbot [data-testid="user"],
-#aiko-chatbot [data-testid="user"] * {
-    color: rgba(200,255,255,0.92) !important;
-    font-style: normal !important;
+/* One more level deep for Gradio 5's extra wrapper divs */
+#aiko-chatbot [data-testid="user"] > * > *,
+#aiko-chatbot [data-testid="bot"]  > * > * {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
 }
-#aiko-chatbot [data-testid="bot"],
-#aiko-chatbot [data-testid="bot"] * {
-    color: rgba(230,215,255,0.92) !important;
-    font-style: normal !important;
-}
-
-/* Inline style override — Gradio writes style="background-color:rgba(...)" */
-#aiko-chatbot [style*="background-color"],
-#aiko-chatbot [style*="background:"] {
+/* Inline style catcher */
+#aiko-chatbot [data-testid="user"] [style],
+#aiko-chatbot [data-testid="bot"]  [style] {
     background: transparent !important;
     background-color: transparent !important;
 }
 
-/* Search/thinking status line */
+/* ── Text: uniform size, weight, colour — NO italic anywhere ── */
+#aiko-chatbot [data-testid="user"],
+#aiko-chatbot [data-testid="user"] p,
+#aiko-chatbot [data-testid="user"] span,
+#aiko-chatbot [data-testid="user"] em,
+#aiko-chatbot [data-testid="user"] strong,
+#aiko-chatbot [data-testid="user"] code,
+#aiko-chatbot [data-testid="user"] li {
+    color: rgba(200,255,255,0.92) !important;
+    font-size: 0.875rem !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.6 !important;
+}
+
+#aiko-chatbot [data-testid="bot"],
+#aiko-chatbot [data-testid="bot"] p,
+#aiko-chatbot [data-testid="bot"] span,
+#aiko-chatbot [data-testid="bot"] em,
+#aiko-chatbot [data-testid="bot"] strong,
+#aiko-chatbot [data-testid="bot"] code,
+#aiko-chatbot [data-testid="bot"] li {
+    color: rgba(230,215,255,0.92) !important;
+    font-size: 0.875rem !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.6 !important;
+}
+
+/* Collapse the extra paragraph margin Gradio/markdown injects */
+#aiko-chatbot [data-testid="bot"]  .prose p + p,
+#aiko-chatbot [data-testid="user"] .prose p + p { margin-top: 6px !important; }
+
+/* Search status line (emoji + text) */
 #aiko-chatbot [data-testid="bot"] em {
-    color: var(--ak-lav) !important;
+    color: rgba(160,230,230,0.85) !important;
     font-style: normal !important;
     font-size: 0.80rem !important;
     display: block !important;
     margin-bottom: 6px !important;
-    opacity: 0.85 !important;
 }
 
 /* Loading dots */
@@ -288,47 +312,68 @@ div[data-testid="block"], div[data-testid="block"] > div,
 }
 #aiko-chatbot .dot:nth-child(2) { animation-delay: 0.16s !important; }
 #aiko-chatbot .dot:nth-child(3) { animation-delay: 0.32s !important; }
+#aiko-chatbot .placeholder { display: none !important; }
 
-#aiko-chatbot .avatar-container { display: none !important; }
+/* ══════════════════════════════════════════════════════════════════
+   MESSAGE INPUT BAR
+   Gradio renders: .block > label > .wrap > textarea + buttons
+   We add .aiko-input-styled to the wrapper via JS (see ORB JS).
+   As CSS fallback we also target every plausible selector.
+   ══════════════════════════════════════════════════════════════════ */
 
-/* ── Message bar — pill with border matching "initializing..." style ──
-   "initializing..." button: dark bg + subtle purple/teal border glow.
-   We match that: dark surface bg, rounded pill, accent border.
-────────────────────────────────────────────────────────────────────── */
-
-/* Nuke Gradio's default textbox block padding/border first */
-.gradio-container .block:has(textarea[data-testid="textbox"]),
-.gradio-container div[data-testid="textbox"],
-.gradio-container div[data-testid="textbox"] > label,
-.gradio-container .textbox {
+/* Strip default Gradio block chrome around the input */
+.gradio-container .block:has(textarea),
+.gradio-container [data-testid="textbox"],
+.gradio-container [data-testid="textbox"] > label {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
 }
 
-/* The actual pill wrapper — target the div that Gradio puts the textarea inside */
-.gradio-container .wrap:has(textarea[data-testid="textbox"]),
-.gradio-container label:has(textarea[data-testid="textbox"]),
-.gradio-container div:has(> textarea[data-testid="textbox"]) {
+/* JS adds this class — most reliable */
+.aiko-input-pill {
     background: var(--ak-surface2) !important;
-    border: 1px solid rgba(120,200,200,0.35) !important;
+    border: 1px solid rgba(0,180,180,0.40) !important;
     border-radius: 28px !important;
-    padding: 6px 8px 6px 18px !important;
+    box-shadow: 0 0 8px rgba(0,160,160,0.12) !important;
+    padding: 6px 10px 6px 18px !important;
     display: flex !important;
     align-items: center !important;
     gap: 6px !important;
     transition: border-color 0.2s, box-shadow 0.2s !important;
-    box-shadow: 0 0 0 1px rgba(120,200,200,0.10) !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+.aiko-input-pill:focus-within {
+    border-color: rgba(0,210,210,0.70) !important;
+    box-shadow: 0 0 0 3px rgba(0,180,180,0.14) !important;
+}
+
+/* CSS fallback selectors (same styles) */
+.gradio-container .wrap:has(textarea[data-testid="textbox"]),
+.gradio-container label:has(textarea[data-testid="textbox"]),
+.gradio-container div:has(> textarea[data-testid="textbox"]) {
+    background: var(--ak-surface2) !important;
+    border: 1px solid rgba(0,180,180,0.40) !important;
+    border-radius: 28px !important;
+    box-shadow: 0 0 8px rgba(0,160,160,0.12) !important;
+    padding: 6px 10px 6px 18px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
 }
 .gradio-container .wrap:has(textarea[data-testid="textbox"]):focus-within,
 .gradio-container label:has(textarea[data-testid="textbox"]):focus-within,
 .gradio-container div:has(> textarea[data-testid="textbox"]):focus-within {
-    border-color: rgba(0,200,200,0.65) !important;
-    box-shadow: 0 0 0 3px rgba(0,180,180,0.12) !important;
+    border-color: rgba(0,210,210,0.70) !important;
+    box-shadow: 0 0 0 3px rgba(0,180,180,0.14) !important;
 }
 
-/* Textarea itself */
+/* Textarea */
 .gradio-container textarea[data-testid="textbox"] {
     background: transparent !important;
     border: none !important;
@@ -341,14 +386,17 @@ div[data-testid="block"], div[data-testid="block"] > div,
     resize: none !important;
     padding: 4px 0 !important;
     flex: 1 !important;
+    min-width: 0 !important;
+    width: 100% !important;
 }
 .gradio-container textarea[data-testid="textbox"]::placeholder {
     color: var(--ak-text-muted) !important;
 }
 
-/* Submit / stop buttons */
+/* Send / stop buttons inside the pill */
 .gradio-container .textarea-wrapper button,
-.gradio-container .input-row > button {
+.gradio-container button[aria-label="Submit"],
+.gradio-container button[aria-label="Stop"] {
     background: rgba(0,140,140,0.18) !important;
     border: 1px solid rgba(0,180,180,0.32) !important;
     border-radius: 50% !important;
@@ -360,7 +408,8 @@ div[data-testid="block"], div[data-testid="block"] > div,
     transition: background 0.2s !important;
 }
 .gradio-container .textarea-wrapper button:hover,
-.gradio-container .input-row > button:hover {
+.gradio-container button[aria-label="Submit"]:hover,
+.gradio-container button[aria-label="Stop"]:hover {
     background: rgba(0,180,180,0.30) !important;
 }
 
@@ -373,9 +422,9 @@ div[data-testid="block"], div[data-testid="block"] > div,
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(0,160,160,0.22); border-radius: 2px; }
 
+/* General text */
 .gradio-container p,
 .gradio-container label,
 .gradio-container span { color: var(--ak-text) !important; }
 .gradio-container .row { gap: 12px !important; }
-#aiko-chatbot .placeholder { display: none !important; }
 """
