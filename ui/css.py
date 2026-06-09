@@ -58,24 +58,33 @@ body, .gradio-container {
     height: 480px !important;
 }
 
-.message.user, [data-testid="user"],
-.bubble-wrap.user .bubble {
-    background: rgba(91,47,168,0.35) !important;
-    border: 1px solid rgba(155,127,212,0.25) !important;
-    border-radius: 14px 14px 4px 14px !important;
-    color: #e8deff !important;
-}
-.message.bot, [data-testid="bot"],
-.bubble-wrap.bot .bubble {
-    background: rgba(20,12,42,0.6) !important;
-    border: 1px solid rgba(155,127,212,0.15) !important;
-    border-radius: 14px 14px 14px 4px !important;
-    color: #d4c8f0 !important;
+/* ── hide the "Chatbot" tab label bar ── */
+.tabitem, .tab-nav, [data-testid="chatbot"] > .label-wrap {
+    display: none !important;
 }
 
-.chatbot *, [data-testid="chatbot"] * { color: inherit !important; }
-.message.user *, .bubble-wrap.user * { color: #e8deff !important; }
-.message.bot *, .bubble-wrap.bot * { color: #d4c8f0 !important; }
+/* ── user bubble: dark cyan ── */
+.message.user, [data-testid="user"],
+.bubble-wrap.user .bubble,
+div.message-wrap .message.user {
+    background: rgba(0, 80, 90, 0.75) !important;
+    border: 1px solid rgba(0, 180, 200, 0.25) !important;
+    border-radius: 14px 14px 4px 14px !important;
+    color: #c8f4f8 !important;
+}
+
+/* ── bot bubble: same purple as original user ── */
+.message.bot, [data-testid="bot"],
+.bubble-wrap.bot .bubble,
+div.message-wrap .message.bot {
+    background: rgba(91, 47, 168, 0.45) !important;
+    border: 1px solid rgba(155, 127, 212, 0.3) !important;
+    border-radius: 14px 14px 14px 4px !important;
+    color: #e8deff !important;
+}
+
+.message.user *, .bubble-wrap.user * { color: #c8f4f8 !important; }
+.message.bot *,  .bubble-wrap.bot *  { color: #e8deff !important; }
 
 .gradio-container textarea,
 .gradio-container input[type="text"],
