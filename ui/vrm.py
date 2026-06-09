@@ -227,8 +227,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       idleTime += dt;
       const t = idleTime;
 
-      // Direct normalized bone rotation — correct for @pixiv/three-vrm v3.
-      // Must run AFTER vrm.update(dt) in the tick loop.
+      // autoUpdateHumanBones=false so vrm.update() won't reset these.
+      // We write to normalized bones then manually call humanoid.update()
+      // at the end to sync through to the raw skeleton.
       function nb(name) {{
         try {{ return vrm.humanoid.getNormalizedBoneNode(name); }} catch {{ return null; }}
       }}
@@ -260,8 +261,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const rUA = nb('rightUpperArm'); if (rUA) {{ rUA.rotation.x = REST.rightUpperArm.x + Math.sin(t*0.53+0.9)*0.012; rUA.rotation.z = REST.rightUpperArm.z + Math.sin(t*0.37+0.7)*0.008; }}
       const lLA = nb('leftLowerArm');  if (lLA) {{ lLA.rotation.x = REST.leftLowerArm.x  + Math.sin(t*0.61)*0.010; }}
       const rLA = nb('rightLowerArm'); if (rLA) {{ rLA.rotation.x = REST.rightLowerArm.x + Math.sin(t*0.57+1.4)*0.010; }}
-      const lH  = nb('leftHand');  if (lH)  lH.rotation.y  = Math.sin(t*0.33)*0.008;
-      const rH  = nb('rightHand'); if (rH)  rH.rotation.y  = Math.sin(t*0.29+1.2)*0.008;
+      const lH  = nb('leftHand');  if (lH)  lH.rotation.y = Math.sin(t*0.33)*0.008;
+      const rH  = nb('rightHand'); if (rH)  rH.rotation.y = Math.sin(t*0.29+1.2)*0.008;
+
+      // Manually sync normalized → raw now that autoUpdateHumanBones=false
+      vrm.humanoid.update();
     }}
 
     function applyBlink(dt) {{
@@ -332,7 +336,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     window.addEventListener('message', (e) => {{
       try {{
         const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
-        console.log('[aiko] postMessage received:', JSON.stringify(msg));
         if (msg.speaking !== undefined) setSpeaking(msg.speaking);
         if (msg.expression !== undefined) {{
           setExpression(msg.expression, msg.intensity ?? 1.0);
@@ -370,18 +373,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
         vrm.scene.rotation.y = Math.PI;
+        // Prevent vrm.update() from resetting our pose every frame.
+        // We manually call humanoid.update() after applyIdle instead.
+        vrm.humanoid.autoUpdateHumanBones = false;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
 
-        // DEBUG: test if bone rotation works at all
-        setTimeout(() => {{
-          const testBone = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
-          console.log('[aiko] leftUpperArm node:', testBone);
-          if (testBone) {{
-            testBone.rotation.z = 1.0; // big rotation — should visibly move arm
-            console.log('[aiko] set leftUpperArm.rotation.z = 1.0 — did arm move?');
-          }}
-        }}, 2000);
         document.getElementById('load-msg').textContent = 'ready';
         log.textContent = 'loaded: Aiko.vrm';
         document.getElementById('loader').classList.add('fade');
@@ -443,7 +440,6 @@ def lipsync_html() -> str:
   }
 
   function post(msg) {
-    console.log('[aiko-lipsync] posting:', JSON.stringify(msg));
     const f = getIframe();
     if (f && f.contentWindow) f.contentWindow.postMessage(msg, '*');
   }
@@ -495,7 +491,6 @@ def lipsync_html() -> str:
   // Poll for the Gradio audio element — it may not exist on page load
   setInterval(() => {
     const audio = document.querySelector('#aiko-audio audio');
-    console.log('[aiko-lipsync] poll — audio found:', !!audio, '| iframe found:', !!getIframe());
     if (audio) attachAudio(audio);
   }, 700);
 })();
