@@ -20,24 +20,28 @@ if hasattr(think, "join_warmup"):
 
 def chat(message, history):
     tokens = []
+
     def _cb(token):
         if token.startswith("__SEARCHING__:"):
             query = token.split(":", 1)[1].strip()
             tokens.append(f"\n🔍 Searching: *{query}*\n")
         else:
             tokens.append(token)
+
     think.chat(message, token_callback=_cb)
     text  = "".join(tokens)
     audio = speak_to_file(text)
-    print(f"[chat] audio path: {audio}")  # ← add this
-    yield text, audio   # ← yield instead of return
+    print(f"[chat] audio path: {audio}")
+    yield text, audio
+
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
     audio_out = gr.Audio(
         autoplay=True,
         visible=True,
-        label="voice",
+        label="🔊 Aiko",
         type="filepath",
+        elem_id="aiko-audio",
     )
     gr.ChatInterface(
         fn=chat,
@@ -45,18 +49,11 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
         chatbot=gr.Chatbot(elem_id="aiko-chatbot", show_label=False),
         additional_outputs=[audio_out],
     )
-    # Force autoplay on every update
-    audio_out.change(
-        fn=None,
-        inputs=None,
-        outputs=None,
-        js="() => { const a = document.querySelector('#aiko-audio audio'); if(a){ a.play(); } }"
-    )
 
 demo.launch(
     server_name="0.0.0.0",
     server_port=7860,
     ssr_mode=False,
     share=False,
-    allowed_paths=["/tmp/aiko_tts"],  # ← add this
+    allowed_paths=["/tmp/aiko_tts"],
 )
