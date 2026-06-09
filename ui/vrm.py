@@ -196,13 +196,14 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let blinkT = 0;
     const BLINK_CLOSE_DUR = 0.07;
     const BLINK_OPEN_DUR = 0.10;
+    // Relaxed-at-sides pose using normalized bone space.
     const REST = {{
-      leftUpperArm: {{ x: -1.1, z: -0.6 }},
-      rightUpperArm: {{ x: -1.1, z: 0.6 }},
-      leftLowerArm: {{ x: -0.5, z: -0.4 }},
-      rightLowerArm: {{ x: -0.5, z: 0.4 }},
-      leftHand: {{ y: 0.4 }},
-      rightHand: {{ y: -0.4 }},
+      leftUpperArm:  {{ x:  0.1, z:  0.08 }},
+      rightUpperArm: {{ x:  0.1, z: -0.08 }},
+      leftLowerArm:  {{ x:  0.2, z:  0.0  }},
+      rightLowerArm: {{ x:  0.2, z:  0.0  }},
+      leftHand:      {{ y:  0.0 }},
+      rightHand:     {{ y:  0.0 }},
     }};
 
     // Expression state for postMessage control
@@ -218,7 +219,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
 
     function rawBone(name) {{
-      try {{ return vrm?.humanoid?.getRawBoneNode(name) || null; }} catch {{ return null; }}
+      // getNormalizedBoneNode is the correct API for applying rotations in VRM v3;
+      // getRawBoneNode returns the bind-pose node which gets overwritten each update.
+      try {{
+        return vrm?.humanoid?.getNormalizedBoneNode(name) || null;
+      }} catch {{ return null; }}
     }}
 
     function applyIdle(dt) {{
