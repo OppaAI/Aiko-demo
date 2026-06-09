@@ -33,7 +33,11 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
     gr.ChatInterface(
         fn=chat,
         title="Aiko-chan 🌸",
-        chatbot=gr.Chatbot(elem_id="aiko-chatbot"),
+        chatbot=gr.Chatbot(
+            elem_id="aiko-chatbot",
+            show_label=False,   # ← hides the "Chatbot" tab
+            bubble_full_width=False,  # ← tighter bubbles, no double wrap
+        ),
     )
 
 demo.launch(
