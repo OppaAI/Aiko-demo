@@ -83,6 +83,29 @@ div.message-wrap .message.bot {
     color: #e8deff !important;
 }
 
+/* ── constrain bubble width instead of bubble_full_width=False ── */
+.message.user .prose,
+.message.bot .prose,
+.bubble-wrap.user .bubble,
+.bubble-wrap.bot .bubble,
+div.message-wrap .message {
+    max-width: 80% !important;
+    width: fit-content !important;
+}
+
+/* user bubbles float right */
+.bubble-wrap.user,
+div.message-wrap.user-message {
+    justify-content: flex-end !important;
+    display: flex !important;
+}
+
+/* bot bubbles float left */
+.bubble-wrap.bot,
+div.message-wrap.bot-message {
+    justify-content: flex-start !important;
+    display: flex !important;
+}
 .message.user *, .bubble-wrap.user * { color: #c8f4f8 !important; }
 .message.bot *,  .bubble-wrap.bot *  { color: #e8deff !important; }
 
