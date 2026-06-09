@@ -1,4 +1,8 @@
 CSS = """
+/* ══════════════════════════════════════════════════════════════════
+   AIKO-CHAN  ·  Gradio UI theme
+   ══════════════════════════════════════════════════════════════════ */
+
 /* ── Keyframes ── */
 @keyframes orb-idle {
     0%, 100% {
@@ -49,6 +53,38 @@ CSS = """
     --ak-radius:      16px;
 }
 
+/* ── Nuclear dark override — must come before everything else ── */
+/* Targets Gradio's custom element host and every div it renders  */
+html,
+body,
+gradio-app,
+gradio-app > div,
+gradio-app > div > div,
+.gradio-container,
+.gradio-container * {
+    background-color: var(--ak-bg) !important;
+    /* don't force color here — child rules handle text */
+}
+
+/* Override Gradio theme CSS variables so Base() tokens go dark too */
+:root, .dark {
+    --body-background-fill:          #0a0812 !important;
+    --block-background-fill:         #0a0812 !important;
+    --background-fill-primary:       #0a0812 !important;
+    --background-fill-secondary:     #100e1c !important;
+    --border-color-primary:          rgba(160,120,255,0.14) !important;
+    --border-color-accent:           rgba(160,120,255,0.30) !important;
+    --color-accent:                  #b48eff !important;
+    --input-background-fill:         #161326 !important;
+    --chatbot-background-fill:       #0a0812 !important;
+}
+
+/* Gradio v4-5 wraps everything in <gradio-app> shadow-ish divs */
+gradio-app {
+    background: var(--ak-bg) !important;
+    --body-background-fill: var(--ak-bg) !important;
+}
+
 /* ── Global reset ── */
 html, body, .gradio-container {
     background: var(--ak-bg) !important;
@@ -58,7 +94,6 @@ html, body, .gradio-container {
     padding: 0 !important;
 }
 
-/* ── Nuke every white/light background Gradio injects ── */
 footer { display: none !important; }
 
 .gradio-container > .app > .wrap > .gap > .block > .label-wrap,
@@ -74,7 +109,7 @@ div[data-testid="block"] {
     box-shadow: none !important;
 }
 
-/* Specifically kill the white chatbot panel */
+/* Kill the white chatbot panel */
 #aiko-chatbot,
 #aiko-chatbot > div,
 #aiko-chatbot > div > div,
@@ -85,9 +120,18 @@ div[data-testid="block"] {
     box-shadow: none !important;
 }
 
-/* Kill the white user-message outer container that wraps the bubble */
+/* Kill white user-message outer container */
 #aiko-chatbot .message-row > div,
 #aiko-chatbot .flex-wrap {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Right-column white panel (VRM viewer side) */
+#aiko-col,
+#aiko-col > div,
+#aiko-col > .block {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
@@ -153,7 +197,7 @@ div[data-testid="block"] {
     transform: rotate(-30deg);
 }
 
-/* Thinking state — triggered by JS adding .thinking class */
+/* Thinking state */
 #aiko-orb-wrap.thinking #aiko-orb {
     background: radial-gradient(circle at 38% 34%, #f0d0ff, #9050e0 45%, #2a0860) !important;
     animation: orb-thinking 1.1s ease-in-out infinite !important;
@@ -290,7 +334,7 @@ div[data-testid="block"] {
     color: var(--ak-text-muted) !important;
 }
 
-/* Submit / stop buttons inside textbox */
+/* Submit / stop buttons */
 .gradio-container .textarea-wrapper button,
 .gradio-container .input-row > button {
     background: rgba(160,120,255,0.16) !important;
