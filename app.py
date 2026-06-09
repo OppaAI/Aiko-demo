@@ -11,7 +11,7 @@ import gradio as gr
 from core.wakeup import AikoWakeup
 from ui.css import AIKO_CSS
 from ui.speak import speak_to_file
-from ui.vrm import avatar_html, gradio_file_url, resolve_vrm_path
+from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
 
 result = AikoWakeup(text_mode=True).boot(
     on_loading=lambda k: print(f"[boot] loading: {k}"),
@@ -25,7 +25,7 @@ if hasattr(think, "join_warmup"):
     think.join_warmup()
 
 VRM_PATH = resolve_vrm_path()
-VRM_URL = gradio_file_url(VRM_PATH)
+VRM_URLS = gradio_file_urls(VRM_PATH)
 
 try:
     gr.set_static_paths(paths=[VRM_PATH.parent])
@@ -55,7 +55,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
     with gr.Column(elem_id="aiko-shell"):
         with gr.Row(equal_height=True):
             with gr.Column(scale=5, elem_id="aiko-avatar-card"):
-                gr.HTML(value=avatar_html(VRM_URL), show_label=False)
+                gr.HTML(value=avatar_html(VRM_URLS), show_label=False)
                 audio_out = gr.Audio(
                     autoplay=True,
                     visible=True,
