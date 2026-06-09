@@ -261,7 +261,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       emotion.textContent = name || 'neutral';
     }}
 
-    function setMouth(weight) {
+    function setMouth(weight) {{
     
       if (!vrm) return;
     
@@ -271,7 +271,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (!jaw) return;
     
       jaw.rotation.x = weight * 0.5;
-    }
+    }}
 
     function setSpeaking(active) {{
       speaking = active;
@@ -372,9 +372,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
             Math.sin(performance.now() / 110)
           ) * 0.65;
         
-        if (vrm) {
+        if (vrm) {{
             vrm.update(dt);
-        }
+        }}
         
         setMouth(mouth);
       applyIdle(dt);
