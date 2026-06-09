@@ -40,11 +40,16 @@ body, .gradio-container { background: #080612 !important; color: #d4c8f0 !import
 }
 [data-testid="chatbot"] > .label-wrap { display: none !important; }
 
-/* ── message row (parent of each bubble) ── */
+# Replace just the bubble + message sections in AIKO_CSS:
+
+/* ── message row: NO background, NO border, just flex ── */
 [data-testid="message"] {
     display: flex !important;
     width: 100% !important;
     background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
 }
 
 /* ── user bubble ── */
@@ -54,10 +59,15 @@ body, .gradio-container { background: #080612 !important; color: #d4c8f0 !import
     border-radius: 14px 14px 4px 14px !important;
     color: #c8f4f8 !important;
     max-width: 75% !important;
-    width: fit-content !important;
+    width: max-content !important;       /* ← max-content, not fit-content */
+    min-width: 0 !important;
     margin-left: auto !important;
     padding: 10px 14px !important;
     box-sizing: border-box !important;
+    font-size: 0.88rem !important;       /* ← one size smaller */
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
 }
 
 /* ── bot bubble ── */
@@ -67,14 +77,19 @@ body, .gradio-container { background: #080612 !important; color: #d4c8f0 !import
     border-radius: 14px 14px 14px 4px !important;
     color: #e8deff !important;
     max-width: 75% !important;
-    width: fit-content !important;
+    width: max-content !important;       /* ← expands to content, wraps at max-width */
+    min-width: 0 !important;
     margin-right: auto !important;
     padding: 10px 14px !important;
     box-sizing: border-box !important;
+    font-size: 0.88rem !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
 }
 
-[data-testid="user"] * { color: #c8f4f8 !important; }
-[data-testid="bot"] *  { color: #e8deff !important; }
+[data-testid="user"] * { color: #c8f4f8 !important; font-size: 0.88rem !important; }
+[data-testid="bot"] *  { color: #e8deff !important; font-size: 0.88rem !important; }
 
 /* ── inputs ── */
 textarea, input[type="text"] {
