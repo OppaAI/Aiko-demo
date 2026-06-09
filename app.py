@@ -35,8 +35,7 @@ ORB_HEADER = """
 """
 
 # ── Orb thinking animation JS ─────────────────────────────────────────────────
-# Watches for Gradio's pending/generating state and toggles .thinking on the orb.
-# Gradio 6 adds aria-busy="true" on the chatbot log div while streaming.
+# Three parallel strategies so it works across Gradio 4/5/6.
 ORB_THINKING_JS = """
 <script>
 (function() {
@@ -52,52 +51,45 @@ ORB_THINKING_JS = """
       else orbWrap.classList.remove('thinking');
     }
 
-    // Strategy 1: watch for Gradio 5's status-tracker element (shows while generating)
-    function watchStatusTracker() {
-      var tracker = document.querySelector('.status-tracker, [data-testid="status-tracker"], .progress-bar');
-      if (tracker) {
-        new MutationObserver(function() {
-          var visible = !!document.querySelector(
-            '.status-tracker:not(.hide), .progress-bar, .eta-bar, [data-testid="status-tracker"] .wrap'
-          );
-          setThinking(visible);
-        }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class','style'] });
-      }
-    }
+    // Strategy 1: watch Gradio 5's status-tracker / progress elements
+    new MutationObserver(function() {
+      var active = !!document.querySelector(
+        '.status-tracker:not(.hide), .progress-bar, .eta-bar, ' +
+        '[data-testid="status-tracker"] .wrap, .generating'
+      );
+      if (active) setThinking(true);
+    }).observe(document.body, {
+      childList: true, subtree: true,
+      attributes: true, attributeFilter: ['class', 'style']
+    });
 
     // Strategy 2: watch aria-busy on the chatbot log div (Gradio 4-6)
-    function watchAriaBusy() {
-      function attach() {
-        var log = document.querySelector('[role="log"]');
-        if (log) {
-          new MutationObserver(function(muts) {
-            muts.forEach(function(m) {
-              if (m.attributeName === 'aria-busy') {
-                setThinking(m.target.getAttribute('aria-busy') === 'true');
-              }
-            });
-          }).observe(log, { attributes: true });
-        } else {
-          setTimeout(attach, 400);
-        }
+    (function attach() {
+      var log = document.querySelector('[role="log"]');
+      if (log) {
+        new MutationObserver(function(muts) {
+          muts.forEach(function(m) {
+            if (m.attributeName === 'aria-busy') {
+              setThinking(m.target.getAttribute('aria-busy') === 'true');
+            }
+          });
+        }).observe(log, { attributes: true });
+      } else {
+        setTimeout(attach, 400);
       }
-      attach();
-    }
+    })();
 
-    // Strategy 3: poll for the loading dots or pending bot bubble (most reliable fallback)
+    // Strategy 3: interval poll — most reliable fallback
     setInterval(function() {
       var pending = document.querySelector(
         '#aiko-chatbot .message.pending, ' +
         '#aiko-chatbot .dots, ' +
         '#aiko-chatbot .loading, ' +
         '#aiko-chatbot [data-testid="bot"].pending, ' +
-        '.eta-bar, .progress-bar'
+        '.eta-bar, .progress-bar, .generating'
       );
       setThinking(!!pending);
     }, 250);
-
-    watchStatusTracker();
-    watchAriaBusy();
   }
 
   if (document.readyState !== 'loading') watchOrb();
