@@ -58,4 +58,5 @@ demo.launch(
     server_port=7860,
     ssr_mode=False,
     share=False,
+    allowed_paths=["/tmp/aiko_tts"],  # ← add this
 )
