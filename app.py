@@ -218,7 +218,26 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                 observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true });
               }
 
-              setTimeout(() => { hookAudio(); watchTtsText(); }, 1200);
+              // Hook mic button to show + click the hidden gr.Audio recorder
+              function hookMicBtn() {
+                const btn = document.querySelector('#aiko-mic-btn button');
+                const recorderWrap = document.querySelector('#aiko-mic-audio');
+                if (!btn || !recorderWrap) { setTimeout(hookMicBtn, 600); return; }
+
+                // Make the hidden recorder visible but off-screen so Gradio renders it
+                recorderWrap.style.position = 'fixed';
+                recorderWrap.style.opacity = '0';
+                recorderWrap.style.pointerEvents = 'none';
+                recorderWrap.style.display = 'block';
+
+                btn.addEventListener('click', () => {
+                  // Find and click the actual record button inside the hidden Audio
+                  const recBtn = recorderWrap.querySelector('button');
+                  if (recBtn) recBtn.click();
+                });
+              }
+
+              setTimeout(() => { hookAudio(); watchTtsText(); hookMicBtn(); }, 1200);
             })();
             </script>
             """)
@@ -237,17 +256,12 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                         elem_id="aiko-chatbot",
                         show_label=False,
                         height=600,
+                        #type="messages",
                     )
 
                 with gr.Row(elem_id="aiko-input-row"):
-                    mic_btn = gr.Audio(
-                        sources=["microphone"],
-                        type="filepath",
-                        label="",
-                        elem_id="aiko-mic-btn",
-                        container=False,
-                        show_label=False,
-                    )
+                    # Plain emoji button — JS hooks its click to start the hidden recorder
+                    mic_btn = gr.Button("🎙️", scale=0, elem_id="aiko-mic-btn", min_width=0)
                     msg = gr.Textbox(
                         placeholder="Type a message…",
                         show_label=False,
@@ -257,10 +271,18 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     )
                     send = gr.Button("➤", variant="primary", scale=0, elem_id="aiko-send", min_width=0)
 
-                # ── Two-step submit: clear box immediately, then stream ──────────
-                # Step 1: instantly clear the textbox and echo message into state.
-                # Step 2: stream the response (msg input reads from state snapshot).
-                # This avoids racing the Svelte input binder on every yield.
+                # Hidden recorder — JS shows and activates it when mic_btn is clicked
+                mic_audio = gr.Audio(
+                    sources=["microphone"],
+                    type="filepath",
+                    label="",
+                    elem_id="aiko-mic-audio",
+                    container=False,
+                    show_label=False,
+                    visible=False,
+                )
+
+                # ── Two-step submit: clear box immediately, then stream ──────
                 pending = gr.State("")
 
                 def _capture_and_clear(message):
@@ -270,20 +292,19 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                 def _stream_from_state(message, history):
                     yield from text_chat(message, history)
 
-                # Submit / click both go through the two-step chain
                 for trigger in (msg.submit, send.click):
                     trigger(
                         _capture_and_clear,
                         inputs=[msg],
                         outputs=[pending, msg],
-                        queue=False,          # instant, no queue wait
+                        queue=False,
                     ).then(
                         _stream_from_state,
                         inputs=[pending, chatbot],
                         outputs=[chatbot, tts_text, audio_out],
                     )
 
-                mic_btn.change(voice_chat, [mic_btn, chatbot], [chatbot, tts_text, audio_out])
+                mic_audio.change(voice_chat, [mic_audio, chatbot], [chatbot, tts_text, audio_out])
 
 allowed_paths = [str(Path("/tmp/aiko_tts")), str(VRM_PATH.parent)]
 
