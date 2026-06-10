@@ -32,14 +32,12 @@ VRM_URLS = gradio_file_urls(VRM_PATH)
 try:
     gr.set_static_paths(paths=[VRM_PATH.parent])
 except AttributeError:
-    # Older Gradio builds only use launch(allowed_paths=...).
     pass
 
 
 def _strip_for_speech(text: str) -> str:
     """Remove markdown/search-status noise so the VRM lip sync gets plain text."""
     import re
-
     cleaned = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
     cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL)
     return cleaned.strip()
@@ -49,6 +47,7 @@ import re
 
 _SENTENCE_END = re.compile(r'(?<=[.!?。！？\n])\s*')
 
+
 def _split_ready_sentences(buffer: str) -> tuple[list[str], str]:
     """Split buffer into complete sentences + remaining partial text."""
     parts = _SENTENCE_END.split(buffer)
@@ -57,18 +56,19 @@ def _split_ready_sentences(buffer: str) -> tuple[list[str], str]:
     *complete, remainder = parts
     return [p for p in complete if p.strip()], remainder
 
+
 def _stream_response(message: str, history: list):
-    """Generator: yields (history, tts_text, audio_path, msg_clear) chunks.
+    """Generator: yields (history, tts_text, audio_path) — no msg output.
 
     Immediately emits the user turn so it appears before inference begins,
     then streams assistant tokens sentence-by-sentence for TTS.
     """
-    # ── 1. Show user message immediately, AI turn blank ──────────────────
+    # ── 1. Show user message immediately, AI turn shows cursor ───────────
     history = history + [
         {"role": "user", "content": message},
-        {"role": "assistant", "content": "▋"},  # blinking cursor placeholder
+        {"role": "assistant", "content": "▋"},
     ]
-    yield history, "", None, ""
+    yield history, "", None
 
     buffer = ""
     full_text = ""
@@ -109,37 +109,37 @@ def _stream_response(message: str, history: list):
                 continue
             history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
             audio = speak_to_file(clean)
-            yield history, clean, audio, ""
+            yield history, clean, audio
         if not sentences:
-            # Yield a streaming update even without a full sentence yet
             if full_text:
                 history[-1]["content"] = full_text + "▋"
-                yield history, "", None, ""
+                yield history, "", None
             time.sleep(0.05)
 
-    # ── 4. Flush any trailing partial sentence ────────────────────────────
+    # ── 4. Flush trailing partial sentence ───────────────────────────────
     if buffer.strip():
         clean = _strip_for_speech(buffer)
         history[-1]["content"] = full_text
         if clean:
             audio = speak_to_file(clean)
-            yield history, clean, audio, ""
+            yield history, clean, audio
         else:
-            yield history, "", None, ""
+            yield history, "", None
 
     if error:
         raise error["e"]
 
-    # ── 5. Final sync: full text, no cursor ───────────────────────────────
+    # ── 5. Final: full text, no cursor ────────────────────────────────────
     history[-1]["content"] = full_text
-    yield history, "", None, ""
+    yield history, "", None
 
 
-def text_chat(message, history):
+def text_chat(message: str, history: list):
+    """Handle text input. msg is cleared via JS before this runs."""
     history = history or []
     message = (message or "").strip()
     if not message:
-        yield history, None, None, ""
+        yield history, None, None
         return
     yield from _stream_response(message, history)
 
@@ -147,18 +147,16 @@ def text_chat(message, history):
 def voice_chat(audio_path, history):
     history = history or []
     if not audio_path:
-        yield history, None, None, None
+        yield history, None, None
         return
     transcript = transcribe_file(audio_path)
     if not transcript:
-        yield history, None, None, None
+        yield history, None, None
         return
-    gen = _stream_response(transcript, history)
-    for h, tts, audio, _ in gen:
-        # patch user message to show mic emoji
+    for h, tts, audio in _stream_response(transcript, history):
         if h and h[-2]["content"] == transcript:
             h[-2]["content"] = f"🎙️ {transcript}"
-        yield h, tts, audio, None
+        yield h, tts, audio
 
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
@@ -195,10 +193,36 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                 observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true });
               }
 
-              setTimeout(() => { hookAudio(); watchTtsText(); }, 1200);
+              // Clear the textbox via JS the moment send fires — before Gradio
+              // can race against the user's next keypress.
+              function hookSendClear() {
+                function tryHook() {
+                  const msgEl = document.querySelector('#aiko-msg textarea');
+                  const sendEl = document.querySelector('#aiko-send');
+                  if (!msgEl || !sendEl) { setTimeout(tryHook, 600); return; }
+
+                  function clearMsg() {
+                    // Use the native input setter so React/Svelte state updates
+                    const nativeInputSetter = Object.getOwnPropertyDescriptor(
+                      window.HTMLTextAreaElement.prototype, 'value'
+                    ).set;
+                    nativeInputSetter.call(msgEl, '');
+                    msgEl.dispatchEvent(new Event('input', { bubbles: true }));
+                  }
+
+                  sendEl.addEventListener('click', clearMsg);
+                  msgEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) clearMsg();
+                  });
+                }
+                tryHook();
+              }
+
+              setTimeout(() => { hookAudio(); watchTtsText(); hookSendClear(); }, 1200);
             })();
             </script>
             """)
+
         with gr.Row(equal_height=True):
             with gr.Column(scale=1, elem_id="aiko-avatar-card"):
                 gr.HTML(value=avatar_html(VRM_URLS), show_label=False)
@@ -213,11 +237,10 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                         elem_id="aiko-chatbot",
                         show_label=False,
                         height=600,
-                        #type="messages",
+                        type="messages",
                     )
 
                 with gr.Row(elem_id="aiko-input-row"):
-                    # Square mic button on the left
                     mic_btn = gr.Audio(
                         sources=["microphone"],
                         type="filepath",
@@ -235,9 +258,10 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     )
                     send = gr.Button("➤", variant="primary", scale=0, elem_id="aiko-send", min_width=0)
 
-                msg.submit(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out, msg])
-                send.click(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out, msg])
-                mic_btn.change(voice_chat, [mic_btn, chatbot], [chatbot, tts_text, audio_out, mic_btn])
+                # msg is NOT in outputs — clearing is handled by JS above
+                msg.submit(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out])
+                send.click(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out])
+                mic_btn.change(voice_chat, [mic_btn, chatbot], [chatbot, tts_text, audio_out])
 
 allowed_paths = [str(Path("/tmp/aiko_tts")), str(VRM_PATH.parent)]
 
