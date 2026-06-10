@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 import os
 from pathlib import Path
 from urllib.parse import quote
@@ -40,24 +41,20 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     """Return an iframe containing the Three/VRM viewer.
 
     The iframe keeps module scripts/import maps isolated from Gradio's own DOM,
-    then watches the parent gr.Audio element (#aiko-audio) with Web Audio to
-    drive lip sync from the actual TTS MP3 playback level.
+    then watches the parent gr.Audio element (#aiko-audio when present, or any
+    nested audio element) and drives lip sync from the text that produced the
+    TTS MP3. This avoids Web Audio analyser/CORS failures in Hugging Face Spaces
+    and Gradio's local file server.
 
     The mouth is driven through VRM expression presets first (aa/ih/ou/ee/oh),
     because many VRM avatars do not expose a normalized ``jaw`` bone. A jaw-bone
     rotation is used only as an optional fallback.
 
     Lip sync uses a layered approach:
-      1. Web Audio analyser on the actual MP3 playback (best, but requires the
-         audio element to be CORS-clean; if createMediaElementSource throws or
-         the analyser stays silent, we fall back).
-      2. Text-derived viseme sequence timed against audio.currentTime/duration
+      1. Text-derived viseme sequence timed against audio.currentTime/duration
          (works regardless of CORS).
-      3. Generic sine-wave "talking" mouth motion as a last resort.
-
-    Idle behaviour now also includes a gesture state machine (look around,
-    head tilt, weight shift, hand-to-hair, neck stretch) layered on top of the
-    base breathing/sway animation, only active while not speaking.
+      2. Generic sine-wave "talking" mouth motion as a last resort if the audio
+         starts before text arrives.
 
     Expression/viseme/text control is via postMessage (works in HF Spaces):
         parent.frames['aiko-vrm-frame'].postMessage({expression:'happy',intensity:0.8}, '*')
@@ -67,6 +64,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     if isinstance(vrm_urls, str):
         vrm_urls = [vrm_urls]
 
+    vrm_urls_json = json.dumps(vrm_urls)
     srcdoc = f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -135,8 +133,8 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     import {{ GLTFLoader }} from 'three/addons/loaders/GLTFLoader.js';
     import {{ VRMLoaderPlugin, VRMUtils }} from '@pixiv/three-vrm';
 
-    const RAW_VRM_URLS = {vrm_urls!r};
-    const VISEME_MAP = {{ A: 'aa', I: 'ih', U: 'ou', E: 'ee', O: 'oh' }};
+    const RAW_VRM_URLS = {vrm_urls_json};
+    const VISEME_MAP = {{ A: 'aa', I: 'ih', U: 'ou', E: 'ee', O: 'oh', a: 'aa', i: 'ih', u: 'ou', e: 'ee', o: 'oh', aa: 'aa', ih: 'ih', ou: 'ou', ee: 'ee', oh: 'oh' }};
     const VISEME_PRESETS = ['aa', 'ih', 'ou', 'ee', 'oh'];
     const TEXT_VISEME_MAP = {{
       a: 'aa', á: 'aa', à: 'aa', â: 'aa', ä: 'aa', あ: 'aa', ア: 'aa', か: 'aa', カ: 'aa', さ: 'aa', サ: 'aa', た: 'aa', タ: 'aa', な: 'aa', ナ: 'aa', は: 'aa', ハ: 'aa', ま: 'aa', マ: 'aa', や: 'aa', ヤ: 'aa', ら: 'aa', ラ: 'aa', わ: 'aa', ワ: 'aa',
@@ -154,18 +152,18 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       try {{
         parentHref = parent.location.href;
         parentOrigin = parent.location.origin;
-        }} catch (_) {{
+      }} catch (_) {{
         parentHref = window.location.href;
         parentOrigin = window.location.origin;
       }}
       for (const raw of rawUrls) {{
         if (!raw) continue;
         try {{
-          if (/^https?:\/\//.test(raw)) {{
+          if ((raw.startsWith('http://') || raw.startsWith('https://'))) {{
             urls.push(raw);
           }} else {{
             urls.push(new URL(raw, parentOrigin).href);
-            urls.push(new URL(raw.replace(/^\//, ''), withTrailingSlash(parentHref)).href);
+            urls.push(new URL(raw.replace(/^\\//, ''), withTrailingSlash(parentHref)).href);
           }}
         }} catch (err) {{
           console.warn('[aiko-vrm] bad VRM URL candidate', raw, err);
@@ -202,7 +200,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     let vrm = null;
     let mouth = 0;
-    let smoothedAudioMouth = 0;
     let speaking = false;
     const clock = new THREE.Clock();
     let blinkTimer = 3.0 + Math.random() * 4.0;
@@ -213,9 +210,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let exprResetTimer = null;
     const EXPR_RESET_DELAY = 4000;
 
-    // --- Idle procedural animation ---
-    // A relaxed arms-down baseline plus tiny sine offsets, so Aiko breathes and
-    // weight-shifts without the outward arm arch from the previous parade-rest pose.
     let idleTime = 0;
     let speechText = '';
     let speechVisemes = [];
@@ -262,10 +256,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       emotion.textContent = name || 'neutral';
     }}
 
-function setMouth(weight, viseme = 'aa') {{
+    function setMouth(weight, viseme = 'aa') {{
       if (!vrm) return;
       const clamped = Math.max(0, Math.min(1, Number(weight) || 0));
-      const preset = VISEME_MAP[viseme] ?? viseme ?? 'aa';
+      const preset = VISEME_MAP[viseme] ?? String(viseme || 'aa').toLowerCase();
       let usedExpression = false;
 
       if (vrm.expressionManager) {{
@@ -275,19 +269,7 @@ function setMouth(weight, viseme = 'aa') {{
             usedExpression = true;
           }}
         }}
-        // For VRM1: directly apply expression weights to morphs now,
-        // bypassing the normal update() cycle so they're visible this frame.
-        try {{
-          const em = vrm.expressionManager;
-          if (em._expressions) {{
-            em._expressions.forEach(expr => {{
-              const w = em._expressionMap[expr.expressionName]
-                ? em.getValue(expr.expressionName) ?? 0
-                : 0;
-              expr.applyWeight({{ multiplier: 1 }});
-            }});
-          }}
-        }} catch (_) {{}}
+        try {{ vrm.expressionManager.update(0.016); }} catch (_) {{}}
       }}
 
       if (!usedExpression) {{
@@ -321,7 +303,7 @@ function setMouth(weight, viseme = 'aa') {{
         if (viseme) {{
           lastViseme = viseme;
           tokens.push({{ viseme, weight: 0.88 }});
-        }} else if (/[,.;:!?。！？、\s]/.test(rawChar)) {{
+        }} else if (/[,.;:!?。！？、\\s]/.test(rawChar)) {{
           tokens.push({{ viseme: lastViseme, weight: 0.08 }});
         }} else if (/[bcdfghjklmnpqrstvwxz]/.test(rawChar)) {{
           tokens.push({{ viseme: lastViseme, weight: 0.28 }});
@@ -332,15 +314,13 @@ function setMouth(weight, viseme = 'aa') {{
 
     function setSpeechText(text, duration = null) {{
       const nextText = String(text || '').trim();
-      if (!nextText) return;
-      // Allow re-arming on identical consecutive lines (Aiko may repeat a
-      // short phrase) by always resetting the timer/visemes when called from
-      // a fresh 'play'/'playing' event, even if the text string is unchanged.
+      if (!nextText) return false;
       speechText = nextText;
       speechVisemes = textToVisemes(speechText);
       speechDuration = estimateSpeechDuration(speechText, duration);
       speechStartedAt = performance.now();
       log.textContent = `text lip sync ready: ${{speechText.slice(0, 42)}}${{speechText.length > 42 ? '…' : ''}}`;
+      return true;
     }}
 
     function currentTextMouth(now) {{
@@ -358,18 +338,54 @@ function setMouth(weight, viseme = 'aa') {{
       }};
     }}
 
-    function findParentSpeechText() {{
-          if (window._aikoLatestTtsText) {{
-            const t = window._aikoLatestTtsText;
-            window._aikoLatestTtsText = '';
-            return t;
-          }}
-          try {{
-            const doc = parent.document;
-            const el = doc.querySelector('#aiko-tts-text textarea, #aiko-tts-text input');
-            return el ? (el.value || el.textContent || '') : '';
-          }} catch (_) {{ return ''; }}
+    function deepQueryAll(root, selector, out = []) {{
+      if (!root) return out;
+      try {{
+        if (root.querySelectorAll) out.push(...root.querySelectorAll(selector));
+        const nodes = root.querySelectorAll ? root.querySelectorAll('*') : [];
+        for (const node of nodes) {{
+          if (node.shadowRoot) deepQueryAll(node.shadowRoot, selector, out);
         }}
+      }} catch (_) {{}}
+      return out;
+    }}
+
+    function valueFromElement(el) {{
+      if (!el) return '';
+      const raw = el.value ?? el.textContent ?? el.getAttribute?.('value') ?? '';
+      return String(raw || '').trim();
+    }}
+
+    function findParentSpeechText() {{
+      if (window._aikoLatestTtsText) {{
+        const t = String(window._aikoLatestTtsText);
+        window._aikoLatestTtsText = '';
+        return t;
+      }}
+      try {{
+        if (parent.window._aikoLatestTtsText) return String(parent.window._aikoLatestTtsText);
+        if (parent.window._aikoLastTtsText) return String(parent.window._aikoLastTtsText);
+      }} catch (_) {{}}
+      try {{
+        const doc = parent.document;
+        const selectors = [
+          '[data-aiko-tts-text]',
+          '#aiko-tts-text textarea',
+          '#aiko-tts-text input',
+          '#aiko-tts-text',
+          '[id*=\"aiko-tts-text\"] textarea',
+          '[id*=\"aiko-tts-text\"] input',
+          '[id*=\"aiko-tts-text\"]',
+        ];
+        for (const selector of selectors) {{
+          for (const el of deepQueryAll(doc, selector)) {{
+            const text = valueFromElement(el);
+            if (text) return text;
+          }}
+        }}
+      }} catch (_) {{}}
+      return '';
+    }}
 
     function getBone(name) {{
       const humanoid = vrm?.humanoid;
@@ -450,11 +466,6 @@ function setMouth(weight, viseme = 'aa') {{
       }}
     }}
 
-    // --- Idle gesture system ---
-    // Layered on top of applyIdle(). Periodically picks a small natural
-    // "fidget" gesture (look around, tilt head, shift weight, touch hair,
-    // stretch neck) and eases it in/out over a few seconds. Suppressed while
-    // speaking so it doesn't fight lip-sync head motion.
     let gestureState = 'none';
     let gestureT = 0;
     let gestureDuration = 0;
@@ -490,14 +501,13 @@ function setMouth(weight, viseme = 'aa') {{
         gestureCooldown -= dt;
         if (gestureCooldown <= 0) {{
           pickGesture();
-          gestureCooldown = 5 + Math.random() * 8; // next gesture in 5-13s
+          gestureCooldown = 5 + Math.random() * 8;
         }}
         return;
       }}
 
       gestureT += dt;
       const progress = Math.min(1, gestureT / gestureDuration);
-      // bell curve: ramp in, hold, ramp out
       const intensity = Math.sin(progress * Math.PI);
       const eased = easeInOutSine(progress);
 
@@ -513,40 +523,29 @@ function setMouth(weight, viseme = 'aa') {{
         case 'lookAround':
           if (head) head.rotation.y += gestureTarget.lookAround * intensity;
           break;
-
         case 'tiltHead':
           if (head) head.rotation.z += gestureTarget.tiltHead * intensity;
           break;
-
         case 'shiftWeight':
           if (hips) hips.position.x += Math.sin(eased * Math.PI) * 0.018;
           if (spine) spine.rotation.z += Math.sin(eased * Math.PI) * 0.02;
           break;
-
         case 'touchHair':
-          // Raise left arm toward head, hold briefly, lower again.
           if (leftUpperArm) {{
             leftUpperArm.rotation.z = REST.leftUpperArm.z + intensity * 1.6;
             leftUpperArm.rotation.x = REST.leftUpperArm.x - intensity * 0.6;
           }}
-          if (leftLowerArm) {{
-            leftLowerArm.rotation.x = REST.leftLowerArm.x - intensity * 1.4;
-          }}
-          if (leftHand) {{
-            leftHand.rotation.z = REST.leftHand.z - intensity * 0.4;
-          }}
-          if (head) head.rotation.z += intensity * 0.06; // slight head lean into hand
+          if (leftLowerArm) leftLowerArm.rotation.x = REST.leftLowerArm.x - intensity * 1.4;
+          if (leftHand) leftHand.rotation.z = REST.leftHand.z - intensity * 0.4;
+          if (head) head.rotation.z += intensity * 0.06;
           break;
-
         case 'stretchNeck':
           if (neck) neck.rotation.x += -intensity * 0.05;
           if (head) head.rotation.x += -intensity * 0.04;
           break;
       }}
 
-      if (progress >= 1) {{
-        gestureState = 'none';
-      }}
+      if (progress >= 1) gestureState = 'none';
     }}
 
     function applyBlink(dt) {{
@@ -570,78 +569,86 @@ function setMouth(weight, viseme = 'aa') {{
     }}
 
     let lastAudio = null;
-    let audioContext = null;
-    let audioAnalyser = null;
-    let audioAnalyserData = null;
-    let analyserAudio = null;
-    let analyserStartedAt = 0;
-    let analyserSilentSince = 0;
-    let lastAudioTime = 0;
+    const attachedAudios = new WeakSet();
 
-    function getAudioMouth() {{
-      return null;
+    function findParentAudios() {{
+      try {{
+        const doc = parent.document;
+        const preferred = deepQueryAll(doc, '#aiko-audio audio');
+        const all = deepQueryAll(doc, 'audio');
+        return [...new Set([...preferred, ...all])];
+      }} catch (_) {{ return []; }}
     }}
 
-    function findParentAudio() {{
-      try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }} catch (_) {{ return null; }}
-    }}
-
-    // NOTE: The Web Audio analyser approach (createMediaElementSource +
-    // AnalyserNode) requires the <audio> element to be served with CORS
-    // headers (Access-Control-Allow-Origin). Gradio's static file server
-    // (allowed_paths / /tmp/aiko_tts) does not send these headers, and
-    // setting audio.crossOrigin='anonymous' on such a source either fails to
-    // load the file or taints it, sometimes breaking autoplay entirely.
-    // We deliberately do NOT use the analyser; lip sync is driven purely by
-    // text-derived visemes timed against audio.currentTime/duration (see
-    // currentTextMouth / textToVisemes below), which needs no CORS access.
     function syncAudioState(audio) {{
       if (!audio) return;
-      setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
+      setSpeaking(!audio.paused && !audio.ended && audio.readyState > 0);
+    }}
+
+    function prepareLipSync(audio, reason = 'audio') {{
+      lastAudio = audio || lastAudio;
+      setSpeaking(true);
+      const immediateText = findParentSpeechText();
+      if (setSpeechText(immediateText, audio?.duration)) {{
+        log.textContent = `lip sync (${{reason}}): ${{immediateText.slice(0, 40)}}`;
+        return;
+      }}
+
+      let tries = 0;
+      clearInterval(window._aikoTextPoll);
+      window._aikoTextPoll = setInterval(() => {{
+        const text = findParentSpeechText();
+        if (setSpeechText(text, audio?.duration)) {{
+          clearInterval(window._aikoTextPoll);
+          log.textContent = `lip sync: ${{text.slice(0, 40)}}`;
+        }} else if (++tries >= 20) {{
+          clearInterval(window._aikoTextPoll);
+          speechVisemes = [];
+          log.textContent = 'lip sync: no text found; using fallback mouth motion';
+        }}
+      }}, 150);
     }}
 
     function attachAudio(audio) {{
-    if (!audio) return;
-      if (audio !== lastAudio) {{
-        lastAudio = audio;
+      if (!audio) return;
+      if (!attachedAudios.has(audio)) {{
+        attachedAudios.add(audio);
         log.textContent = 'linked to Gradio MP3 output';
-
-        audio.addEventListener('play', () => {{
-          setSpeaking(true);
-          let tries = 0;
-          const poll = setInterval(() => {{
-            const text = findParentSpeechText();
-            console.log('[Aiko] poll try', tries, '| text:', JSON.stringify(text));
-            if (text) {{
-              clearInterval(poll);
-              setSpeechText(text, audio.duration);
-              log.textContent = 'lip sync: ' + text.slice(0, 40);
-            }} else if (++tries >= 10) {{
-              clearInterval(poll);
-              log.textContent = 'lip sync: no text (fallback sine)';
-            }}
-          }}, 200);
+        audio.addEventListener('play', () => prepareLipSync(audio, 'play'));
+        audio.addEventListener('playing', () => prepareLipSync(audio, 'playing'));
+        audio.addEventListener('loadedmetadata', () => {{
+          if (!audio.paused && speechText) speechDuration = estimateSpeechDuration(speechText, audio.duration);
         }});
-
-        audio.addEventListener('playing', () => {{
-          setSpeaking(true);
-          const text = findParentSpeechText();
-          if (text) setSpeechText(text, audio.duration);
-        }});
-
         audio.addEventListener('timeupdate', () => {{
-          if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
+          if (!audio.paused && audio.currentTime > 0) {{
+            lastAudio = audio;
+            setSpeaking(true);
+          }}
         }});
-        audio.addEventListener('pause',  () => setSpeaking(false));
-        audio.addEventListener('ended',  () => setSpeaking(false));
+        audio.addEventListener('pause', () => setSpeaking(false));
+        audio.addEventListener('ended', () => setSpeaking(false));
       }}
+      lastAudio = audio;
       syncAudioState(audio);
     }}
-    setInterval(() => attachAudio(findParentAudio()), 500);
+
+    function attachAvailableAudios() {{
+      const audios = findParentAudios();
+      for (const audio of audios) attachAudio(audio);
+      const playing = audios.find((audio) => !audio.paused && !audio.ended);
+      if (playing) lastAudio = playing;
+    }}
+
+    setInterval(attachAvailableAudios, 500);
+    try {{
+      const mo = new MutationObserver(attachAvailableAudios);
+      mo.observe(parent.document.documentElement, {{ childList: true, subtree: true }});
+    }} catch (_) {{}}
 
     window.addEventListener('message', (e) => {{
       try {{
         const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+        if (!msg || typeof msg !== 'object') return;
         if (msg.speaking !== undefined) setSpeaking(msg.speaking);
         if (msg.expression !== undefined) {{
           setExpression(msg.expression, msg.intensity ?? 1.0);
@@ -654,7 +661,6 @@ function setMouth(weight, viseme = 'aa') {{
         if (incomingText !== undefined) {{
           window._aikoLatestTtsText = incomingText;
           setSpeechText(incomingText, msg.duration ?? msg.audioDuration ?? null);
-          console.log('[Aiko] postMessage text:', incomingText.slice(0, 60));
           if (msg.speaking === undefined && msg.playNow) setSpeaking(true);
         }}
         if (msg.viseme !== undefined) {{
@@ -682,25 +688,10 @@ function setMouth(weight, viseme = 'aa') {{
         window._aikoVrm = vrm;
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
-        // Aiko.vrm already faces the camera in the standalone aiko.html viewer.
-        // Do not rotate by Math.PI here, or HF Spaces starts by showing her back.
         vrm.scene.rotation.y = 0;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
         log.textContent = `loaded: Aiko.vrm; mouth presets: ${{expressionNames().filter(n => VISEME_PRESETS.includes(n)).join(', ') || 'none, using jaw fallback'}}`;
-        console.log('Available expressions:', expressionNames());
-        // VRM1 diagnostic
-        console.log('[VRM1 debug] expressionManager:', vrm.expressionManager);
-        console.log('[VRM1 debug] expressions raw:', vrm.expressionManager?.expressions);
-        console.log('[VRM1 debug] test setValue aa:', (() => {{
-          try {{
-            vrm.expressionManager?.setValue('aa', 0.9);
-            vrm.expressionManager?.update();
-            return 'ok';
-          }} catch(e) {{ return e.message; }}
-        }})());
-        console.log('[VRM1 debug] expressionMap:', vrm.expressionManager?.expressionMap);
-        console.log('[VRM1 debug] _expressionMap:', vrm.expressionManager?._expressionMap);        
         document.getElementById('load-msg').textContent = 'ready';
         document.getElementById('loader').classList.add('fade');
         setTimeout(() => document.getElementById('loader').remove(), 550);
@@ -711,52 +702,25 @@ function setMouth(weight, viseme = 'aa') {{
     }}
     loadVrm();
 
-    // Debug: cycle aa/ih/ou/ee/oh for 5s after load to confirm mouth works
-    setTimeout(() => {{
-      const testVisemes = ['aa', 'ih', 'ou', 'ee', 'oh'];
-      let ti = 0;
-      console.log('[Aiko] starting mouth test, expressionManager:', vrm?.expressionManager);
-      const testInterval = setInterval(() => {{
-        const v = testVisemes[ti % testVisemes.length];
-        console.log('[Aiko] mouth test:', v);
-        if (vrm?.expressionManager) {{
-          // Direct setValue + update for VRM1
-          VISEME_PRESETS.forEach(p => vrm.expressionManager.setValue(p, p === v ? 0.9 : 0));
-          vrm.expressionManager.update(0.016);
-        }}
-        ti++;
-      }}, 300);
-      setTimeout(() => {{
-        clearInterval(testInterval);
-        VISEME_PRESETS.forEach(p => vrm.expressionManager.setValue(p, 0));
-        vrm.expressionManager.update(0.016);
-        console.log('[Aiko] mouth test done');
-      }}, 5000);
-    }}, 3000);
-
-function tick() {{
+    function tick() {{
       requestAnimationFrame(tick);
       resize();
       const dt = Math.min(clock.getDelta(), 0.05);
       controls.update();
-      if (vrm) vrm.update(dt);
       applyIdle(dt);
       applyGestures(dt);
       const now = performance.now();
       const textMouth = speaking ? currentTextMouth(now) : null;
-      const audioMouth = speaking ? getAudioMouth() : null;
-      if (audioMouth !== null) {{
-        setMouth(audioMouth, textMouth?.viseme ?? 'aa');
-      }} else if (textMouth) {{
+      if (textMouth) {{
         setMouth(textMouth.weight, textMouth.viseme);
       }} else if (speaking) {{
         mouth = 0.12 + Math.abs(Math.sin(now / 110)) * 0.65;
         setMouth(mouth, 'aa');
       }} else {{
-        smoothedAudioMouth = 0;
         clearMouth();
       }}
       applyBlink(dt);
+      if (vrm) vrm.update(dt);
       renderer.render(scene, camera);
     }}
     tick();
@@ -764,7 +728,7 @@ function tick() {{
 </body>
 </html>"""
     return (
-        '<iframe id="aiko-vrm-frame" title="Aiko VRM Avatar" '
-        'sandbox="allow-scripts allow-same-origin" '
+        '<iframe id="aiko-vrm-frame" name="aiko-vrm-frame" '
+        'title="Aiko VRM Avatar" sandbox="allow-scripts allow-same-origin" '
         f'srcdoc="{html.escape(srcdoc, quote=True)}"></iframe>'
     )
