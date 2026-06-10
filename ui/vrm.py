@@ -613,21 +613,34 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         lastAudio = audio;
         log.textContent = 'linked to Gradio MP3 output';
         audio.addEventListener('play', () => {{
-            setTimeout(() => {{
-                const text = findParentSpeechText();
-                console.log('[Aiko] play text:', text);
-                setSpeechText(text, audio.duration);
-            }}, 100);
             setSpeaking(true);
+            // retry up to 5x in case tts_text hasn't rendered yet
+            let tries = 0;
+            const poll = setInterval(() => {{
+                const text = findParentSpeechText();
+                if (text || ++tries >= 5) {{
+                    clearInterval(poll);
+                    if (text) {{
+                        console.log('[Aiko] play text (try', tries, '):', text);
+                        setSpeechText(text, audio.duration);
+                    }}
+                }}
+            }}, 150);
         }});
         
         audio.addEventListener('playing', () => {{
-            setTimeout(() => {{
-                const text = findParentSpeechText();
-                console.log('[Aiko] playing text:', text);
-                setSpeechText(text, audio.duration);
-            }}, 100);
             setSpeaking(true);
+            let tries = 0;
+            const poll = setInterval(() => {{
+                const text = findParentSpeechText();
+                if (text || ++tries >= 5) {{
+                    clearInterval(poll);
+                    if (text) {{
+                        console.log('[Aiko] playing text (try', tries, '):', text);
+                        setSpeechText(text, audio.duration);
+                    }}
+                }}
+            }}, 150);
         }});
         audio.addEventListener('timeupdate', () => {{
           if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
