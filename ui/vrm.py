@@ -174,9 +174,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     // Position: slightly closer, raised to ~waist level focus.
     // FOV narrowed to 22° to reduce perspective distortion on a close portrait shot.
     const camera = new THREE.PerspectiveCamera(22, 1, 0.1, 100);
-    camera.position.set(0, 1.18, 2.1);   // x=centre, y=waist-chest height, z=distance
+    camera.position.set(-0.55, 1.18, 2.1);   // shifted left
     const controls = new OrbitControls(camera, canvas);
-    controls.target.set(0, 1.15, 0);     // look at chest/neck area
+    controls.target.set(-0.55, 1.15, 0);     // look-at also shifted left
     controls.enableDamping = true;
     controls.enablePan     = false;
     controls.minDistance   = 1.0;
