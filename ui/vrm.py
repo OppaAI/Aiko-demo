@@ -154,7 +154,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       try {{
         parentHref = parent.location.href;
         parentOrigin = parent.location.origin;
-      }} catch {{
+        }} catch (_) {{
         parentHref = window.location.href;
         parentOrigin = window.location.origin;
       }}
@@ -351,19 +351,16 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
 
     function findParentSpeechText() {{
-          // Primary: text injected via postMessage from app.py's JS bridge
-          // (stored in module-level variable by the message listener)
           if (window._aikoLatestTtsText) {{
             const t = window._aikoLatestTtsText;
-            window._aikoLatestTtsText = '';   // consume it
+            window._aikoLatestTtsText = '';
             return t;
           }}
-          // Fallback: try parent DOM (works on local, blocked on HF sandbox)
           try {{
             const doc = parent.document;
             const el = doc.querySelector('#aiko-tts-text textarea, #aiko-tts-text input');
             return el ? (el.value || el.textContent || '') : '';
-          }} catch {{ return ''; }}
+          }} catch (_) {{ return ''; }}
         }}
 
     function getBone(name) {{
@@ -573,8 +570,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let analyserSilentSince = 0;
     let lastAudioTime = 0;
 
+    function getAudioMouth() {{
+      return null;
+    }}
+
     function findParentAudio() {{
-      try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }} catch {{ return null; }}
+      try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }} catch (_) {{ return null; }}
     }}
 
     // NOTE: The Web Audio analyser approach (createMediaElementSource +
@@ -586,59 +587,42 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     // We deliberately do NOT use the analyser; lip sync is driven purely by
     // text-derived visemes timed against audio.currentTime/duration (see
     // currentTextMouth / textToVisemes below), which needs no CORS access.
-    function attachAudioAnalyser(audio) {{
-      // intentionally a no-op; kept as a hook point for future use.
-    }}
-
-    function getAudioMouth() {{
-      // Web Audio analyser is disabled (see attachAudioAnalyser) due to CORS
-      // restrictions on Gradio-served audio files. Always defer to the
-      // text-driven viseme path.
-      return null;
-    }}
-    function syncAudioState(audio = lastAudio) {{
-      if (!audio) return;
-      setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
-    }}
     function attachAudio(audio) {{
-          if (!audio) return;
-          if (audio !== lastAudio) {{
-            lastAudio = audio;
-            log.textContent = 'linked to Gradio MP3 output';
-    
-            audio.addEventListener('play', () => {{
-              setSpeaking(true);
-              let tries = 0;
-              const poll = setInterval(() => {{
-                const text = findParentSpeechText();
-                console.log('[Aiko] poll try', tries, '| text:', JSON.stringify(text));
-                if (text) {{
-                  clearInterval(poll);
-                  setSpeechText(text, audio.duration);
-                  log.textContent = 'lip sync: ' + text.slice(0, 40);
-                }} else if (++tries >= 10) {{
-                  clearInterval(poll);
-                  console.warn('[Aiko] gave up waiting for tts text after 10 tries');
-                  log.textContent = 'lip sync: no text found (fallback sine)';
-                }}
-              }}, 200);
-            }});
-    
-            audio.addEventListener('playing', () => {{
-              setSpeaking(true);
-              // also poke the text in case play already resolved it
-              const text = findParentSpeechText();
-              if (text) setSpeechText(text, audio.duration);
-            }});
-    
-            audio.addEventListener('timeupdate', () => {{
-              if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
-            }});
-            audio.addEventListener('pause',  () => setSpeaking(false));
-            audio.addEventListener('ended',  () => setSpeaking(false));
-          }}
-          syncAudioState(audio);
-        }}
+      if (!audio) return;
+      if (audio !== lastAudio) {{
+        lastAudio = audio;
+        log.textContent = 'linked to Gradio MP3 output';
+
+        audio.addEventListener('play', () => {{
+          setSpeaking(true);
+          let tries = 0;
+          const poll = setInterval(() => {{
+            const text = findParentSpeechText();
+            console.log('[Aiko] poll try', tries, '| text:', JSON.stringify(text));
+            if (text) {{
+              clearInterval(poll);
+              setSpeechText(text, audio.duration);
+              log.textContent = 'lip sync: ' + text.slice(0, 40);
+            }} else if (++tries >= 10) {{
+              clearInterval(poll);
+              log.textContent = 'lip sync: no text (fallback sine)';
+            }}
+          }}, 200);
+        }});
+
+        audio.addEventListener('playing', () => {{
+          setSpeaking(true);
+          const text = findParentSpeechText();
+          if (text) setSpeechText(text, audio.duration);
+        }});
+
+        audio.addEventListener('timeupdate', () => {{
+          if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
+        }});
+        audio.addEventListener('pause',  () => setSpeaking(false));
+        audio.addEventListener('ended',  () => setSpeaking(false));
+      }}
+      syncAudioState(audio);
     }}
     setInterval(() => attachAudio(findParentAudio()), 500);
 
@@ -655,9 +639,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         }}
         const incomingText = msg.ttsText ?? msg.speechText ?? msg.text;
         if (incomingText !== undefined) {{
-          window._aikoLatestTtsText = incomingText;   // store for poll
+          window._aikoLatestTtsText = incomingText;
           setSpeechText(incomingText, msg.duration ?? msg.audioDuration ?? null);
-          console.log('[Aiko] postMessage received text:', incomingText.slice(0, 60));
+          console.log('[Aiko] postMessage text:', incomingText.slice(0, 60));
           if (msg.speaking === undefined && msg.playNow) setSpeaking(true);
         }}
         if (msg.viseme !== undefined) {{
