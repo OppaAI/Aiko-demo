@@ -47,6 +47,18 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     because many VRM avatars do not expose a normalized ``jaw`` bone. A jaw-bone
     rotation is used only as an optional fallback.
 
+    Lip sync uses a layered approach:
+      1. Web Audio analyser on the actual MP3 playback (best, but requires the
+         audio element to be CORS-clean; if createMediaElementSource throws or
+         the analyser stays silent, we fall back).
+      2. Text-derived viseme sequence timed against audio.currentTime/duration
+         (works regardless of CORS).
+      3. Generic sine-wave "talking" mouth motion as a last resort.
+
+    Idle behaviour now also includes a gesture state machine (look around,
+    head tilt, weight shift, hand-to-hair, neck stretch) layered on top of the
+    base breathing/sway animation, only active while not speaking.
+
     Expression/viseme/text control is via postMessage (works in HF Spaces):
         parent.frames['aiko-vrm-frame'].postMessage({expression:'happy',intensity:0.8}, '*')
         parent.frames['aiko-vrm-frame'].postMessage({viseme:'A',weight:0.6}, '*')
@@ -423,6 +435,105 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }}
     }}
 
+    // --- Idle gesture system ---
+    // Layered on top of applyIdle(). Periodically picks a small natural
+    // "fidget" gesture (look around, tilt head, shift weight, touch hair,
+    // stretch neck) and eases it in/out over a few seconds. Suppressed while
+    // speaking so it doesn't fight lip-sync head motion.
+    let gestureState = 'none';
+    let gestureT = 0;
+    let gestureDuration = 0;
+    let gestureCooldown = 4 + Math.random() * 6;
+    let gestureTarget = null;
+
+    const GESTURES = ['lookAround', 'tiltHead', 'shiftWeight', 'touchHair', 'stretchNeck'];
+
+    function pickGesture() {{
+      const g = GESTURES[Math.floor(Math.random() * GESTURES.length)];
+      gestureState = g;
+      gestureT = 0;
+      gestureDuration = {{
+        lookAround: 2.5,
+        tiltHead: 2.0,
+        shiftWeight: 3.0,
+        touchHair: 3.5,
+        stretchNeck: 2.5,
+      }}[g];
+      gestureTarget = {{
+        lookAround: (Math.random() - 0.5) * 0.5,
+        tiltHead: (Math.random() - 0.5) * 0.25,
+      }};
+    }}
+
+    function easeInOutSine(t) {{ return -(Math.cos(Math.PI * t) - 1) / 2; }}
+
+    function applyGestures(dt) {{
+      if (!vrm?.humanoid) return;
+      if (speaking) {{ gestureState = 'none'; return; }}
+
+      if (gestureState === 'none') {{
+        gestureCooldown -= dt;
+        if (gestureCooldown <= 0) {{
+          pickGesture();
+          gestureCooldown = 5 + Math.random() * 8; // next gesture in 5-13s
+        }}
+        return;
+      }}
+
+      gestureT += dt;
+      const progress = Math.min(1, gestureT / gestureDuration);
+      // bell curve: ramp in, hold, ramp out
+      const intensity = Math.sin(progress * Math.PI);
+      const eased = easeInOutSine(progress);
+
+      const head = getBone('head');
+      const neck = getBone('neck');
+      const leftUpperArm = getBone('leftUpperArm');
+      const leftLowerArm = getBone('leftLowerArm');
+      const leftHand = getBone('leftHand');
+      const spine = getBone('spine');
+      const hips = getBone('hips');
+
+      switch (gestureState) {{
+        case 'lookAround':
+          if (head) head.rotation.y += gestureTarget.lookAround * intensity;
+          break;
+
+        case 'tiltHead':
+          if (head) head.rotation.z += gestureTarget.tiltHead * intensity;
+          break;
+
+        case 'shiftWeight':
+          if (hips) hips.position.x += Math.sin(eased * Math.PI) * 0.018;
+          if (spine) spine.rotation.z += Math.sin(eased * Math.PI) * 0.02;
+          break;
+
+        case 'touchHair':
+          // Raise left arm toward head, hold briefly, lower again.
+          if (leftUpperArm) {{
+            leftUpperArm.rotation.z = REST.leftUpperArm.z + intensity * 1.6;
+            leftUpperArm.rotation.x = REST.leftUpperArm.x - intensity * 0.6;
+          }}
+          if (leftLowerArm) {{
+            leftLowerArm.rotation.x = REST.leftLowerArm.x - intensity * 1.4;
+          }}
+          if (leftHand) {{
+            leftHand.rotation.z = REST.leftHand.z - intensity * 0.4;
+          }}
+          if (head) head.rotation.z += intensity * 0.06; // slight head lean into hand
+          break;
+
+        case 'stretchNeck':
+          if (neck) neck.rotation.x += -intensity * 0.05;
+          if (head) head.rotation.x += -intensity * 0.04;
+          break;
+      }}
+
+      if (progress >= 1) {{
+        gestureState = 'none';
+      }}
+    }}
+
     function applyBlink(dt) {{
       if (!vrm?.expressionManager) return;
       if (blinkPhase === 'wait') {{
@@ -462,6 +573,16 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextCtor) return;
         audioContext = audioContext || new AudioContextCtor();
+
+        // Must be set before createMediaElementSource. If the audio src is
+        // served without permissive CORS headers, connecting an analyser to a
+        // crossOrigin='anonymous' element will throw (tainted source) and we
+        // fall back to text/timed mouth sync below — no audio-level lip sync,
+        // but playback itself is unaffected since we never reached that point.
+        if (!audio.crossOrigin) {{
+          audio.crossOrigin = 'anonymous';
+        }}
+
         const source = audioContext.createMediaElementSource(audio);
         audioAnalyser = audioContext.createAnalyser();
         audioAnalyser.fftSize = 1024;
@@ -480,6 +601,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         analyserAudio = null;
         analyserStartedAt = 0;
         analyserSilentSince = 0;
+        log.textContent = 'analyser unavailable (CORS?) · using text/timed lip sync';
         console.warn('[aiko-vrm] Web Audio analyser unavailable; falling back to timed mouth motion', err);
       }}
     }}
@@ -522,6 +644,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         log.textContent = 'linked to Gradio MP3 output';
         audio.addEventListener('play',  () => {{ attachAudioAnalyser(audio); audioContext?.resume?.(); setSpeaking(true); }});
         audio.addEventListener('playing', () => {{ attachAudioAnalyser(audio); audioContext?.resume?.(); setSpeaking(true); }});
+        audio.addEventListener('timeupdate', () => {{
+          if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
+        }});
         audio.addEventListener('pause', () => setSpeaking(false));
         audio.addEventListener('ended', () => setSpeaking(false));
       }}
@@ -594,6 +719,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       controls.update();
       if (vrm) vrm.update(dt);
       applyIdle(dt);
+      applyGestures(dt);
       const now = performance.now();
       const textMouth = speaking ? currentTextMouth(now) : null;
       const audioMouth = speaking ? getAudioMouth() : null;
