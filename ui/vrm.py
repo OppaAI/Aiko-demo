@@ -262,7 +262,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       emotion.textContent = name || 'neutral';
     }}
 
-    function setMouth(weight, viseme = 'aa') {{
+function setMouth(weight, viseme = 'aa') {{
       if (!vrm) return;
       const clamped = Math.max(0, Math.min(1, Number(weight) || 0));
       const preset = VISEME_MAP[viseme] ?? viseme ?? 'aa';
@@ -271,17 +271,25 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (vrm.expressionManager) {{
         for (const key of VISEME_PRESETS) {{
           if (hasExpression(key)) {{
-            safeSetExpression(key, key === preset ? clamped : 0);
+            vrm.expressionManager.setValue(key, key === preset ? clamped : 0);
             usedExpression = true;
           }}
         }}
-        // three-vrm applies expression weights during update(); when we change
-        // them after update() in this render loop, force the manager to flush so
-        // the mouth movement is visible on the same frame.
-        // vrm.update(dt) in tick() flushes expressions after all weights are set
+        // For VRM1: directly apply expression weights to morphs now,
+        // bypassing the normal update() cycle so they're visible this frame.
+        try {{
+          const em = vrm.expressionManager;
+          if (em._expressions) {{
+            em._expressions.forEach(expr => {{
+              const w = em._expressionMap[expr.expressionName]
+                ? em.getValue(expr.expressionName) ?? 0
+                : 0;
+              expr.applyWeight({{ multiplier: 1 }});
+            }});
+          }}
+        }} catch (_) {{}}
       }}
 
-      // Fallback only: many VRMs do not expose a normalized jaw bone.
       if (!usedExpression) {{
         const jaw = vrm.humanoid?.getNormalizedBoneNode?.('jaw') || vrm.humanoid?.getRawBoneNode?.('jaw');
         if (jaw) jaw.rotation.x = clamped * 0.5;
@@ -707,22 +715,31 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     setTimeout(() => {{
       const testVisemes = ['aa', 'ih', 'ou', 'ee', 'oh'];
       let ti = 0;
+      console.log('[Aiko] starting mouth test, expressionManager:', vrm?.expressionManager);
       const testInterval = setInterval(() => {{
-        setMouth(0.85, testVisemes[ti % testVisemes.length]);
+        const v = testVisemes[ti % testVisemes.length];
+        console.log('[Aiko] mouth test:', v);
+        if (vrm?.expressionManager) {{
+          // Direct setValue + update for VRM1
+          VISEME_PRESETS.forEach(p => vrm.expressionManager.setValue(p, p === v ? 0.9 : 0));
+          vrm.expressionManager.update(0.016);
+        }}
         ti++;
-      }}, 250);
+      }}, 300);
       setTimeout(() => {{
         clearInterval(testInterval);
-        clearMouth();
+        VISEME_PRESETS.forEach(p => vrm.expressionManager.setValue(p, 0));
+        vrm.expressionManager.update(0.016);
         console.log('[Aiko] mouth test done');
       }}, 5000);
-    }}, 2000);
+    }}, 3000);
 
 function tick() {{
       requestAnimationFrame(tick);
       resize();
       const dt = Math.min(clock.getDelta(), 0.05);
       controls.update();
+      if (vrm) vrm.update(dt);
       applyIdle(dt);
       applyGestures(dt);
       const now = performance.now();
@@ -740,7 +757,6 @@ function tick() {{
         clearMouth();
       }}
       applyBlink(dt);
-      if (vrm) vrm.update(dt);
       renderer.render(scene, camera);
     }}
     tick();
