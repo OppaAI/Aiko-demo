@@ -218,32 +218,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                 observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true });
               }
 
-              // Clear the textbox via JS the moment send fires — before Gradio
-              // can race against the user's next keypress.
-              function hookSendClear() {
-                function tryHook() {
-                  const msgEl = document.querySelector('#aiko-msg textarea');
-                  const sendEl = document.querySelector('#aiko-send');
-                  if (!msgEl || !sendEl) { setTimeout(tryHook, 600); return; }
-
-                  function clearMsg() {
-                    // Use the native input setter so React/Svelte state updates
-                    const nativeInputSetter = Object.getOwnPropertyDescriptor(
-                      window.HTMLTextAreaElement.prototype, 'value'
-                    ).set;
-                    nativeInputSetter.call(msgEl, '');
-                    msgEl.dispatchEvent(new Event('input', { bubbles: true }));
-                  }
-
-                  sendEl.addEventListener('click', clearMsg);
-                  msgEl.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) clearMsg();
-                  });
-                }
-                tryHook();
-              }
-
-              setTimeout(() => { hookAudio(); watchTtsText(); hookSendClear(); }, 1200);
+              setTimeout(() => { hookAudio(); watchTtsText(); }, 1200);
             })();
             </script>
             """)
@@ -282,9 +257,32 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     )
                     send = gr.Button("➤", variant="primary", scale=0, elem_id="aiko-send", min_width=0)
 
-                # msg is NOT in outputs — clearing is handled by JS above
-                msg.submit(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out])
-                send.click(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out])
+                # ── Two-step submit: clear box immediately, then stream ──────────
+                # Step 1: instantly clear the textbox and echo message into state.
+                # Step 2: stream the response (msg input reads from state snapshot).
+                # This avoids racing the Svelte input binder on every yield.
+                pending = gr.State("")
+
+                def _capture_and_clear(message):
+                    """Capture the message and return a cleared textbox immediately."""
+                    return (message or "").strip(), gr.update(value="")
+
+                def _stream_from_state(message, history):
+                    yield from text_chat(message, history)
+
+                # Submit / click both go through the two-step chain
+                for trigger in (msg.submit, send.click):
+                    trigger(
+                        _capture_and_clear,
+                        inputs=[msg],
+                        outputs=[pending, msg],
+                        queue=False,          # instant, no queue wait
+                    ).then(
+                        _stream_from_state,
+                        inputs=[pending, chatbot],
+                        outputs=[chatbot, tts_text, audio_out],
+                    )
+
                 mic_btn.change(voice_chat, [mic_btn, chatbot], [chatbot, tts_text, audio_out])
 
 allowed_paths = [str(Path("/tmp/aiko_tts")), str(VRM_PATH.parent)]
