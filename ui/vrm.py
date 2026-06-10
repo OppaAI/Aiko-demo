@@ -681,6 +681,18 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         setExpression('relaxed', 0.25);
         log.textContent = `loaded: Aiko.vrm; mouth presets: ${{expressionNames().filter(n => VISEME_PRESETS.includes(n)).join(', ') || 'none, using jaw fallback'}}`;
         console.log('Available expressions:', expressionNames());
+        // VRM1 diagnostic
+        console.log('[VRM1 debug] expressionManager:', vrm.expressionManager);
+        console.log('[VRM1 debug] expressions raw:', vrm.expressionManager?.expressions);
+        console.log('[VRM1 debug] test setValue aa:', (() => {{
+          try {{
+            vrm.expressionManager?.setValue('aa', 0.9);
+            vrm.expressionManager?.update();
+            return 'ok';
+          }} catch(e) {{ return e.message; }}
+        }})());
+        console.log('[VRM1 debug] expressionMap:', vrm.expressionManager?.expressionMap);
+        console.log('[VRM1 debug] _expressionMap:', vrm.expressionManager?._expressionMap);        
         document.getElementById('load-msg').textContent = 'ready';
         document.getElementById('loader').classList.add('fade');
         setTimeout(() => document.getElementById('loader').remove(), 550);
