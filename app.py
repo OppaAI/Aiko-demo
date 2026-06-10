@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import gradio as gr
+import time
 
 from core.wakeup import AikoWakeup
 from ui.css import AIKO_CSS
