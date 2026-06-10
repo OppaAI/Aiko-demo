@@ -279,7 +279,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
             usedExpression = true;
           }}
         }}
-        try {{ vrm.expressionManager.update(0.016); }} catch (_) {{}}
       }}
 
       if (!usedExpression) {{
@@ -649,12 +648,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }}
       document.getElementById('load-msg').textContent = `loading VRM (${{index + 1}}/${{VRM_URLS.length}})…`;
       log.textContent = url;
-      loader.load(url, gltf => {{
+    loader.load(url, gltf => {
         vrm = gltf.userData.vrm;
         window._aikoVrm = vrm;
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
-        vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
-        vrm.scene.rotation.y = 0;
+        VRMUtils.rotateVRM0(vrm);           // ← add this; no-op on VRM1 models
+        vrm.scene.traverse(o => { if (o.frustumCulled) o.frustumCulled = false; });
+        // Remove the forced rotation.y = 0 — rotateVRM0 sets it correctly
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
         log.textContent = `loaded: Aiko.vrm; mouth presets: ${{expressionNames().filter(n => VISEME_PRESETS.includes(n)).join(', ') || 'none, using jaw fallback'}}`;
@@ -669,25 +669,27 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     loadVrm();
 
     function tick() {{
-      requestAnimationFrame(tick);
-      resize();
-      const dt = Math.min(clock.getDelta(), 0.05);
-      controls.update();
-      applyIdle(dt);
-      applyGestures(dt);
-      const now = performance.now();
-      const textMouth = speaking ? currentTextMouth(now) : null;
-      if (textMouth) {{
-        setMouth(textMouth.weight, textMouth.viseme);
-      }} else if (speaking) {{
-        mouth = 0.12 + Math.abs(Math.sin(now / 110)) * 0.65;
-        setMouth(mouth, 'aa');
-      }} else {{
-        clearMouth();
-      }}
-      applyBlink(dt);
-      if (vrm) vrm.update(dt);
-      renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+        resize();
+        const dt = Math.min(clock.getDelta(), 0.05);
+        controls.update();
+        applyIdle(dt);
+        applyGestures(dt);
+        applyBlink(dt);
+        if (vrm) vrm.update(dt);           // ← VRM runtime runs first
+    
+        // Apply mouth AFTER vrm.update so it isn't stomped
+        const now = performance.now();
+        const textMouth = speaking ? currentTextMouth(now) : null;
+        if (textMouth) {{
+            setMouth(textMouth.weight, textMouth.viseme);
+        }} else if (speaking) {{
+            mouth = 0.12 + Math.abs(Math.sin(now / 110)) * 0.65;
+            setMouth(mouth, 'aa');
+        }} else {{
+            clearMouth();
+        }}
+        renderer.render(scene, camera);
     }}
     tick();
   </script>
