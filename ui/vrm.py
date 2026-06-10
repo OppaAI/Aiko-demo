@@ -698,3 +698,17 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         'title="Aiko VRM Avatar" sandbox="allow-scripts allow-same-origin" '
         f'srcdoc="{html.escape(srcdoc, quote=True)}"></iframe>'
     )
+
+if __name__ == "__main__":
+    from pathlib import Path
+    p = resolve_vrm_path()
+    urls = gradio_file_urls(p)
+    result = avatar_html(urls)
+    print(f"OK, length={len(result)}")
+    # Dump the srcdoc content to a file so you can inspect it
+    import re
+    m = re.search(r'srcdoc="(.*)"', result, re.DOTALL)
+    if m:
+        import html
+        Path("/tmp/srcdoc_dump.html").write_text(html.unescape(m.group(1)))
+        print("Dumped to /tmp/srcdoc_dump.html")
