@@ -648,24 +648,22 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }}
       document.getElementById('load-msg').textContent = `loading VRM (${{index + 1}}/${{VRM_URLS.length}})…`;
       log.textContent = url;
-    loader.load(url, gltf => {
+    loader.load(url, gltf => {{
         vrm = gltf.userData.vrm;
         window._aikoVrm = vrm;
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
-        VRMUtils.rotateVRM0(vrm);           // ← add this; no-op on VRM1 models
-        vrm.scene.traverse(o => { if (o.frustumCulled) o.frustumCulled = false; });
-        // Remove the forced rotation.y = 0 — rotateVRM0 sets it correctly
+        VRMUtils.rotateVRM0(vrm);
+        vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
         log.textContent = `loaded: Aiko.vrm; mouth presets: ${{expressionNames().filter(n => VISEME_PRESETS.includes(n)).join(', ') || 'none, using jaw fallback'}}`;
         document.getElementById('load-msg').textContent = 'ready';
         document.getElementById('loader').classList.add('fade');
         setTimeout(() => document.getElementById('loader').remove(), 550);
-      }}, undefined, err => {{
+    }}, undefined, err => {{
         console.warn('[aiko-vrm] candidate failed', url, err);
         loadVrm(index + 1);
-      }});
-    }}
+    }});
     loadVrm();
 
     function tick() {{
