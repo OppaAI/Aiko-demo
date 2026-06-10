@@ -56,6 +56,22 @@ html, body, .gradio-container, main, footer {
 
 #aiko-tts-text { display: none !important; }
 
+/* ── Hide Gradio message action buttons (copy/like/dislike/edit) ── */
+#aiko-chatbot .message-buttons,
+#aiko-chatbot .icon-button,
+#aiko-chatbot [data-testid="like"],
+#aiko-chatbot [data-testid="dislike"],
+#aiko-chatbot [data-testid="copy"],
+#aiko-chatbot [data-testid="edit"],
+#aiko-chatbot button.copy,
+#aiko-chatbot button.edit,
+#aiko-chatbot .action-button,
+#aiko-chatbot [class*="action"],
+#aiko-chatbot [class*="button-row"],
+#aiko-chatbot [class*="buttons"] {
+  display: none !important;
+}
+
 /* ── Borderless chat overlay, right side, no bubbles ───────── */
 #aiko-chat-overlay {
   position: absolute;
@@ -66,7 +82,7 @@ html, body, .gradio-container, main, footer {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
   pointer-events: none;
   z-index: 5;
   overflow: hidden;
@@ -111,6 +127,7 @@ div:has(> #aiko-chatbot) {
   padding: 0 !important;
 }
 
+/* Hide chatbot scrollbar — the iframe owns its own scroll */
 #aiko-chatbot {
   overflow-y: auto;
   scrollbar-width: none;
@@ -120,14 +137,14 @@ div:has(> #aiko-chatbot) {
 }
 #aiko-chatbot::-webkit-scrollbar { display: none; }
 
-/* Plain caption-style text, no bubble chrome */
+/* Plain caption-style text — smaller font, tighter line height */
 #aiko-chatbot .message,
 #aiko-chatbot .bubble,
 #aiko-chatbot [data-testid="bot"],
 #aiko-chatbot [data-testid="user"] {
-  padding: 4px 0 !important;
-  font-size: 0.92rem !important;
-  line-height: 1.5 !important;
+  padding: 2px 0 !important;
+  font-size: 0.80rem !important;
+  line-height: 1.3 !important;
   text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 16px rgba(100,60,180,0.45);
   max-width: 100% !important;
 }
@@ -154,20 +171,39 @@ div:has(> #aiko-chatbot) {
   align-items: center;
   z-index: 6;
 }
-#aiko-input-row textarea, #aiko-input-row input {
-  background: rgba(10, 8, 18, 0.78) !important;
-  color: var(--aiko-text) !important;
-  border: 1px solid rgba(155,127,212,0.34) !important;
+
+/* Transparent input box with lavender border and lavender text */
+#aiko-input-row textarea,
+#aiko-input-row input,
+#aiko-input-row .input-wrap,
+#aiko-input-row [class*="input"] {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--aiko-accent) !important;
+  border: 1px solid rgba(182, 140, 255, 0.6) !important;
   border-radius: 14px !important;
   font-size: 0.9rem;
-  backdrop-filter: blur(6px);
+  backdrop-filter: none !important;
+  box-shadow: none !important;
 }
-textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important; }
+
+textarea::placeholder, input::placeholder {
+  color: var(--aiko-muted) !important;
+}
+
+/* Square send button */
 button.primary, button.variant-primary, #aiko-send {
   background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
   border: 0 !important;
   color: #fff !important;
-  border-radius: 12px !important;
+  border-radius: 4px !important;
+  aspect-ratio: 1 / 1;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 #aiko-mic, #aiko-mic > div {
