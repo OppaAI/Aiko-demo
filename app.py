@@ -44,45 +44,111 @@ def _strip_for_speech(text: str) -> str:
     return cleaned.strip()
 
 
-def _assistant_response(message: str) -> tuple[str, str | None]:
-    tokens: list[str] = []
+import re
+
+_SENTENCE_END = re.compile(r'(?<=[.!?。！？\n])\s*')
+
+def _split_ready_sentences(buffer: str) -> tuple[list[str], str]:
+    """Split buffer into complete sentences + remaining partial text."""
+    parts = _SENTENCE_END.split(buffer)
+    if len(parts) <= 1:
+        return [], buffer
+    *complete, remainder = parts
+    return [p for p in complete if p.strip()], remainder
+
+def _stream_response(message: str, history: list):
+    """Generator: yields (history, tts_text, audio_path, msg_clear) chunks."""
+    buffer = ""
+    full_text = ""
+
+    history = history + [
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": ""},
+    ]
 
     def _cb(token):
+        nonlocal buffer, full_text
         if token.startswith("__SEARCHING__:"):
             query = token.split(":", 1)[1].strip()
-            tokens.append(f"\n🔍 Searching: *{query}*\n")
+            note = f"\n🔍 Searching: *{query}*\n"
+            buffer += note
+            full_text += note
         else:
-            tokens.append(token)
+            buffer += token
+            full_text += token
 
-    think.chat(message, token_callback=_cb)
-    text = "".join(tokens)
-    audio = speak_to_file(text)
-    print(f"[chat] audio path: {audio}")
-    return text, audio
+    # Run think.chat in a background thread so we can poll/yield as it streams
+    import threading
+    done = threading.Event()
+    error = {}
+
+    def _run():
+        try:
+            think.chat(message, token_callback=_cb)
+        except Exception as e:
+            error["e"] = e
+        finally:
+            done.set()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    last_yield_len = 0
+    while not done.is_set() or buffer.strip():
+        sentences, buffer = _split_ready_sentences(buffer)
+        for sentence in sentences:
+            clean = _strip_for_speech(sentence)
+            if not clean:
+                continue
+            history[-1]["content"] = full_text
+            audio = speak_to_file(clean)
+            yield history, clean, audio, ""
+        if not sentences:
+            time.sleep(0.05)
+
+    # Flush any trailing partial sentence
+    if buffer.strip():
+        clean = _strip_for_speech(buffer)
+        history[-1]["content"] = full_text
+        if clean:
+            audio = speak_to_file(clean)
+            yield history, clean, audio, ""
+        else:
+            yield history, "", None, ""
+
+    if error:
+        raise error["e"]
+
+    # Final sync: ensure full text shown
+    history[-1]["content"] = full_text
+    yield history, "", None, ""
 
 
 def text_chat(message, history):
     history = history or []
     message = (message or "").strip()
     if not message:
-        return history, None, "", ""
-    text, audio = _assistant_response(message)
-    history.append({"role": "user", "content": message})
-    history.append({"role": "assistant", "content": text})
-    return history, _strip_for_speech(text), audio, ""
+        yield history, None, None, ""
+        return
+    yield from _stream_response(message, history)
 
 
 def voice_chat(audio_path, history):
     history = history or []
     if not audio_path:
-        return history, None, None, ""
+        yield history, None, None, None
+        return
     transcript = transcribe_file(audio_path)
     if not transcript:
-        return history, None, None, ""
-    text, audio = _assistant_response(transcript)
-    history.append({"role": "user", "content": f"🎙️ {transcript}"})
-    history.append({"role": "assistant", "content": text})
-    return history, _strip_for_speech(text), audio, None
+        yield history, None, None, None
+        return
+    history = history  # _stream_response appends user/assistant
+    gen = _stream_response(transcript, history)
+    for h, tts, audio, _ in gen:
+        # patch user message to show mic emoji
+        if h and h[-2]["content"] == transcript:
+            h[-2]["content"] = f"🎙️ {transcript}"
+        yield h, tts, audio, None
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
     with gr.Column(elem_id="aiko-shell"):
@@ -123,52 +189,28 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
             </script>
             """)
         with gr.Row(equal_height=True):
-            with gr.Column(scale=5, elem_id="aiko-avatar-card"):
+            with gr.Column(scale=1, elem_id="aiko-avatar-card"):
                 gr.HTML(value=avatar_html(VRM_URLS), show_label=False)
                 audio_out = gr.Audio(
-                    autoplay=True,
-                    visible=True,
-                    label="🔊 Aiko",
-                    type="filepath",
-                    elem_id="aiko-audio",
-                    container=False,
+                    autoplay=True, visible=True, label="🔊 Aiko",
+                    type="filepath", elem_id="aiko-audio", container=False,
                 )
-                # Hidden textbox carrying the plain-text response for the VRM
-                # iframe's lip sync. The avatar_html() viewer reads this via
-                # findParentSpeechText() -> '#aiko-tts-text textarea'. It must
-                # be updated in the SAME callback output as audio_out so the
-                # iframe's 'play' event listener can read the matching text.
-                tts_text = gr.Textbox(
-                    value="",
-                    visible=False,
-                    elem_id="aiko-tts-text",
-                    render=True,        # force DOM presence even when invisible
-                )
-                gr.Markdown(
-                    "Aiko's VRM mouth is driven by lip-synced text timing.",
-                    elem_id="aiko-note",
-                )
-            with gr.Column(scale=6, elem_id="aiko-chat-card"):
-                gr.Markdown("# Aiko-chan 🌸", elem_id="aiko-title")
-                chatbot = gr.Chatbot(
-                    elem_id="aiko-chatbot",
-                    show_label=False,
-                    height=520,
-                    #type="messages",
-                )
-                with gr.Row(elem_id="aiko-input-row"):
-                    msg = gr.Textbox(
-                        placeholder="Type a message…",
+                tts_text = gr.Textbox(value="", visible=False, elem_id="aiko-tts-text", render=True)
+        
+                with gr.Column(elem_id="aiko-chat-overlay"):
+                    chatbot = gr.Chatbot(
+                        elem_id="aiko-chatbot",
                         show_label=False,
-                        scale=12,
-                        container=False,
+                        height=600,
                     )
+        
+                with gr.Row(elem_id="aiko-input-row"):
+                    msg = gr.Textbox(placeholder="Type a message…", show_label=False, scale=12, container=False)
                     send = gr.Button("➤", variant="primary", scale=1, elem_id="aiko-send")
+        
                 voice_in = gr.Audio(
-                    sources=["microphone"],
-                    type="filepath",
-                    label="🎙️ Speak to Aiko",
-                    elem_id="aiko-mic",
+                    sources=["microphone"], type="filepath",
+                    label="🎙️ Speak to Aiko", elem_id="aiko-mic",
                 )
 
                 msg.submit(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out, msg])
