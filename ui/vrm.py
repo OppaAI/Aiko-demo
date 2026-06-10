@@ -324,7 +324,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function setSpeechText(text, duration = null) {{
       const nextText = String(text || '').trim();
-      if (!nextText || nextText === speechText) return;
+      if (!nextText) return;
+      // Allow re-arming on identical consecutive lines (Aiko may repeat a
+      // short phrase) by always resetting the timer/visemes when called from
+      // a fresh 'play'/'playing' event, even if the text string is unchanged.
       speechText = nextText;
       speechVisemes = textToVisemes(speechText);
       speechDuration = estimateSpeechDuration(speechText, duration);
@@ -348,9 +351,23 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
 
     function findParentSpeechText() {{
+      // 1. Explicit global set by the parent page (most reliable — see app.py
+      //    snippet that sets window.frames['aiko-vrm-frame'].postMessage or
+      //    a shared global before/while the audio starts playing).
+      try {{
+        if (parent.AIKO_TTS_TEXT) return String(parent.AIKO_TTS_TEXT);
+      }} catch (_) {{}}
+
+      // 2. Hidden textbox / element with a known id or data attribute,
+      //    rendered by gr.Textbox(elem_id="aiko-tts-text", visible=False).
+      //    Gradio textboxes render as <textarea> or <input> inside the
+      //    elem_id wrapper, so search descendants too.
       try {{
         const doc = parent.document;
-        const el = doc.querySelector('#aiko-tts-text, [data-aiko-tts-text]');
+        const el = doc.querySelector(
+          '#aiko-tts-text textarea, #aiko-tts-text input, ' +
+          '#aiko-tts-text, [data-aiko-tts-text]'
+        );
         if (!el) return '';
         return el.dataset?.aikoTtsText || el.value || el.textContent || '';
       }} catch {{ return ''; }}
@@ -567,74 +584,27 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }} catch {{ return null; }}
     }}
 
+    // NOTE: The Web Audio analyser approach (createMediaElementSource +
+    // AnalyserNode) requires the <audio> element to be served with CORS
+    // headers (Access-Control-Allow-Origin). Gradio's static file server
+    // (allowed_paths / /tmp/aiko_tts) does not send these headers, and
+    // setting audio.crossOrigin='anonymous' on such a source either fails to
+    // load the file or taints it, sometimes breaking autoplay entirely.
+    // We deliberately do NOT use the analyser; lip sync is driven purely by
+    // text-derived visemes timed against audio.currentTime/duration (see
+    // currentTextMouth / textToVisemes below), which needs no CORS access.
     function attachAudioAnalyser(audio) {{
-      if (!audio || analyserAudio === audio) return;
-      try {{
-        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextCtor) return;
-        audioContext = audioContext || new AudioContextCtor();
-
-        // Must be set before createMediaElementSource. If the audio src is
-        // served without permissive CORS headers, connecting an analyser to a
-        // crossOrigin='anonymous' element will throw (tainted source) and we
-        // fall back to text/timed mouth sync below — no audio-level lip sync,
-        // but playback itself is unaffected since we never reached that point.
-        if (!audio.crossOrigin) {{
-          audio.crossOrigin = 'anonymous';
-        }}
-
-        const source = audioContext.createMediaElementSource(audio);
-        audioAnalyser = audioContext.createAnalyser();
-        audioAnalyser.fftSize = 1024;
-        audioAnalyser.smoothingTimeConstant = 0.72;
-        audioAnalyserData = new Uint8Array(audioAnalyser.fftSize);
-        source.connect(audioAnalyser);
-        audioAnalyser.connect(audioContext.destination);
-        analyserAudio = audio;
-        analyserStartedAt = performance.now();
-        analyserSilentSince = 0;
-        lastAudioTime = audio.currentTime || 0;
-        log.textContent = 'linked to Gradio MP3 output · audio-level lip sync';
-      }} catch (err) {{
-        audioAnalyser = null;
-        audioAnalyserData = null;
-        analyserAudio = null;
-        analyserStartedAt = 0;
-        analyserSilentSince = 0;
-        log.textContent = 'analyser unavailable (CORS?) · using text/timed lip sync';
-        console.warn('[aiko-vrm] Web Audio analyser unavailable; falling back to timed mouth motion', err);
-      }}
+      // intentionally a no-op; kept as a hook point for future use.
     }}
 
     function getAudioMouth() {{
-      if (!audioAnalyser || !audioAnalyserData) return null;
-      audioAnalyser.getByteTimeDomainData(audioAnalyserData);
-      let sum = 0;
-      for (const sample of audioAnalyserData) {{
-        const centered = (sample - 128) / 128;
-        sum += centered * centered;
-      }}
-      const rms = Math.sqrt(sum / audioAnalyserData.length);
-      // Speech in browser audio elements is often much quieter than music, so use
-      // a low noise gate and high gain.  Smooth it to avoid chatter.
-      const opened = Math.max(0, Math.min(1, (rms - 0.004) * 16));
-      smoothedAudioMouth += (opened - smoothedAudioMouth) * 0.42;
-
-      const now = performance.now();
-      const audioTime = lastAudio?.currentTime ?? 0;
-      const audioIsAdvancing = Math.abs(audioTime - lastAudioTime) > 0.005;
-      lastAudioTime = audioTime;
-      if (rms < 0.006 && smoothedAudioMouth < 0.025 && audioIsAdvancing && now - analyserStartedAt > 700) {{
-        analyserSilentSince = analyserSilentSince || now;
-        if (now - analyserSilentSince > 450) return null;
-      }} else if (rms >= 0.006 || smoothedAudioMouth >= 0.025) {{
-        analyserSilentSince = 0;
-      }}
-      return smoothedAudioMouth;
+      // Web Audio analyser is disabled (see attachAudioAnalyser) due to CORS
+      // restrictions on Gradio-served audio files. Always defer to the
+      // text-driven viseme path.
+      return null;
     }}
     function syncAudioState(audio = lastAudio) {{
       if (!audio) return;
-      setSpeechText(findParentSpeechText());
       setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
     }}
     function attachAudio(audio) {{
@@ -642,15 +612,14 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (audio !== lastAudio) {{
         lastAudio = audio;
         log.textContent = 'linked to Gradio MP3 output';
-        audio.addEventListener('play',  () => {{ attachAudioAnalyser(audio); audioContext?.resume?.(); setSpeaking(true); }});
-        audio.addEventListener('playing', () => {{ attachAudioAnalyser(audio); audioContext?.resume?.(); setSpeaking(true); }});
+        audio.addEventListener('play',  () => {{ setSpeechText(findParentSpeechText(), audio.duration); setSpeaking(true); }});
+        audio.addEventListener('playing', () => {{ setSpeechText(findParentSpeechText(), audio.duration); setSpeaking(true); }});
         audio.addEventListener('timeupdate', () => {{
           if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
         }});
         audio.addEventListener('pause', () => setSpeaking(false));
         audio.addEventListener('ended', () => setSpeaking(false));
       }}
-      attachAudioAnalyser(audio);
       syncAudioState(audio);
     }}
     setInterval(() => attachAudio(findParentAudio()), 500);
