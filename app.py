@@ -222,7 +222,7 @@ with gr.Blocks(title="🌸 Aiko-chan", css=AIKO_CSS) as demo:   # no fill_height
             elem_id="aiko-chatbot-hidden",
             show_label=False,
             height=1,            # collapse to near-zero; CSS hides it fully
-            type="messages",
+            #type="messages",
             visible=False,
         )
 
