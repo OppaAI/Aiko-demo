@@ -351,27 +351,20 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
 
     function findParentSpeechText() {{
-      // 1. Explicit global set by the parent page (most reliable — see app.py
-      //    snippet that sets window.frames['aiko-vrm-frame'].postMessage or
-      //    a shared global before/while the audio starts playing).
-      try {{
-        if (parent.AIKO_TTS_TEXT) return String(parent.AIKO_TTS_TEXT);
-      }} catch (_) {{}}
-
-      // 2. Hidden textbox / element with a known id or data attribute,
-      //    rendered by gr.Textbox(elem_id="aiko-tts-text", visible=False).
-      //    Gradio textboxes render as <textarea> or <input> inside the
-      //    elem_id wrapper, so search descendants too.
-      try {{
-        const doc = parent.document;
-        const el = doc.querySelector(
-          '#aiko-tts-text textarea, #aiko-tts-text input, ' +
-          '#aiko-tts-text, [data-aiko-tts-text]'
-        );
-        if (!el) return '';
-        return el.dataset?.aikoTtsText || el.value || el.textContent || '';
-      }} catch {{ return ''; }}
-    }}
+          // Primary: text injected via postMessage from app.py's JS bridge
+          // (stored in module-level variable by the message listener)
+          if (window._aikoLatestTtsText) {{
+            const t = window._aikoLatestTtsText;
+            window._aikoLatestTtsText = '';   // consume it
+            return t;
+          }}
+          // Fallback: try parent DOM (works on local, blocked on HF sandbox)
+          try {{
+            const doc = parent.document;
+            const el = doc.querySelector('#aiko-tts-text textarea, #aiko-tts-text input');
+            return el ? (el.value || el.textContent || '') : '';
+          }} catch {{ return ''; }}
+        }}
 
     function getBone(name) {{
       const humanoid = vrm?.humanoid;
@@ -608,47 +601,44 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
     }}
     function attachAudio(audio) {{
-      if (!audio) return;
-      if (audio !== lastAudio) {{
-        lastAudio = audio;
-        log.textContent = 'linked to Gradio MP3 output';
-        audio.addEventListener('play', () => {{
-            setSpeaking(true);
-            // retry up to 5x in case tts_text hasn't rendered yet
-            let tries = 0;
-            const poll = setInterval(() => {{
+          if (!audio) return;
+          if (audio !== lastAudio) {{
+            lastAudio = audio;
+            log.textContent = 'linked to Gradio MP3 output';
+    
+            audio.addEventListener('play', () => {{
+              setSpeaking(true);
+              let tries = 0;
+              const poll = setInterval(() => {{
                 const text = findParentSpeechText();
-                if (text || ++tries >= 5) {{
-                    clearInterval(poll);
-                    if (text) {{
-                        console.log('[Aiko] play text (try', tries, '):', text);
-                        setSpeechText(text, audio.duration);
-                    }}
+                console.log('[Aiko] poll try', tries, '| text:', JSON.stringify(text));
+                if (text) {{
+                  clearInterval(poll);
+                  setSpeechText(text, audio.duration);
+                  log.textContent = 'lip sync: ' + text.slice(0, 40);
+                }} else if (++tries >= 10) {{
+                  clearInterval(poll);
+                  console.warn('[Aiko] gave up waiting for tts text after 10 tries');
+                  log.textContent = 'lip sync: no text found (fallback sine)';
                 }}
-            }}, 150);
-        }});
-        
-        audio.addEventListener('playing', () => {{
-            setSpeaking(true);
-            let tries = 0;
-            const poll = setInterval(() => {{
-                const text = findParentSpeechText();
-                if (text || ++tries >= 5) {{
-                    clearInterval(poll);
-                    if (text) {{
-                        console.log('[Aiko] playing text (try', tries, '):', text);
-                        setSpeechText(text, audio.duration);
-                    }}
-                }}
-            }}, 150);
-        }});
-        audio.addEventListener('timeupdate', () => {{
-          if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
-        }});
-        audio.addEventListener('pause', () => setSpeaking(false));
-        audio.addEventListener('ended', () => setSpeaking(false));
-      }}
-      syncAudioState(audio);
+              }}, 200);
+            }});
+    
+            audio.addEventListener('playing', () => {{
+              setSpeaking(true);
+              // also poke the text in case play already resolved it
+              const text = findParentSpeechText();
+              if (text) setSpeechText(text, audio.duration);
+            }});
+    
+            audio.addEventListener('timeupdate', () => {{
+              if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
+            }});
+            audio.addEventListener('pause',  () => setSpeaking(false));
+            audio.addEventListener('ended',  () => setSpeaking(false));
+          }}
+          syncAudioState(audio);
+        }}
     }}
     setInterval(() => attachAudio(findParentAudio()), 500);
 
@@ -665,7 +655,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         }}
         const incomingText = msg.ttsText ?? msg.speechText ?? msg.text;
         if (incomingText !== undefined) {{
+          window._aikoLatestTtsText = incomingText;   // store for poll
           setSpeechText(incomingText, msg.duration ?? msg.audioDuration ?? null);
+          console.log('[Aiko] postMessage received text:', incomingText.slice(0, 60));
           if (msg.speaking === undefined && msg.playNow) setSpeaking(true);
         }}
         if (msg.viseme !== undefined) {{
