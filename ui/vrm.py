@@ -612,8 +612,23 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (audio !== lastAudio) {{
         lastAudio = audio;
         log.textContent = 'linked to Gradio MP3 output';
-        audio.addEventListener('play',  () => {{ setSpeechText(findParentSpeechText(), audio.duration); setSpeaking(true); }});
-        audio.addEventListener('playing', () => {{ setSpeechText(findParentSpeechText(), audio.duration); setSpeaking(true); }});
+        audio.addEventListener('play', () => {{
+            setTimeout(() => {{
+                const text = findParentSpeechText();
+                console.log('[Aiko] play text:', text);
+                setSpeechText(text, audio.duration);
+            }}, 100);
+            setSpeaking(true);
+        }});
+        
+        audio.addEventListener('playing', () => {{
+            setTimeout(() => {{
+                const text = findParentSpeechText();
+                console.log('[Aiko] playing text:', text);
+                setSpeechText(text, audio.duration);
+            }}, 100);
+            setSpeaking(true);
+        }});
         audio.addEventListener('timeupdate', () => {{
           if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
         }});
