@@ -667,27 +667,27 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     loadVrm();
 
     function tick() {{
-        requestAnimationFrame(tick);
-        resize();
-        const dt = Math.min(clock.getDelta(), 0.05);
-        controls.update();
-        applyIdle(dt);
-        applyGestures(dt);
-        applyBlink(dt);
-        if (vrm) vrm.update(dt);           // ← VRM runtime runs first
-    
-        // Apply mouth AFTER vrm.update so it isn't stomped
-        const now = performance.now();
-        const textMouth = speaking ? currentTextMouth(now) : null;
-        if (textMouth) {{
-            setMouth(textMouth.weight, textMouth.viseme);
-        }} else if (speaking) {{
-            mouth = 0.12 + Math.abs(Math.sin(now / 110)) * 0.65;
-            setMouth(mouth, 'aa');
-        }} else {{
-            clearMouth();
-        }}
-        renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+      resize();
+      const dt = Math.min(clock.getDelta(), 0.05);
+      controls.update();
+      applyIdle(dt);
+      applyGestures(dt);
+      applyBlink(dt);
+      if (vrm) vrm.update(dt);
+
+      const now = performance.now();
+      const textMouth = speaking ? currentTextMouth(now) : null;
+      if (textMouth) {{
+        setMouth(textMouth.weight, textMouth.viseme);
+      }} else if (speaking) {{
+        mouth = 0.12 + Math.abs(Math.sin(now / 110)) * 0.65;
+        setMouth(mouth, 'aa');
+      }} else {{
+        clearMouth();
+      }}
+
+      renderer.render(scene, camera);
     }}
     tick();
   </script>
