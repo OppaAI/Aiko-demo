@@ -86,8 +86,6 @@ def voice_chat(audio_path, history):
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
     with gr.Column(elem_id="aiko-shell"):
-        with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
-    with gr.Column(elem_id="aiko-shell"):
         gr.HTML("""
             <script>
             (function() {
