@@ -278,7 +278,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         // three-vrm applies expression weights during update(); when we change
         // them after update() in this render loop, force the manager to flush so
         // the mouth movement is visible on the same frame.
-        try {{ vrm.expressionManager.update?.(); }} catch (_) {{}}
+        // vrm.update(dt) in tick() flushes expressions after all weights are set
       }}
 
       // Fallback only: many VRMs do not expose a normalized jaw bone.
@@ -718,12 +718,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }}, 5000);
     }}, 2000);
 
-    function tick() {{
+function tick() {{
       requestAnimationFrame(tick);
       resize();
       const dt = Math.min(clock.getDelta(), 0.05);
       controls.update();
-      if (vrm) vrm.update(dt);
       applyIdle(dt);
       applyGestures(dt);
       const now = performance.now();
@@ -741,6 +740,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         clearMouth();
       }}
       applyBlink(dt);
+      if (vrm) vrm.update(dt);
       renderer.render(scene, camera);
     }}
     tick();
