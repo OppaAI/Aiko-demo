@@ -686,6 +686,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
         log.textContent = `loaded: Aiko.vrm; mouth presets: ${{expressionNames().filter(n => VISEME_PRESETS.includes(n)).join(', ') || 'none, using jaw fallback'}}`;
+        console.log('Available expressions:', expressionNames());
         document.getElementById('load-msg').textContent = 'ready';
         document.getElementById('loader').classList.add('fade');
         setTimeout(() => document.getElementById('loader').remove(), 550);
