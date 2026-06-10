@@ -62,6 +62,8 @@ def _stream_response(message: str, history: list):
 
     Immediately emits the user turn so it appears before inference begins,
     then streams assistant tokens sentence-by-sentence for TTS.
+    tts_text carries "EMOTION:<name>|<sentence>" so the JS can split and
+    drive both lip-sync and facial expression on the VRM.
     """
     # ── 1. Show user message immediately, AI turn shows cursor ───────────
     history = history + [
@@ -108,8 +110,10 @@ def _stream_response(message: str, history: list):
             if not clean:
                 continue
             history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
-            audio = speak_to_file(clean)
-            yield history, clean, audio
+            audio, emotion = speak_to_file(clean)
+            # Pack emotion into tts_text so the JS can drive the VRM expression
+            tts_payload = f"EMOTION:{emotion}|{clean}"
+            yield history, tts_payload, audio
         if not sentences:
             if full_text:
                 history[-1]["content"] = full_text + "▋"
@@ -121,8 +125,9 @@ def _stream_response(message: str, history: list):
         clean = _strip_for_speech(buffer)
         history[-1]["content"] = full_text
         if clean:
-            audio = speak_to_file(clean)
-            yield history, clean, audio
+            audio, emotion = speak_to_file(clean)
+            tts_payload = f"EMOTION:{emotion}|{clean}"
+            yield history, tts_payload, audio
         else:
             yield history, "", None
 
@@ -164,10 +169,13 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
         gr.HTML("""
             <script>
             (function() {
-              function postToVrm(text) {
+              function postToVrm(text, emotion) {
                 const frame = document.getElementById('aiko-vrm-frame');
                 if (!frame) return;
-                frame.contentWindow.postMessage({ ttsText: text, playNow: true }, '*');
+                frame.contentWindow.postMessage(
+                  { ttsText: text, playNow: true, emotion: emotion || "neutral" },
+                  '*'
+                );
               }
 
               function hookAudio() {
@@ -177,7 +185,14 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                   audio.addEventListener(evt, () => {
                     setTimeout(() => {
                       const el = document.querySelector('#aiko-tts-text textarea');
-                      if (el && el.value) postToVrm(el.value);
+                      if (!el || !el.value) return;
+                      const raw = el.value;
+                      const emotionMatch = raw.match(/^EMOTION:([^|]+)\|(.*)$/s);
+                      if (emotionMatch) {
+                        postToVrm(emotionMatch[2].trim(), emotionMatch[1].trim());
+                      } else {
+                        postToVrm(raw, "neutral");
+                      }
                     }, 150);
                   });
                 });
@@ -188,7 +203,17 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                 if (!container) { setTimeout(watchTtsText, 600); return; }
                 const observer = new MutationObserver(() => {
                   const el = container.querySelector('textarea');
-                  if (el && el.value) postToVrm(el.value);
+                  if (!el || !el.value) return;
+                  const raw = el.value;
+                  // Parse "EMOTION:<name>|<tts text>" payload
+                  const emotionMatch = raw.match(/^EMOTION:([^|]+)\|(.*)$/s);
+                  if (emotionMatch) {
+                    const emotion = emotionMatch[1].trim();
+                    const ttsText = emotionMatch[2].trim();
+                    postToVrm(ttsText, emotion);
+                  } else {
+                    postToVrm(raw, "neutral");
+                  }
                 });
                 observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true });
               }
@@ -237,7 +262,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                         elem_id="aiko-chatbot",
                         show_label=False,
                         height=600,
-                        #type="messages",
+                        type="messages",
                     )
 
                 with gr.Row(elem_id="aiko-input-row"):
