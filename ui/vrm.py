@@ -691,6 +691,21 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
     loadVrm();
 
+    // Debug: cycle aa/ih/ou/ee/oh for 5s after load to confirm mouth works
+    setTimeout(() => {{
+      const testVisemes = ['aa', 'ih', 'ou', 'ee', 'oh'];
+      let ti = 0;
+      const testInterval = setInterval(() => {{
+        setMouth(0.85, testVisemes[ti % testVisemes.length]);
+        ti++;
+      }}, 250);
+      setTimeout(() => {{
+        clearInterval(testInterval);
+        clearMouth();
+        console.log('[Aiko] mouth test done');
+      }}, 5000);
+    }}, 2000);
+
     function tick() {{
       requestAnimationFrame(tick);
       resize();
