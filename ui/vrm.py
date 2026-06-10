@@ -231,10 +231,20 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function nextBlinkWait() {{ return 3.0 + Math.random() * 4.0; }}
     function expressionNames() {{
-      const expressions = vrm?.expressionManager?.expressions ?? [];
-      return expressions.map((expr) => expr.expressionName ?? expr.name).filter(Boolean);
+      const manager = vrm?.expressionManager;
+      if (!manager) return [];
+      const fromExpressions = (manager.expressions ?? [])
+        .map((expr) => expr.expressionName ?? expr.name)
+        .filter(Boolean);
+      const fromMap = Object.keys(manager.expressionMap ?? manager._expressionMap ?? {{}});
+      return [...new Set([...fromExpressions, ...fromMap])];
     }}
-    function hasExpression(name) {{ return expressionNames().includes(name); }}
+    function hasExpression(name) {{
+      const manager = vrm?.expressionManager;
+      if (!manager) return false;
+      if (typeof manager.getExpression === 'function' && manager.getExpression(name)) return true;
+      return expressionNames().includes(name);
+    }}
     function safeSetExpression(name, weight) {{
       try {{ vrm?.expressionManager?.setValue(name, weight); }} catch (_) {{}}
     }}
@@ -284,7 +294,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       speaking = Boolean(active);
       dot.className = speaking ? 'speaking' : '';
       statusText.textContent = speaking ? 'speaking' : 'idle';
-      setExpression(speaking ? 'happy' : 'relaxed', speaking ? 0.55 : 0.25);
+      // Do not enable a smile/talk expression while speaking. In VRM1, many
+      // non-mouth expressions declare overrideMouth and can suppress aa/ih/ou/ee/oh,
+      // which made the startup mouth test work but real lip sync stay still.
+      setExpression(speaking ? 'neutral' : 'relaxed', speaking ? 0 : 0.25);
       if (!speaking) clearMouth();
     }}
 
@@ -427,43 +440,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         neck.rotation.z = head.rotation.z * 0.3;
       }}
 
-      const leftUpperArm = getBone('leftUpperArm');
-      const rightUpperArm = getBone('rightUpperArm');
-      const leftLowerArm = getBone('leftLowerArm');
-      const rightLowerArm = getBone('rightLowerArm');
-      const leftHand = getBone('leftHand');
-      const rightHand = getBone('rightHand');
-
-      if (leftUpperArm) {{
-        leftUpperArm.rotation.x = REST.leftUpperArm.x + Math.sin(idleTime * 0.47) * 0.010;
-        leftUpperArm.rotation.y = REST.leftUpperArm.y + Math.sin(idleTime * 0.33) * 0.006;
-        leftUpperArm.rotation.z = REST.leftUpperArm.z + Math.sin(idleTime * 0.41) * 0.008;
-      }}
-      if (rightUpperArm) {{
-        rightUpperArm.rotation.x = REST.rightUpperArm.x + Math.sin(idleTime * 0.53 + 0.9) * 0.010;
-        rightUpperArm.rotation.y = REST.rightUpperArm.y + Math.sin(idleTime * 0.35 + 0.4) * 0.006;
-        rightUpperArm.rotation.z = REST.rightUpperArm.z + Math.sin(idleTime * 0.37 + 0.7) * 0.008;
-      }}
-      if (leftLowerArm) {{
-        leftLowerArm.rotation.x = REST.leftLowerArm.x + Math.sin(idleTime * 0.61) * 0.008;
-        leftLowerArm.rotation.y = REST.leftLowerArm.y;
-        leftLowerArm.rotation.z = REST.leftLowerArm.z + Math.sin(idleTime * 0.43) * 0.004;
-      }}
-      if (rightLowerArm) {{
-        rightLowerArm.rotation.x = REST.rightLowerArm.x + Math.sin(idleTime * 0.57 + 1.4) * 0.008;
-        rightLowerArm.rotation.y = REST.rightLowerArm.y;
-        rightLowerArm.rotation.z = REST.rightLowerArm.z + Math.sin(idleTime * 0.51 + 0.5) * 0.004;
-      }}
-      if (leftHand) {{
-        leftHand.rotation.x = REST.leftHand.x;
-        leftHand.rotation.y = REST.leftHand.y + Math.sin(idleTime * 0.33) * 0.008;
-        leftHand.rotation.z = REST.leftHand.z;
-      }}
-      if (rightHand) {{
-        rightHand.rotation.x = REST.rightHand.x;
-        rightHand.rotation.y = REST.rightHand.y + Math.sin(idleTime * 0.29 + 1.2) * 0.008;
-        rightHand.rotation.z = REST.rightHand.z;
-      }}
+      // Leave arm/hand bones in the VRM author's authored rest pose. VRM1 models
+      // can have very different local arm axes; forcing hard-coded upper-arm
+      // rotations is what made Aiko snap into a T-pose on the Space.
     }}
 
     let gestureState = 'none';
@@ -472,7 +451,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let gestureCooldown = 4 + Math.random() * 6;
     let gestureTarget = null;
 
-    const GESTURES = ['lookAround', 'tiltHead', 'shiftWeight', 'touchHair', 'stretchNeck'];
+    const GESTURES = ['lookAround', 'tiltHead', 'shiftWeight', 'stretchNeck'];
 
     function pickGesture() {{
       const g = GESTURES[Math.floor(Math.random() * GESTURES.length)];
@@ -482,7 +461,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         lookAround: 2.5,
         tiltHead: 2.0,
         shiftWeight: 3.0,
-        touchHair: 3.5,
         stretchNeck: 2.5,
       }}[g];
       gestureTarget = {{
@@ -513,9 +491,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
       const head = getBone('head');
       const neck = getBone('neck');
-      const leftUpperArm = getBone('leftUpperArm');
-      const leftLowerArm = getBone('leftLowerArm');
-      const leftHand = getBone('leftHand');
       const spine = getBone('spine');
       const hips = getBone('hips');
 
@@ -529,15 +504,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         case 'shiftWeight':
           if (hips) hips.position.x += Math.sin(eased * Math.PI) * 0.018;
           if (spine) spine.rotation.z += Math.sin(eased * Math.PI) * 0.02;
-          break;
-        case 'touchHair':
-          if (leftUpperArm) {{
-            leftUpperArm.rotation.z = REST.leftUpperArm.z + intensity * 1.6;
-            leftUpperArm.rotation.x = REST.leftUpperArm.x - intensity * 0.6;
-          }}
-          if (leftLowerArm) leftLowerArm.rotation.x = REST.leftLowerArm.x - intensity * 1.4;
-          if (leftHand) leftHand.rotation.z = REST.leftHand.z - intensity * 0.4;
-          if (head) head.rotation.z += intensity * 0.06;
           break;
         case 'stretchNeck':
           if (neck) neck.rotation.x += -intensity * 0.05;
