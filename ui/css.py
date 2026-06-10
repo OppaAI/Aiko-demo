@@ -232,7 +232,8 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   flex-shrink: 0;
 }
 
-/* Hide all the extra waveform/timer/label chrome Gradio adds to Audio */
+/* Hide ALL chrome Gradio adds to the mic Audio component:
+   waveform, timer, status text, labels, the X clear button */
 #aiko-mic-btn .waveform-container,
 #aiko-mic-btn .timestamps,
 #aiko-mic-btn .controls,
@@ -241,12 +242,16 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 #aiko-mic-btn [class*="timer"],
 #aiko-mic-btn [class*="status"],
 #aiko-mic-btn [class*="label"],
-#aiko-mic-btn span {
+#aiko-mic-btn [class*="clear"],
+#aiko-mic-btn [aria-label="Clear"],
+#aiko-mic-btn [aria-label="Remove"],
+#aiko-mic-btn span,
+#aiko-mic-btn svg:not(:only-child) {
   display: none !important;
 }
 
 /* Keep only the mic record button itself, centered */
-#aiko-mic-btn button {
+#aiko-mic-btn button:not([aria-label="Clear"]):not([aria-label="Remove"]) {
   background: transparent !important;
   border: none !important;
   color: var(--aiko-accent) !important;
@@ -257,6 +262,15 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   align-items: center !important;
   justify-content: center !important;
   font-size: 1.2rem !important;
+}
+
+/* Nuke the X/clear button specifically */
+#aiko-mic-btn button[aria-label="Clear"],
+#aiko-mic-btn button[aria-label="Remove"],
+#aiko-mic-btn .clear-button,
+#aiko-mic-btn [class*="close"],
+#aiko-mic-btn [class*="delete"] {
+  display: none !important;
 }
 
 #aiko-title { display: none; }
