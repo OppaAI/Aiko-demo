@@ -69,7 +69,7 @@ def text_chat(message, history):
     text, audio = _assistant_response(message)
     history.append({"role": "user", "content": message})
     history.append({"role": "assistant", "content": text})
-    return history, audio, "", _strip_for_speech(text)
+    return history, _strip_for_speech(text), audio, ""
 
 
 def voice_chat(audio_path, history):
@@ -82,11 +82,48 @@ def voice_chat(audio_path, history):
     text, audio = _assistant_response(transcript)
     history.append({"role": "user", "content": f"🎙️ {transcript}"})
     history.append({"role": "assistant", "content": text})
-    return history, audio, None, _strip_for_speech(text)
-
+    return history, _strip_for_speech(text), audio, None
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
     with gr.Column(elem_id="aiko-shell"):
+        with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
+    with gr.Column(elem_id="aiko-shell"):
+        gr.HTML("""
+            <script>
+            (function() {
+              function postToVrm(text) {
+                const frame = document.getElementById('aiko-vrm-frame');
+                if (!frame) return;
+                frame.contentWindow.postMessage({ ttsText: text, playNow: true }, '*');
+              }
+            
+              function hookAudio() {
+                const audio = document.querySelector('#aiko-audio audio');
+                if (!audio) { setTimeout(hookAudio, 600); return; }
+                ['play', 'playing'].forEach(evt => {
+                  audio.addEventListener(evt, () => {
+                    setTimeout(() => {
+                      const el = document.querySelector('#aiko-tts-text textarea');
+                      if (el && el.value) postToVrm(el.value);
+                    }, 150);
+                  });
+                });
+              }
+            
+              function watchTtsText() {
+                const container = document.querySelector('#aiko-tts-text');
+                if (!container) { setTimeout(watchTtsText, 600); return; }
+                const observer = new MutationObserver(() => {
+                  const el = container.querySelector('textarea');
+                  if (el && el.value) postToVrm(el.value);
+                });
+                observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true });
+              }
+            
+              setTimeout(() => { hookAudio(); watchTtsText(); }, 1200);
+            })();
+            </script>
+            """)
         with gr.Row(equal_height=True):
             with gr.Column(scale=5, elem_id="aiko-avatar-card"):
                 gr.HTML(value=avatar_html(VRM_URLS), show_label=False)
@@ -107,6 +144,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     value="",
                     visible=False,
                     elem_id="aiko-tts-text",
+                    render=True,        # force DOM presence even when invisible
                 )
                 gr.Markdown(
                     "Aiko's VRM mouth is driven by lip-synced text timing.",
@@ -135,9 +173,9 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     elem_id="aiko-mic",
                 )
 
-                msg.submit(text_chat, [msg, chatbot], [chatbot, audio_out, msg, tts_text])
-                send.click(text_chat, [msg, chatbot], [chatbot, audio_out, msg, tts_text])
-                voice_in.change(voice_chat, [voice_in, chatbot], [chatbot, audio_out, voice_in, tts_text])
+                msg.submit(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out, msg])
+                send.click(text_chat, [msg, chatbot], [chatbot, tts_text, audio_out, msg])
+                voice_in.change(voice_chat, [voice_in, chatbot], [chatbot, tts_text, audio_out, voice_in])
 
 allowed_paths = [str(Path("/tmp/aiko_tts")), str(VRM_PATH.parent)]
 
