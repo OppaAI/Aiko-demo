@@ -20,7 +20,7 @@ html, body, .gradio-container, main, footer {
 
 #aiko-shell { max-width: 1180px; margin: 0 auto; padding: 0 12px 12px; }
 
-/* Avatar card becomes the relative anchor for overlays */
+/* Avatar card is the relative anchor for all overlays */
 #aiko-avatar-card {
   position: relative;
   border-radius: 22px;
@@ -38,8 +38,7 @@ html, body, .gradio-container, main, footer {
   background: #080810;
 }
 
-/* Audio kept rendered (not display:none) so autoplay isn't blocked,
-   but visually invisible */
+/* Audio: rendered but invisible so autoplay isn't blocked */
 #aiko-audio {
   position: absolute;
   width: 1px;
@@ -72,7 +71,7 @@ html, body, .gradio-container, main, footer {
   display: none !important;
 }
 
-/* ── Borderless chat overlay, right side, no bubbles ───────── */
+/* ── Chat overlay: right side, borderless ─────────────────────────── */
 #aiko-chat-overlay {
   position: absolute;
   top: 16px;
@@ -88,7 +87,7 @@ html, body, .gradio-container, main, footer {
   overflow: hidden;
 }
 
-/* Kill every background/border layer Gradio injects on the chatbot */
+/* Kill every background/border Gradio injects on chatbot */
 #aiko-chatbot,
 #aiko-chatbot > div,
 #aiko-chatbot > div > div,
@@ -116,7 +115,7 @@ html, body, .gradio-container, main, footer {
   box-shadow: none !important;
 }
 
-/* Kill the outer Gradio block wrapper that wraps #aiko-chatbot */
+/* Kill outer Gradio block wrapper */
 #aiko-chatbot.block,
 #aiko-chatbot .block,
 div:has(> #aiko-chatbot) {
@@ -127,7 +126,7 @@ div:has(> #aiko-chatbot) {
   padding: 0 !important;
 }
 
-/* Hide chatbot scrollbar — the iframe owns its own scroll */
+/* Hide chatbot scrollbar */
 #aiko-chatbot {
   overflow-y: auto;
   scrollbar-width: none;
@@ -137,7 +136,7 @@ div:has(> #aiko-chatbot) {
 }
 #aiko-chatbot::-webkit-scrollbar { display: none; }
 
-/* Plain caption-style text — smaller font, tighter line height */
+/* Caption-style text — small, tight */
 #aiko-chatbot .message,
 #aiko-chatbot .bubble,
 #aiko-chatbot [data-testid="bot"],
@@ -149,7 +148,7 @@ div:has(> #aiko-chatbot) {
   max-width: 100% !important;
 }
 
-/* Colors: user = light cyan, assistant = light lavender */
+/* User = light cyan right-aligned; bot = light lavender */
 #aiko-chatbot [data-testid="user"],
 #aiko-chatbot [data-testid="user"] * {
   color: var(--aiko-user) !important;
@@ -160,62 +159,98 @@ div:has(> #aiko-chatbot) {
   color: var(--aiko-bot) !important;
 }
 
-/* ── Input row floats over the bottom of the viewer ────────── */
+/* ── Input row: pinned to bottom of avatar card ───────────────────── */
 #aiko-input-row {
   position: absolute;
   left: 16px;
   right: 16px;
   bottom: 16px;
   display: flex;
-  gap: 8px;
-  align-items: center;
+  gap: 6px;
+  align-items: stretch;   /* all children same height */
   z-index: 6;
 }
 
-/* Transparent input box with lavender border and lavender text */
-#aiko-input-row textarea,
-#aiko-input-row input,
-#aiko-input-row .input-wrap,
-#aiko-input-row [class*="input"] {
+/* Transparent text input with lavender border */
+#aiko-msg textarea,
+#aiko-msg input,
+#aiko-msg,
+#aiko-msg > div,
+#aiko-msg [class*="input"] {
   background: transparent !important;
   background-color: transparent !important;
   color: var(--aiko-accent) !important;
   border: 1px solid rgba(182, 140, 255, 0.6) !important;
-  border-radius: 14px !important;
-  font-size: 0.9rem;
-  backdrop-filter: none !important;
+  border-radius: 10px !important;
+  font-size: 0.9rem !important;
   box-shadow: none !important;
+  backdrop-filter: none !important;
+  height: 100% !important;
+  min-height: 42px;
 }
+textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important; }
 
-textarea::placeholder, input::placeholder {
-  color: var(--aiko-muted) !important;
-}
-
-/* Square send button */
-button.primary, button.variant-primary, #aiko-send {
+/* Square send button — matches row height */
+#aiko-send,
+#aiko-send button {
   background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
   border: 0 !important;
+  border-radius: 8px !important;
   color: #fff !important;
-  border-radius: 4px !important;
-  aspect-ratio: 1 / 1;
-  min-width: 42px;
-  min-height: 42px;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
   padding: 0 !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
+  flex-shrink: 0;
 }
 
-#aiko-mic, #aiko-mic > div {
-  position: absolute;
-  left: 16px;
-  bottom: 64px;
-  width: 200px;
-  background: rgba(10, 8, 18, 0.78) !important;
-  border: 1px solid rgba(155,127,212,0.34) !important;
-  border-radius: 14px !important;
-  backdrop-filter: blur(6px);
-  z-index: 6;
+/* ── Mic button: square, same size as send ────────────────────────── */
+#aiko-mic-btn,
+#aiko-mic-btn > div,
+#aiko-mic-btn [class*="wrap"],
+#aiko-mic-btn [class*="audio"] {
+  background: rgba(118, 82, 214, 0.25) !important;
+  border: 1px solid rgba(182, 140, 255, 0.6) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  padding: 0 !important;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* Hide all the extra waveform/timer/label chrome Gradio adds to Audio */
+#aiko-mic-btn .waveform-container,
+#aiko-mic-btn .timestamps,
+#aiko-mic-btn .controls,
+#aiko-mic-btn .record-button-container > *:not(button),
+#aiko-mic-btn [class*="waveform"],
+#aiko-mic-btn [class*="timer"],
+#aiko-mic-btn [class*="status"],
+#aiko-mic-btn [class*="label"],
+#aiko-mic-btn span {
+  display: none !important;
+}
+
+/* Keep only the mic record button itself, centered */
+#aiko-mic-btn button {
+  background: transparent !important;
+  border: none !important;
+  color: var(--aiko-accent) !important;
+  width: 42px !important;
+  height: 42px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 1.2rem !important;
 }
 
 #aiko-title { display: none; }
