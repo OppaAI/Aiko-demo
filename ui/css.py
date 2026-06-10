@@ -82,9 +82,15 @@ html, body, .gradio-container, main, footer {
   flex-direction: column;
   justify-content: flex-end;
   gap: 6px;
-  pointer-events: none;
+  pointer-events: none;  /* transparent gaps still pass clicks to VRM */
   z-index: 5;
   overflow: hidden;
+}
+
+/* Chatbot itself gets pointer events back so scroll works */
+#aiko-chatbot,
+#aiko-chatbot * {
+  pointer-events: auto !important;
 }
 
 /* Kill every background/border Gradio injects on chatbot */
