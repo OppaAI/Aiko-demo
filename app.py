@@ -35,6 +35,15 @@ except AttributeError:
     pass
 
 
+def _strip_for_speech(text: str) -> str:
+    """Remove markdown/search-status noise so the VRM lip sync gets plain text."""
+    import re
+
+    cleaned = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL)
+    return cleaned.strip()
+
+
 def _assistant_response(message: str) -> tuple[str, str | None]:
     tokens: list[str] = []
 
@@ -56,24 +65,24 @@ def text_chat(message, history):
     history = history or []
     message = (message or "").strip()
     if not message:
-        return history, None, ""
+        return history, None, "", ""
     text, audio = _assistant_response(message)
     history.append({"role": "user", "content": message})
     history.append({"role": "assistant", "content": text})
-    return history, audio, ""
+    return history, audio, "", _strip_for_speech(text)
 
 
 def voice_chat(audio_path, history):
     history = history or []
     if not audio_path:
-        return history, None, None
+        return history, None, None, ""
     transcript = transcribe_file(audio_path)
     if not transcript:
-        return history, None, None
+        return history, None, None, ""
     text, audio = _assistant_response(transcript)
     history.append({"role": "user", "content": f"🎙️ {transcript}"})
     history.append({"role": "assistant", "content": text})
-    return history, audio, None
+    return history, audio, None, _strip_for_speech(text)
 
 
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
@@ -89,8 +98,18 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     elem_id="aiko-audio",
                     container=False,
                 )
+                # Hidden textbox carrying the plain-text response for the VRM
+                # iframe's lip sync. The avatar_html() viewer reads this via
+                # findParentSpeechText() -> '#aiko-tts-text textarea'. It must
+                # be updated in the SAME callback output as audio_out so the
+                # iframe's 'play' event listener can read the matching text.
+                tts_text = gr.Textbox(
+                    value="",
+                    visible=False,
+                    elem_id="aiko-tts-text",
+                )
                 gr.Markdown(
-                    "Aiko's VRM mouth is driven by the MP3 playback level in your browser.",
+                    "Aiko's VRM mouth is driven by lip-synced text timing.",
                     elem_id="aiko-note",
                 )
             with gr.Column(scale=6, elem_id="aiko-chat-card"):
@@ -116,9 +135,9 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     elem_id="aiko-mic",
                 )
 
-                msg.submit(text_chat, [msg, chatbot], [chatbot, audio_out, msg])
-                send.click(text_chat, [msg, chatbot], [chatbot, audio_out, msg])
-                voice_in.change(voice_chat, [voice_in, chatbot], [chatbot, audio_out, voice_in])
+                msg.submit(text_chat, [msg, chatbot], [chatbot, audio_out, msg, tts_text])
+                send.click(text_chat, [msg, chatbot], [chatbot, audio_out, msg, tts_text])
+                voice_in.change(voice_chat, [voice_in, chatbot], [chatbot, audio_out, voice_in, tts_text])
 
 allowed_paths = [str(Path("/tmp/aiko_tts")), str(VRM_PATH.parent)]
 
