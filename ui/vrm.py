@@ -587,8 +587,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     // We deliberately do NOT use the analyser; lip sync is driven purely by
     // text-derived visemes timed against audio.currentTime/duration (see
     // currentTextMouth / textToVisemes below), which needs no CORS access.
-    function attachAudio(audio) {{
+    function syncAudioState(audio) {{
       if (!audio) return;
+      setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
+    }}
+
+    function attachAudio(audio) {{
+    if (!audio) return;
       if (audio !== lastAudio) {{
         lastAudio = audio;
         log.textContent = 'linked to Gradio MP3 output';
