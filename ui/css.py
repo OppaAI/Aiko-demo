@@ -1,31 +1,47 @@
 """Shared CSS for the Gradio/Hugging Face Space interface."""
 AIKO_CSS = r"""
 :root {
-  --aiko-bg: #080810;
-  --aiko-panel: rgba(18, 14, 31, 0.86);
-  --aiko-panel-solid: #100d1d;
-  --aiko-border: rgba(155, 127, 212, 0.34);
-  --aiko-text: #dacdff;
-  --aiko-muted: #8c7ab6;
-  --aiko-accent: #b68cff;
-  --aiko-user: rgba(50, 34, 85, 0.88);
-  --aiko-bot: rgba(25, 19, 41, 0.88);
+  --aiko-bg:           #080810;
+  --aiko-panel:        rgba(18, 14, 31, 0.86);
+  --aiko-panel-solid:  #100d1d;
+  --aiko-border:       rgba(155, 127, 212, 0.34);
+  --aiko-text:         #dacdff;
+  --aiko-muted:        #8c7ab6;
+  --aiko-accent:       #b68cff;
+  --aiko-user:         rgba(50, 34, 85, 0.88);
+  --aiko-bot:          rgba(25, 19, 41, 0.88);
 }
 
+/* ── Reset Gradio container bloat ──────────────────────────────────────────── */
 html, body,
 .gradio-container,
+.gradio-container > .main,
+.gradio-container > .main > .wrap,
 main, footer {
   background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%) !important;
   color: var(--aiko-text) !important;
   margin: 0 !important;
   padding: 0 !important;
+  /* Never let Gradio itself stretch to fill viewport height */
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+/* Kill Gradio's flex-grow that causes infinite downward stretch */
+.gradio-container .contain,
+.gradio-container .gap,
+.gradio-container .flex,
+.gradio-container > div {
+  flex: 0 0 auto !important;
+  height: auto !important;
 }
 
 .gradio-container *, .gradio-container .prose, .gradio-container label {
   color: var(--aiko-text);
 }
 
-/* ── Top bar ─────────────────────────────────────────────── */
+/* ── Top bar ─────────────────────────────────────────────────────────────── */
 #aiko-topbar {
   display: flex;
   align-items: center;
@@ -33,7 +49,6 @@ main, footer {
   background: rgba(8, 8, 16, 0.72);
   border-bottom: 1px solid var(--aiko-border);
   backdrop-filter: blur(8px);
-  z-index: 10;
 }
 #aiko-topbar h1 {
   margin: 0;
@@ -44,146 +59,97 @@ main, footer {
   font-weight: 600;
 }
 
-/* ── Main viewer container ───────────────────────────────── */
+/* ── Shell column ─────────────────────────────────────────────────────────── */
 #aiko-shell {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 0 12px 12px;
+  padding: 0 12px 16px;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px;
+  height: auto !important;
 }
 
+/* ── Viewer wrapper — FIXED height, position:relative for overlays ──────── */
 #aiko-viewer-wrap {
-  position: relative;
+  position: relative;          /* overlay anchors */
   width: 100%;
+  height: 520px;               /* fixed — never grows */
+  flex: 0 0 520px !important;  /* prevent flex-stretch */
   border: 1px solid var(--aiko-border);
   border-radius: 22px;
   overflow: hidden;
   background: #080810;
-  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.42);
+  box-shadow: 0 22px 80px rgba(0,0,0,0.42);
 }
 
-/* ── VRM iframe — full viewer height ────────────────────── */
+/* ── VRM iframe fills the wrapper exactly ─────────────────────────────────── */
 #aiko-vrm-frame {
   display: block;
   width: 100%;
-  height: min(72vh, 740px);
-  min-height: 480px;
+  height: 100%;               /* fills the fixed-height wrapper */
   border: 0;
   background: #080810;
 }
 
-/* ── Chat overlay — right 38% of the viewer ─────────────── */
+/* ── Chat message overlay — right 40%, absolute inside wrapper ───────────── */
 #aiko-chat-overlay {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
-  width: 38%;
-  display: flex;
-  flex-direction: column;
-  pointer-events: none; /* let clicks pass through to VRM by default */
-  z-index: 5;
-}
-
-#aiko-chatbot {
-  flex: 1;
-  overflow-y: auto;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 40%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  padding: 12px 10px 12px 4px;
+  pointer-events: none;
+  z-index: 5;
+  /* subtle right-side gradient so text is readable over the 3D scene */
+  background: linear-gradient(270deg, rgba(5,4,12,0.55) 0%, transparent 100%);
+}
+
+#aiko-msg-list {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  padding: 8px 4px;
-  /* custom scrollbar */
+  overflow-y: auto;
+  max-height: 100%;
   scrollbar-width: thin;
-  scrollbar-color: rgba(155,127,212,0.3) transparent;
+  scrollbar-color: rgba(155,127,212,0.25) transparent;
   pointer-events: auto;
+  padding-right: 4px;
 }
+#aiko-msg-list::-webkit-scrollbar { width: 3px; }
+#aiko-msg-list::-webkit-scrollbar-thumb { background: rgba(155,127,212,0.25); border-radius: 3px; }
 
-#aiko-chatbot::-webkit-scrollbar { width: 4px; }
-#aiko-chatbot::-webkit-scrollbar-thumb { background: rgba(155,127,212,0.3); border-radius: 4px; }
-#aiko-chatbot::-webkit-scrollbar-track { background: transparent; }
-
-/* Override Gradio chatbot internals */
-#aiko-chatbot,
-#aiko-chatbot > div,
-#aiko-chatbot .wrap,
-#aiko-chatbot .bubble-wrap,
-#aiko-chatbot .message-wrap {
-  background: transparent !important;
-  border: none !important;
-  padding: 0 !important;
-  min-height: unset !important;
-  height: 100% !important;
-  max-height: 100% !important;
-}
-
-#aiko-chatbot .message,
-#aiko-chatbot .bubble,
-#aiko-chatbot [data-testid="bot"],
-#aiko-chatbot [data-testid="user"] {
-  border-radius: 14px !important;
-  color: var(--aiko-text) !important;
-  font-size: 0.82rem !important;
-  line-height: 1.45 !important;
-  padding: 8px 12px !important;
-  max-width: 92% !important;
+.aiko-msg {
+  border-radius: 13px;
+  font-size: 0.80rem;
+  line-height: 1.45;
+  padding: 7px 11px;
+  max-width: 94%;
   backdrop-filter: blur(10px);
-  border: 1px solid var(--aiko-border) !important;
-  pointer-events: auto;
+  border: 1px solid var(--aiko-border);
+  word-break: break-word;
 }
-
-#aiko-chatbot .message.user,
-#aiko-chatbot [data-testid="user"] {
-  background: var(--aiko-user) !important;
+.aiko-msg-user {
+  background: var(--aiko-user);
   align-self: flex-end;
-  margin-left: auto;
+  text-align: right;
 }
-
-#aiko-chatbot .message.bot,
-#aiko-chatbot [data-testid="bot"] {
-  background: var(--aiko-bot) !important;
+.aiko-msg-bot {
+  background: var(--aiko-bot);
   align-self: flex-start;
 }
 
-/* ── Caption overlay — bottom of VRM ────────────────────── */
-#aiko-caption-overlay {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  min-height: 52px;
-  max-height: 110px;
-  padding: 10px 22px 14px;
-  background: linear-gradient(0deg, rgba(5,5,10,0.88) 0%, transparent 100%);
-  display: flex;
-  align-items: flex-end;
-  pointer-events: none;
-  z-index: 6;
-}
-
-#aiko-caption-text {
-  color: #e8dcff;
-  font-size: 0.88rem;
-  line-height: 1.5;
-  text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 18px rgba(100,60,180,0.5);
-  letter-spacing: 0.01em;
-  max-width: 58%;
-  min-height: 1.4em;
-  transition: opacity 0.3s;
-}
-
-#aiko-caption-text.empty { opacity: 0; }
-
-/* ── Input row — below viewer ────────────────────────────── */
-#aiko-input-section {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-#aiko-input-row {
-  display: flex;
-  gap: 8px;
+/* ── Input row — below viewer, fixed height ──────────────────────────────── */
+#aiko-input-row,
+#aiko-input-row > div {
+  background: transparent !important;
+  border: none !important;
+  flex: 0 0 auto !important;
+  height: auto !important;
   align-items: center;
 }
 
@@ -194,6 +160,7 @@ main, footer {
   border: 1px solid var(--aiko-border) !important;
   border-radius: 14px !important;
   font-size: 0.9rem;
+  resize: none;
 }
 
 textarea::placeholder, input::placeholder {
@@ -205,37 +172,46 @@ button.primary, button.variant-primary, #aiko-send {
   border: 0 !important;
   color: #fff !important;
   border-radius: 12px !important;
+  height: 42px !important;
+  flex: 0 0 auto !important;
 }
 
-/* ── Audio row — below input ─────────────────────────────── */
-#aiko-audio-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* ── Mic button ──────────────────────────────────────────────────────────── */
+#aiko-mic,
+#aiko-mic > div,
+#aiko-mic .wrap {
+  background: rgba(10, 8, 18, 0.72) !important;
+  border: 1px solid var(--aiko-border) !important;
+  border-radius: 14px !important;
+  height: 42px !important;
+  flex: 0 0 auto !important;
+  overflow: hidden;
 }
 
+/* ── Audio waveform player ───────────────────────────────────────────────── */
 #aiko-audio,
 #aiko-audio > div,
 #aiko-audio .wrap {
   background: rgba(10, 8, 18, 0.72) !important;
   border: 1px solid var(--aiko-border) !important;
   border-radius: 14px !important;
-  flex: 1;
+  flex: 0 0 auto !important;
+  height: auto !important;
 }
-
 #aiko-audio audio {
   width: 100%;
   filter: hue-rotate(235deg) saturate(1.2);
 }
 
-#aiko-mic,
-#aiko-mic > div {
-  background: rgba(10, 8, 18, 0.72) !important;
-  border: 1px solid var(--aiko-border) !important;
-  border-radius: 14px !important;
+/* ── Fully hide the real chatbot (state only, no display) ────────────────── */
+#aiko-chatbot-hidden,
+[id="aiko-chatbot-hidden"] {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
 }
 
-/* Hide Gradio's own footer/label clutter */
+/* ── Kill Gradio footer ──────────────────────────────────────────────────── */
 .gradio-container footer { display: none !important; }
-.hide { display: none !important; }
 """
