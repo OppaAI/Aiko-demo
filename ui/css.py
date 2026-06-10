@@ -75,22 +75,40 @@ html, body, .gradio-container, main, footer {
 /* Kill every background/border layer Gradio injects on the chatbot */
 #aiko-chatbot,
 #aiko-chatbot > div,
+#aiko-chatbot > div > div,
 #aiko-chatbot .wrap,
 #aiko-chatbot .bubble-wrap,
 #aiko-chatbot .message-wrap,
+#aiko-chatbot .message-wrap > div,
 #aiko-chatbot .message-row,
 #aiko-chatbot .message-row > div,
 #aiko-chatbot .message-row .prose,
+#aiko-chatbot .chat-message,
 #aiko-chatbot [data-testid="bot"],
 #aiko-chatbot [data-testid="user"],
 #aiko-chatbot [data-testid="bot"] *,
 #aiko-chatbot [data-testid="user"] *,
 #aiko-chatbot .md,
-#aiko-chatbot .md > * {
+#aiko-chatbot .md > *,
+#aiko-chatbot [class*="message"],
+#aiko-chatbot [class*="bubble"],
+#aiko-chatbot [class*="wrap"],
+#aiko-chatbot [class*="chat"] {
   background: transparent !important;
   background-color: transparent !important;
   border: none !important;
   box-shadow: none !important;
+}
+
+/* Kill the outer Gradio block wrapper that wraps #aiko-chatbot */
+#aiko-chatbot.block,
+#aiko-chatbot .block,
+div:has(> #aiko-chatbot) {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
 }
 
 #aiko-chatbot {
