@@ -83,10 +83,22 @@ def voice_chat(audio_path, history):
     return history, _strip_for_speech(text), audio, None
 
 
-# ── JS that wires the parent Gradio audio element to the VRM iframe ──────────
+# ── Viewer HTML: iframe + chat overlay div + caption bar, all in one fixed block
+def viewer_html(vrm_html: str) -> str:
+    return f"""
+<div id="aiko-viewer-wrap">
+  {vrm_html}
+  <div id="aiko-chat-overlay">
+    <div id="aiko-msg-list"></div>
+  </div>
+</div>
+"""
+
+
 BRIDGE_JS = """
 <script>
 (function () {
+  /* ── VRM postMessage bridge ── */
   function postToVrm(text) {
     const frame = document.getElementById('aiko-vrm-frame');
     if (!frame) return;
@@ -116,77 +128,105 @@ BRIDGE_JS = """
     observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true });
   }
 
-  setTimeout(() => { hookAudio(); watchTtsText(); }, 1200);
+  /* ── Chat overlay: mirror hidden gr.Chatbot into #aiko-msg-list ── */
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function syncMessages() {
+    const msgList = document.getElementById('aiko-msg-list');
+    if (!msgList) return;
+
+    // Gradio renders messages as divs with data-testid="user" / "bot"
+    // inside #aiko-chatbot-hidden
+    const bubbles = document.querySelectorAll(
+      '#aiko-chatbot-hidden [data-testid="user"], #aiko-chatbot-hidden [data-testid="bot"]'
+    );
+    if (!bubbles.length) return;
+
+    msgList.innerHTML = '';
+    bubbles.forEach(b => {
+      const isUser = b.dataset.testid === 'user';
+      const div = document.createElement('div');
+      div.className = 'aiko-msg ' + (isUser ? 'aiko-msg-user' : 'aiko-msg-bot');
+      div.innerHTML = b.innerHTML;   // preserve markdown-rendered HTML
+      msgList.appendChild(div);
+    });
+
+    // Scroll to bottom
+    msgList.scrollTop = msgList.scrollHeight;
+  }
+
+  function watchChatbot() {
+    const bot = document.getElementById('aiko-chatbot-hidden');
+    if (!bot) { setTimeout(watchChatbot, 800); return; }
+    const obs = new MutationObserver(syncMessages);
+    obs.observe(bot, { childList: true, subtree: true });
+    syncMessages();
+  }
+
+  setTimeout(() => {
+    hookAudio();
+    watchTtsText();
+    watchChatbot();
+  }, 1400);
 })();
 </script>
 """
 
-with gr.Blocks(title="🌸 Aiko-chan", css=AIKO_CSS, fill_height=True) as demo:
 
-    # Invisible JS bridge
+with gr.Blocks(title="🌸 Aiko-chan", css=AIKO_CSS) as demo:   # no fill_height
+
     gr.HTML(BRIDGE_JS)
 
     with gr.Column(elem_id="aiko-shell"):
 
-        # ── Top bar — title only, no DOCTYPE watermark ───────────────────────
+        # Top bar
         gr.HTML('<div id="aiko-topbar"><h1>🌸 AIKO-CHAN</h1></div>')
 
-        # ── Viewer block: VRM iframe + overlaid chat + captions ──────────────
-        #
-        # Gradio doesn't support CSS `position: relative` containers with
-        # absolutely-positioned children natively. We use a raw HTML wrapper
-        # div that holds both the iframe and the chat overlay as siblings,
-        # then Gradio components are placed outside for audio/input.
-        #
-        # The chat overlay lives *inside* a gr.HTML so Gradio's own chatbot
-        # component can still be rendered separately and its messages piped
-        # into the overlay via JS (see bridge below).
+        # Viewer: fixed-height HTML block — no Gradio children that can stretch it
+        gr.HTML(value=viewer_html(avatar_html(VRM_URLS)))
 
-        with gr.Column(elem_id="aiko-viewer-wrap"):
-            # VRM iframe (full width)
-            gr.HTML(value=avatar_html(VRM_URLS), show_label=False)
-
-            # Chat message overlay — absolutely positioned over the iframe (right side)
-            # We render gr.Chatbot normally then relocate it via CSS.
-            chatbot = gr.Chatbot(
-                elem_id="aiko-chatbot",
+        # Input row: textbox + send + mic  (below the viewer)
+        with gr.Row(elem_id="aiko-input-row"):
+            msg = gr.Textbox(
+                placeholder="Type a message…",
                 show_label=False,
-                height=None,   # CSS controls height via the overlay
-                #type="messages",
+                scale=11,
+                container=False,
             )
-
-        # ── Input section — below the viewer ────────────────────────────────
-        with gr.Column(elem_id="aiko-input-section"):
-
-            # Row 1: text box + send + mic record button
-            with gr.Row(elem_id="aiko-input-row"):
-                msg = gr.Textbox(
-                    placeholder="Type a message…",
-                    show_label=False,
-                    scale=11,
-                    container=False,
-                )
-                send = gr.Button("➤", variant="primary", scale=1, elem_id="aiko-send")
-                voice_in = gr.Audio(
-                    sources=["microphone"],
-                    type="filepath",
-                    show_label=False,
-                    scale=2,
-                    elem_id="aiko-mic",
-                    container=False,
-                )
-
-            # Row 2: waveform audio player (full width)
-            audio_out = gr.Audio(
-                autoplay=True,
-                visible=True,
-                label="🔊 Aiko",
+            send = gr.Button("➤", variant="primary", scale=1, elem_id="aiko-send")
+            voice_in = gr.Audio(
+                sources=["microphone"],
                 type="filepath",
-                elem_id="aiko-audio",
-                container=True,
+                show_label=False,
+                scale=2,
+                elem_id="aiko-mic",
+                container=False,
             )
 
-        # Hidden textbox — carries plain-text for VRM lip sync
+        # Waveform audio player (below inputs)
+        audio_out = gr.Audio(
+            autoplay=True,
+            visible=True,
+            label="🔊 Aiko",
+            type="filepath",
+            elem_id="aiko-audio",
+            container=True,
+        )
+
+        # Hidden Gradio chatbot — real state lives here, overlay mirrors it via JS
+        chatbot = gr.Chatbot(
+            elem_id="aiko-chatbot-hidden",
+            show_label=False,
+            height=1,            # collapse to near-zero; CSS hides it fully
+            type="messages",
+            visible=False,
+        )
+
+        # Hidden TTS text carrier for lip sync
         tts_text = gr.Textbox(
             value="",
             visible=False,
@@ -194,7 +234,7 @@ with gr.Blocks(title="🌸 Aiko-chan", css=AIKO_CSS, fill_height=True) as demo:
             render=True,
         )
 
-        # ── Event wiring ─────────────────────────────────────────────────────
+        # Event wiring
         msg.submit(text_chat,  [msg, chatbot], [chatbot, tts_text, audio_out, msg])
         send.click(text_chat,  [msg, chatbot], [chatbot, tts_text, audio_out, msg])
         voice_in.change(voice_chat, [voice_in, chatbot], [chatbot, tts_text, audio_out, voice_in])
