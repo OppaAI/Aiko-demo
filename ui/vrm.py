@@ -1,3 +1,4 @@
+"""HTML helpers for embedding the Aiko VRM avatar in Gradio."""
 from __future__ import annotations
 
 import html
@@ -7,10 +8,11 @@ from urllib.parse import quote
 
 
 def resolve_vrm_path() -> Path:
-    """Return the configured VRM path, preferring the Space's static/Aiko.vrm."""
+    """Return the configured VRM path, preferring the bundled Aiko model."""
     candidates = [
-        Path(os.getenv("AIKO_VRM_PATH", "static/Aiko.vrm")),
-        Path("assets/Aiko.vrm"),
+        Path(os.getenv("AIKO_VRM_PATH", "assets/Aiko.vrm")),
+        Path("static/Aiko.vrm"),
+        Path("assets/Original.vrm"),
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -30,17 +32,11 @@ def gradio_file_url(path: Path) -> str:
 
 
 def avatar_html(vrm_urls: str | list[str]) -> str:
-    """Return an iframe containing the Three/VRM viewer.
-
-    Camera is framed to a half-body shot (waist-up). The iframe exposes a
-    postMessage API for expression, viseme, and ttsText/caption control.
-    An internal caption bar at the bottom of the canvas streams assistant
-    text as closed captions during audio playback.
-    """
+    """Return an iframe containing the Three/VRM viewer and lip-sync bridge."""
     if isinstance(vrm_urls, str):
         vrm_urls = [vrm_urls]
 
-    srcdoc = f"""<!DOCTYPE html>
+    srcdoc = rf"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -52,14 +48,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: radial-gradient(circle at 50% 12%, #22183f 0, #0b0a14 48%, #050509 100%);
+      background: radial-gradient(circle at 36% 18%, #21183f 0, #090711 48%, #050509 100%);
       color: #c8b8e8;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }}
     #wrap {{ position: fixed; inset: 0; }}
     canvas {{ display: block; width: 100% !important; height: 100% !important; }}
-
-    /* HUD: minimal top status only */
     #hud {{
       position: fixed;
       inset: 0;
@@ -67,42 +61,14 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      padding: 14px 18px 70px;
-      background: linear-gradient(180deg, rgba(5,5,10,.45), transparent 20%, transparent 72%, rgba(5,5,10,.55));
+      padding: 24px 30px 72px;
+      background: linear-gradient(180deg, rgba(5,5,10,.48), transparent 20%, transparent 78%, rgba(5,5,10,.42));
     }}
     #top {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; }}
     #status {{ display: flex; align-items: center; gap: 8px; color: #8b7ab6; font-size: 11px; }}
-    #dot {{ width: 8px; height: 8px; border-radius: 999px; background: #4b3a79; box-shadow: 0 0 10px rgba(155,127,212,.2); }}
+    #dot {{ width: 8px; height: 8px; border-radius: 999px; background: #5c46a0; box-shadow: 0 0 10px rgba(155,127,212,.35); }}
     #dot.speaking {{ background: #d68cff; box-shadow: 0 0 16px rgba(214,140,255,.9); animation: pulse .6s infinite; }}
-    #emotion {{ letter-spacing: .16em; text-transform: uppercase; font-size: 11px; color: #7867a3; }}
-
-    /* Caption bar — bottom of the canvas, left side so it doesn't clash with chat overlay */
-    #caption-bar {{
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 40%; /* leaves room for external chat overlay on the right */
-      min-height: 50px;
-      max-height: 108px;
-      padding: 10px 20px 14px 18px;
-      display: flex;
-      align-items: flex-end;
-      background: linear-gradient(0deg, rgba(5,5,10,.90) 0%, transparent 100%);
-      pointer-events: none;
-      z-index: 8;
-      transition: opacity .3s;
-    }}
-    #caption-bar.hidden {{ opacity: 0; }}
-    #caption-text {{
-      color: #ecdeff;
-      font-size: 13px;
-      line-height: 1.55;
-      text-shadow: 0 1px 6px rgba(0,0,0,0.95), 0 0 20px rgba(110,60,200,.55);
-      letter-spacing: .01em;
-      max-width: 100%;
-      word-break: break-word;
-    }}
-
+    #emotion {{ letter-spacing: .22em; text-transform: uppercase; font-size: 11px; color: #9a86cf; }}
     #loader {{
       position: fixed; inset: 0; display: grid; place-content: center; gap: 18px; text-align: center;
       background: #080810; z-index: 10; transition: opacity .45s ease;
@@ -126,13 +92,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
   <div id="wrap"><canvas id="canvas"></canvas></div>
   <div id="hud">
     <div id="top">
-      <div id="emotion">neutral</div>
+      <div id="emotion">relaxed</div>
       <div id="status"><span id="dot"></span><span id="status-text">idle</span></div>
     </div>
-  </div>
-  <!-- Closed-caption bar: streams assistant text during audio playback -->
-  <div id="caption-bar" class="hidden">
-    <div id="caption-text"></div>
   </div>
   <div id="loader"><h1>🌸 Aiko</h1><p id="load-msg">loading VRM…</p></div>
 
@@ -143,14 +105,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     import {{ VRMLoaderPlugin, VRMUtils }} from '@pixiv/three-vrm';
 
     const RAW_VRM_URLS = {vrm_urls!r};
-    const VISEME_MAP = {{ A: 'aa', I: 'ih', U: 'ou', E: 'ee', O: 'oh' }};
     const VISEME_PRESETS = ['aa', 'ih', 'ou', 'ee', 'oh'];
     const TEXT_VISEME_MAP = {{
-      a: 'aa', á: 'aa', à: 'aa', â: 'aa', ä: 'aa', あ: 'aa', ア: 'aa', か: 'aa', カ: 'aa', さ: 'aa', サ: 'aa', た: 'aa', タ: 'aa', な: 'aa', ナ: 'aa', は: 'aa', ハ: 'aa', ま: 'aa', マ: 'aa', や: 'aa', ヤ: 'aa', ら: 'aa', ラ: 'aa', わ: 'aa', ワ: 'aa',
-      i: 'ih', í: 'ih', ì: 'ih', î: 'ih', ï: 'ih', y: 'ih', い: 'ih', イ: 'ih', き: 'ih', キ: 'ih', し: 'ih', シ: 'ih', ち: 'ih', チ: 'ih', に: 'ih', ニ: 'ih', ひ: 'ih', ヒ: 'ih', み: 'ih', ミ: 'ih', り: 'ih', リ: 'ih',
-      u: 'ou', ú: 'ou', ù: 'ou', û: 'ou', ü: 'ou', う: 'ou', ウ: 'ou', く: 'ou', ク: 'ou', す: 'ou', ス: 'ou', つ: 'ou', ツ: 'ou', ぬ: 'ou', ヌ: 'ou', ふ: 'ou', フ: 'ou', む: 'ou', ム: 'ou', ゆ: 'ou', ユ: 'ou', る: 'ou', ル: 'ou',
-      e: 'ee', é: 'ee', è: 'ee', ê: 'ee', ë: 'ee', え: 'ee', エ: 'ee', け: 'ee', ケ: 'ee', せ: 'ee', セ: 'ee', て: 'ee', テ: 'ee', ね: 'ee', ネ: 'ee', へ: 'ee', ヘ: 'ee', め: 'ee', メ: 'ee', れ: 'ee', レ: 'ee',
-      o: 'oh', ó: 'oh', ò: 'oh', ô: 'oh', ö: 'oh', お: 'oh', オ: 'oh', こ: 'oh', コ: 'oh', そ: 'oh', ソ: 'oh', と: 'oh', ト: 'oh', の: 'oh', ノ: 'oh', ほ: 'oh', ホ: 'oh', も: 'oh', モ: 'oh', よ: 'oh', ヨ: 'oh', ろ: 'oh', ロ: 'oh', を: 'oh', ヲ: 'oh', ん: 'oh', ン: 'oh',
+      a: 'aa', á: 'aa', à: 'aa', â: 'aa', ä: 'aa', あ: 'aa', ア: 'aa',
+      i: 'ih', í: 'ih', ì: 'ih', î: 'ih', ï: 'ih', y: 'ih', い: 'ih', イ: 'ih',
+      u: 'ou', ú: 'ou', ù: 'ou', û: 'ou', ü: 'ou', う: 'ou', ウ: 'ou',
+      e: 'ee', é: 'ee', è: 'ee', ê: 'ee', ë: 'ee', え: 'ee', エ: 'ee',
+      o: 'oh', ó: 'oh', ò: 'oh', ô: 'oh', ö: 'oh', お: 'oh', オ: 'oh', ん: 'oh', ン: 'oh',
     }};
 
     function withTrailingSlash(url) {{ return url.endsWith('/') ? url : url + '/'; }}
@@ -162,7 +123,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       for (const raw of rawUrls) {{
         if (!raw) continue;
         try {{
-          if (/^https?:\/\//.test(raw)) {{ urls.push(raw); }}
+          if (/^https?:\/\//.test(raw)) urls.push(raw);
           else {{
             urls.push(new URL(raw, parentOrigin).href);
             urls.push(new URL(raw.replace(/^\//, ''), withTrailingSlash(parentHref)).href);
@@ -173,26 +134,21 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
 
     const VRM_URLS = buildVrmUrls(RAW_VRM_URLS);
-    const canvas  = document.getElementById('canvas');
+    const canvas = document.getElementById('canvas');
     const renderer = new THREE.WebGLRenderer({{ canvas, antialias: true, alpha: true }});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    const scene  = new THREE.Scene();
-
-    // ── Half-body camera framing ──────────────────────────────────────────────
-    // Position: slightly closer, raised to ~waist level focus.
-    // FOV narrowed to 22° to reduce perspective distortion on a close portrait shot.
+    const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(22, 1, 0.1, 100);
-    camera.position.set(0, 1.18, 2.1);   // x=centre, y=waist-chest height, z=distance
+    camera.position.set(-0.16, 1.16, 2.05);
 
     const controls = new OrbitControls(camera, canvas);
-    controls.target.set(0, 1.15, 0);     // look at chest/neck area
+    controls.target.set(-0.22, 1.13, 0);
     controls.enableDamping = true;
-    controls.enablePan     = false;
-    controls.minDistance   = 1.0;
-    controls.maxDistance   = 3.2;
-    // ─────────────────────────────────────────────────────────────────────────
+    controls.enablePan = false;
+    controls.minDistance = 1.0;
+    controls.maxDistance = 3.2;
 
     scene.add(new THREE.HemisphereLight(0xded4ff, 0x21182f, 2.4));
     const key = new THREE.DirectionalLight(0xffffff, 2.7);
@@ -201,90 +157,25 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     const rim = new THREE.DirectionalLight(0x9b7cff, 1.5);
     rim.position.set(-2.5, 1.4, -1.2);
     scene.add(rim);
-    // No floor grid — cleaner for half-body portrait
-    // scene.add(new THREE.GridHelper(10, 20, 0x1a0a2a, 0x100820));
 
     let vrm = null;
-    let mouth = 0;
-    let smoothedAudioMouth = 0;
     let speaking = false;
     const clock = new THREE.Clock();
+    let idleTime = 0;
     let blinkTimer = 3.0 + Math.random() * 4.0;
     let blinkPhase = 'wait';
     let blinkT = 0;
     const BLINK_CLOSE_DUR = 0.07;
-    const BLINK_OPEN_DUR  = 0.10;
-    let exprResetTimer = null;
-    const EXPR_RESET_DELAY = 4000;
-
-    let idleTime = 0;
-    let speechText     = '';
-    let speechVisemes  = [];
+    const BLINK_OPEN_DUR = 0.10;
+    let speechText = '';
+    let speechVisemes = [];
     let speechStartedAt = 0;
-    let speechDuration = 0;
-    const REST = window._REST = {{
-      leftUpperArm:  {{ x:  0.02, y: 0.0, z: -1.28 }},
-      rightUpperArm: {{ x:  0.02, y: 0.0, z:  1.28 }},
-      leftLowerArm:  {{ x: -0.12, y: 0.0, z: -0.08 }},
-      rightLowerArm: {{ x: -0.12, y: 0.0, z:  0.08 }},
-      leftHand:      {{ x:  0.0,  y: 0.08, z:  0.0 }},
-      rightHand:     {{ x:  0.0,  y:-0.08, z:  0.0 }},
-    }};
+    let speechDuration = 1;
+    let lastAudio = null;
 
-    const dot         = document.getElementById('dot');
-    const statusText  = document.getElementById('status-text');
-    const emotionEl   = document.getElementById('emotion');
-    const captionBar  = document.getElementById('caption-bar');
-    const captionText = document.getElementById('caption-text');
-
-    // ── Caption streaming ─────────────────────────────────────────────────────
-    let captionWords = [];
-    let captionIdx   = 0;
-    let captionTimer = null;
-
-    function startCaption(text) {{
-      clearInterval(captionTimer);
-      captionWords = text.trim().split(/\s+/).filter(Boolean);
-      captionIdx   = 0;
-      captionText.textContent = '';
-      captionBar.classList.remove('hidden');
-      if (!captionWords.length) return;
-
-      // Pace: reveal ~2-3 words at a time proportional to speech duration
-      const totalWords   = captionWords.length;
-      const totalSeconds = (lastAudio && lastAudio.duration > 0) ? lastAudio.duration : Math.max(2, totalWords * 0.38);
-      const msPerWord    = (totalSeconds * 1000) / totalWords;
-
-      captionTimer = setInterval(() => {{
-        if (captionIdx >= captionWords.length) {{
-          clearInterval(captionTimer);
-          // fade out after a short hold
-          setTimeout(() => {{ captionBar.classList.add('hidden'); }}, 1800);
-          return;
-        }}
-        // Show a rolling window of the last ~12 words
-        const windowEnd   = captionIdx + 1;
-        const windowStart = Math.max(0, windowEnd - 12);
-        captionText.textContent = captionWords.slice(windowStart, windowEnd).join(' ');
-        captionIdx++;
-      }}, msPerWord);
-    }}
-
-    function stopCaption() {{
-      clearInterval(captionTimer);
-      setTimeout(() => captionBar.classList.add('hidden'), 1200);
-    }}
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function nextBlinkWait() {{ return 3.0 + Math.random() * 4.0; }}
-    function expressionNames() {{
-      return (vrm?.expressionManager?.expressions ?? [])
-        .map(e => e.expressionName ?? e.name).filter(Boolean);
-    }}
-    function hasExpression(name) {{ return expressionNames().includes(name); }}
-    function safeSetExpression(name, weight) {{
-      try {{ vrm?.expressionManager?.setValue(name, weight); }} catch (_) {{}}
-    }}
+    const dot = document.getElementById('dot');
+    const statusText = document.getElementById('status-text');
+    const emotionEl = document.getElementById('emotion');
 
     function resize() {{
       const w = Math.max(1, canvas.clientWidth);
@@ -295,289 +186,92 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
     addEventListener('resize', resize);
 
+    function expressionNames() {{
+      return (vrm?.expressionManager?.expressions ?? []).map(e => e.expressionName ?? e.name).filter(Boolean);
+    }}
+    function hasExpression(name) {{ return expressionNames().includes(name); }}
+    function safeSetExpression(name, weight) {{ try {{ vrm?.expressionManager?.setValue(name, weight); }} catch (_) {{}} }}
     function setExpression(name, weight = 1) {{
       if (!vrm?.expressionManager) return;
-      for (const k of ['happy', 'relaxed', 'angry', 'sad', 'surprised']) {{
-        safeSetExpression(k, k === name ? weight : 0);
-      }}
+      for (const k of ['happy', 'relaxed', 'angry', 'sad', 'surprised']) safeSetExpression(k, k === name ? weight : 0);
       emotionEl.textContent = name || 'neutral';
     }}
-
     function setMouth(weight, viseme = 'aa') {{
       if (!vrm) return;
       const clamped = Math.max(0, Math.min(1, Number(weight) || 0));
-      const preset  = VISEME_MAP[viseme] ?? viseme ?? 'aa';
       let usedExpression = false;
       if (vrm.expressionManager) {{
         for (const k of VISEME_PRESETS) {{
           if (hasExpression(k)) {{
-            vrm.expressionManager.setValue(k, k === preset ? clamped : 0);
+            vrm.expressionManager.setValue(k, k === viseme ? clamped : 0);
             usedExpression = true;
           }}
         }}
-        try {{
-          const em = vrm.expressionManager;
-          if (em._expressions) {{
-            em._expressions.forEach(expr => expr.applyWeight({{ multiplier: 1 }}));
-          }}
-        }} catch (_) {{}}
       }}
       if (!usedExpression) {{
         const jaw = vrm.humanoid?.getNormalizedBoneNode?.('jaw') || vrm.humanoid?.getRawBoneNode?.('jaw');
         if (jaw) jaw.rotation.x = clamped * 0.5;
       }}
     }}
-
     function clearMouth() {{ setMouth(0, 'aa'); }}
-
     function setSpeaking(active) {{
       speaking = Boolean(active);
       dot.className = speaking ? 'speaking' : '';
       statusText.textContent = speaking ? 'speaking' : 'idle';
       setExpression(speaking ? 'happy' : 'relaxed', speaking ? 0.55 : 0.25);
-      if (!speaking) {{ clearMouth(); stopCaption(); }}
+      if (!speaking) clearMouth();
     }}
-
-    function estimateSpeechDuration(text, requestedDuration = null) {{
-      const explicit = Number(requestedDuration);
-      if (Number.isFinite(explicit) && explicit > 0) return explicit;
-      if (lastAudio && Number.isFinite(lastAudio.duration) && lastAudio.duration > 0) return lastAudio.duration;
-      return Math.max(1.0, Math.min(12, text.length * 0.075));
-    }}
-
     function textToVisemes(text) {{
       const tokens = [];
       let lastViseme = 'aa';
       for (const rawChar of String(text || '').toLowerCase()) {{
         const viseme = TEXT_VISEME_MAP[rawChar];
-        if (viseme) {{
-          lastViseme = viseme;
-          tokens.push({{ viseme, weight: 0.88 }});
-        }} else if (/[,.;:!?。！？、\s]/.test(rawChar)) {{
-          tokens.push({{ viseme: lastViseme, weight: 0.08 }});
-        }} else if (/[bcdfghjklmnpqrstvwxz]/.test(rawChar)) {{
-          tokens.push({{ viseme: lastViseme, weight: 0.28 }});
-        }}
+        if (viseme) {{ lastViseme = viseme; tokens.push({{ viseme, weight: 0.88 }}); }}
+        else if (/[,.;:!?。！？、\s]/.test(rawChar)) tokens.push({{ viseme: lastViseme, weight: 0.08 }});
+        else if (/[bcdfghjklmnpqrstvwxz]/.test(rawChar)) tokens.push({{ viseme: lastViseme, weight: 0.28 }});
       }}
       return tokens.length ? tokens : [{{ viseme: 'aa', weight: 0.25 }}];
     }}
-
     function setSpeechText(text, duration = null) {{
       const nextText = String(text || '').trim();
       if (!nextText) return;
-      speechText      = nextText;
-      speechVisemes   = textToVisemes(speechText);
-      speechDuration  = estimateSpeechDuration(speechText, duration);
+      speechText = nextText;
+      speechVisemes = textToVisemes(speechText);
+      speechDuration = Number(duration) > 0 ? Number(duration) : Math.max(1, Math.min(14, speechText.length * 0.07));
       speechStartedAt = performance.now();
-      // Start closed captions
-      startCaption(speechText);
     }}
-
     function currentTextMouth(now) {{
       if (!speechVisemes.length) return null;
-      const audioDuration = lastAudio && Number.isFinite(lastAudio.duration) && lastAudio.duration > 0 ? lastAudio.duration : speechDuration;
-      const duration  = Math.max(0.25, audioDuration || speechDuration || 1);
-      const elapsed   = lastAudio && !lastAudio.paused ? lastAudio.currentTime : (now - speechStartedAt) / 1000;
-      const progress  = Math.max(0, Math.min(0.999, elapsed / duration));
-      const index     = Math.min(speechVisemes.length - 1, Math.floor(progress * speechVisemes.length));
-      const token     = speechVisemes[index];
+      const duration = lastAudio && Number.isFinite(lastAudio.duration) && lastAudio.duration > 0 ? lastAudio.duration : speechDuration;
+      const elapsed = lastAudio && !lastAudio.paused ? lastAudio.currentTime : (now - speechStartedAt) / 1000;
+      const progress = Math.max(0, Math.min(0.999, elapsed / Math.max(0.25, duration)));
+      const index = Math.min(speechVisemes.length - 1, Math.floor(progress * speechVisemes.length));
+      const token = speechVisemes[index];
       const syllablePhase = Math.sin(progress * speechVisemes.length * Math.PI);
-      return {{
-        viseme: token.viseme,
-        weight: Math.max(0, Math.min(1, token.weight * (0.55 + Math.abs(syllablePhase) * 0.45))),
-      }};
+      return {{ viseme: token.viseme, weight: Math.max(0, Math.min(1, token.weight * (0.55 + Math.abs(syllablePhase) * 0.45))) }};
     }}
-
-    function findParentSpeechText() {{
-      if (window._aikoLatestTtsText) {{
-        const t = window._aikoLatestTtsText;
-        window._aikoLatestTtsText = '';
-        return t;
-      }}
-      try {{
-        const doc = parent.document;
-        const el  = doc.querySelector('#aiko-tts-text textarea, #aiko-tts-text input');
-        return el ? (el.value || el.textContent || '') : '';
-      }} catch (_) {{ return ''; }}
-    }}
-
-    function getBone(name) {{
-      const h = vrm?.humanoid;
-      if (!h) return null;
-      return h.getRawBoneNode?.(name) || h.getNormalizedBoneNode?.(name) || null;
-    }}
-
-    function applyIdle(dt) {{
-      if (!vrm?.humanoid) return;
-      idleTime += dt;
-      const breath = Math.sin(idleTime * 0.83) * 0.013;
-      const chest  = getBone('chest');
-      const spine  = getBone('spine');
-      if (chest) chest.rotation.x = breath;
-      if (spine) spine.rotation.x = breath * 0.5;
-      const hips = getBone('hips');
-      if (hips) {{
-        hips.rotation.z = Math.sin(idleTime * 0.41) * 0.012;
-        hips.rotation.x = Math.sin(idleTime * 0.67) * 0.008;
-        hips.position.x = Math.sin(idleTime * 0.41) * 0.003;
-      }}
-      const head = getBone('head');
-      if (head) {{
-        head.rotation.y = Math.sin(idleTime * 0.31) * 0.055 + Math.sin(idleTime * 1.13) * 0.012;
-        head.rotation.z = Math.sin(idleTime * 0.27 + 1.1) * 0.018 + Math.sin(idleTime * 0.71) * 0.006;
-        head.rotation.x = Math.sin(idleTime * 0.53) * 0.012;
-      }}
-      if (!speaking) {{
-        safeSetExpression('relaxed', 0.20 + Math.sin(idleTime * 0.37) * 0.035);
-        safeSetExpression('happy',   Math.max(0, Math.sin(idleTime * 0.19 - 0.8)) * 0.035);
-      }}
-      const neck = getBone('neck');
-      if (neck && head) {{
-        neck.rotation.y = head.rotation.y * 0.3;
-        neck.rotation.z = head.rotation.z * 0.3;
-      }}
-      const lUA = getBone('leftUpperArm'),  rUA = getBone('rightUpperArm');
-      const lLA = getBone('leftLowerArm'),  rLA = getBone('rightLowerArm');
-      const lH  = getBone('leftHand'),      rH  = getBone('rightHand');
-      if (lUA) {{ lUA.rotation.x = REST.leftUpperArm.x  + Math.sin(idleTime * 0.47) * 0.010; lUA.rotation.y = REST.leftUpperArm.y  + Math.sin(idleTime * 0.33) * 0.006; lUA.rotation.z = REST.leftUpperArm.z  + Math.sin(idleTime * 0.41) * 0.008; }}
-      if (rUA) {{ rUA.rotation.x = REST.rightUpperArm.x + Math.sin(idleTime * 0.53 + 0.9) * 0.010; rUA.rotation.y = REST.rightUpperArm.y + Math.sin(idleTime * 0.35 + 0.4) * 0.006; rUA.rotation.z = REST.rightUpperArm.z + Math.sin(idleTime * 0.37 + 0.7) * 0.008; }}
-      if (lLA) {{ lLA.rotation.x = REST.leftLowerArm.x  + Math.sin(idleTime * 0.61) * 0.008; lLA.rotation.y = REST.leftLowerArm.y; lLA.rotation.z = REST.leftLowerArm.z  + Math.sin(idleTime * 0.43) * 0.004; }}
-      if (rLA) {{ rLA.rotation.x = REST.rightLowerArm.x + Math.sin(idleTime * 0.57 + 1.4) * 0.008; rLA.rotation.y = REST.rightLowerArm.y; rLA.rotation.z = REST.rightLowerArm.z + Math.sin(idleTime * 0.51 + 0.5) * 0.004; }}
-      if (lH)  {{ lH.rotation.x = REST.leftHand.x;  lH.rotation.y = REST.leftHand.y  + Math.sin(idleTime * 0.33) * 0.008; lH.rotation.z = REST.leftHand.z; }}
-      if (rH)  {{ rH.rotation.x = REST.rightHand.x; rH.rotation.y = REST.rightHand.y + Math.sin(idleTime * 0.29 + 1.2) * 0.008; rH.rotation.z = REST.rightHand.z; }}
-    }}
-
-    // ── Idle gesture state machine (unchanged from original) ─────────────────
-    let gestureState    = 'none';
-    let gestureT        = 0;
-    let gestureDuration = 0;
-    let gestureCooldown = 4 + Math.random() * 6;
-    let gestureTarget   = null;
-    const GESTURES = ['lookAround', 'tiltHead', 'shiftWeight', 'touchHair', 'stretchNeck'];
-
-    function pickGesture() {{
-      const g = GESTURES[Math.floor(Math.random() * GESTURES.length)];
-      gestureState    = g;
-      gestureT        = 0;
-      gestureDuration = {{ lookAround: 2.5, tiltHead: 2.0, shiftWeight: 3.0, touchHair: 3.5, stretchNeck: 2.5 }}[g];
-      gestureTarget   = {{ lookAround: (Math.random() - 0.5) * 0.5, tiltHead: (Math.random() - 0.5) * 0.25 }};
-    }}
-    function easeInOutSine(t) {{ return -(Math.cos(Math.PI * t) - 1) / 2; }}
-    function applyGestures(dt) {{
-      if (!vrm?.humanoid) return;
-      if (speaking) {{ gestureState = 'none'; return; }}
-      if (gestureState === 'none') {{
-        gestureCooldown -= dt;
-        if (gestureCooldown <= 0) {{ pickGesture(); gestureCooldown = 5 + Math.random() * 8; }}
-        return;
-      }}
-      gestureT += dt;
-      const progress  = Math.min(1, gestureT / gestureDuration);
-      const intensity = Math.sin(progress * Math.PI);
-      const eased     = easeInOutSine(progress);
-      const head = getBone('head'), neck = getBone('neck');
-      const lUA  = getBone('leftUpperArm'), lLA = getBone('leftLowerArm'), lH = getBone('leftHand');
-      const spine = getBone('spine'), hips = getBone('hips');
-      switch (gestureState) {{
-        case 'lookAround':  if (head) head.rotation.y += gestureTarget.lookAround * intensity; break;
-        case 'tiltHead':    if (head) head.rotation.z += gestureTarget.tiltHead   * intensity; break;
-        case 'shiftWeight': if (hips) hips.position.x += Math.sin(eased * Math.PI) * 0.018; if (spine) spine.rotation.z += Math.sin(eased * Math.PI) * 0.02; break;
-        case 'touchHair':
-          if (lUA) {{ lUA.rotation.z = REST.leftUpperArm.z + intensity * 1.6; lUA.rotation.x = REST.leftUpperArm.x - intensity * 0.6; }}
-          if (lLA) lLA.rotation.x = REST.leftLowerArm.x - intensity * 1.4;
-          if (lH)  lH.rotation.z  = REST.leftHand.z     - intensity * 0.4;
-          if (head) head.rotation.z += intensity * 0.06;
-          break;
-        case 'stretchNeck':
-          if (neck) neck.rotation.x += -intensity * 0.05;
-          if (head) head.rotation.x += -intensity * 0.04;
-          break;
-      }}
-      if (progress >= 1) gestureState = 'none';
-    }}
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function applyBlink(dt) {{
-      if (!vrm?.expressionManager) return;
-      if (blinkPhase === 'wait') {{
-        blinkTimer -= dt;
-        if (blinkTimer <= 0) {{ blinkPhase = 'closing'; blinkT = 0; }}
-      }} else if (blinkPhase === 'closing') {{
-        blinkT += dt;
-        safeSetExpression('blink', Math.min(blinkT / BLINK_CLOSE_DUR, 1));
-        if (blinkT >= BLINK_CLOSE_DUR) {{ blinkPhase = 'opening'; blinkT = 0; }}
-      }} else if (blinkPhase === 'opening') {{
-        blinkT += dt;
-        safeSetExpression('blink', 1 - Math.min(blinkT / BLINK_OPEN_DUR, 1));
-        if (blinkT >= BLINK_OPEN_DUR) {{
-          blinkPhase = 'wait'; blinkTimer = nextBlinkWait();
-          safeSetExpression('blink', 0);
-        }}
-      }}
-    }}
-
-    let lastAudio      = null;
-    let audioContext   = null;
-    let analyserAudio  = null;
-
-    function getAudioMouth() {{ return null; }}  // CORS-safe: text visemes only
-
-    function findParentAudio() {{
-      try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }}
-      catch (_) {{ return null; }}
-    }}
-
-    function syncAudioState(audio) {{
-      if (!audio) return;
-      setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
-    }}
-
+    function findParentAudio() {{ try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }} catch (_) {{ return null; }} }}
     function attachAudio(audio) {{
       if (!audio) return;
       if (audio !== lastAudio) {{
         lastAudio = audio;
-        audio.addEventListener('play', () => {{
-          setSpeaking(true);
-          let tries = 0;
-          const poll = setInterval(() => {{
-            const text = findParentSpeechText();
-            if (text) {{
-              clearInterval(poll);
-              setSpeechText(text, audio.duration);
-            }} else if (++tries >= 10) {{
-              clearInterval(poll);
-            }}
-          }}, 200);
-        }});
-        audio.addEventListener('playing', () => {{
-          setSpeaking(true);
-          const text = findParentSpeechText();
-          if (text) setSpeechText(text, audio.duration);
-        }});
+        audio.addEventListener('play', () => setSpeaking(true));
+        audio.addEventListener('playing', () => setSpeaking(true));
         audio.addEventListener('timeupdate', () => {{ if (!audio.paused && audio.currentTime > 0) setSpeaking(true); }});
-        audio.addEventListener('pause',  () => setSpeaking(false));
-        audio.addEventListener('ended',  () => setSpeaking(false));
+        audio.addEventListener('pause', () => setSpeaking(false));
+        audio.addEventListener('ended', () => setSpeaking(false));
       }}
-      syncAudioState(audio);
+      setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
     }}
     setInterval(() => attachAudio(findParentAudio()), 500);
 
     window.addEventListener('message', (e) => {{
       try {{
-        const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+        const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
         if (msg.speaking !== undefined) setSpeaking(msg.speaking);
-        if (msg.expression !== undefined) {{
-          setExpression(msg.expression, msg.intensity ?? 1.0);
-          clearTimeout(exprResetTimer);
-          if (msg.expression && msg.expression !== 'neutral')
-            exprResetTimer = setTimeout(() => setExpression('relaxed', 0.25), EXPR_RESET_DELAY);
-        }}
+        if (msg.expression !== undefined) setExpression(msg.expression, msg.intensity ?? 1.0);
         const incomingText = msg.ttsText ?? msg.speechText ?? msg.text;
-        if (incomingText !== undefined) {{
-          window._aikoLatestTtsText = incomingText;
-          setSpeechText(incomingText, msg.duration ?? msg.audioDuration ?? null);
-          if (msg.speaking === undefined && msg.playNow) setSpeaking(true);
-        }}
+        if (incomingText !== undefined) setSpeechText(incomingText, msg.duration ?? msg.audioDuration ?? null);
         if (msg.viseme !== undefined) {{
           setMouth(msg.weight ?? 1.0, msg.viseme);
           clearTimeout(window._aikoMouthTimer);
@@ -586,15 +280,41 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }} catch (_) {{}}
     }});
 
+    function getBone(name) {{
+      const h = vrm?.humanoid;
+      if (!h) return null;
+      return h.getRawBoneNode?.(name) || h.getNormalizedBoneNode?.(name) || null;
+    }}
+    function applyIdle(dt) {{
+      if (!vrm?.humanoid) return;
+      idleTime += dt;
+      const chest = getBone('chest');
+      const spine = getBone('spine');
+      const head = getBone('head');
+      const hips = getBone('hips');
+      const breath = Math.sin(idleTime * 0.83) * 0.013;
+      if (chest) chest.rotation.x = breath;
+      if (spine) spine.rotation.x = breath * 0.5;
+      if (hips) {{ hips.rotation.z = Math.sin(idleTime * 0.41) * 0.012; hips.position.x = Math.sin(idleTime * 0.41) * 0.003; }}
+      if (head) {{
+        head.rotation.y = Math.sin(idleTime * 0.31) * 0.055 + Math.sin(idleTime * 1.13) * 0.012;
+        head.rotation.z = Math.sin(idleTime * 0.27 + 1.1) * 0.018;
+        head.rotation.x = Math.sin(idleTime * 0.53) * 0.012;
+      }}
+      if (!speaking) safeSetExpression('relaxed', 0.20 + Math.sin(idleTime * 0.37) * 0.035);
+    }}
+    function applyBlink(dt) {{
+      if (!vrm?.expressionManager) return;
+      if (blinkPhase === 'wait') {{ blinkTimer -= dt; if (blinkTimer <= 0) {{ blinkPhase = 'closing'; blinkT = 0; }} }}
+      else if (blinkPhase === 'closing') {{ blinkT += dt; safeSetExpression('blink', Math.min(blinkT / BLINK_CLOSE_DUR, 1)); if (blinkT >= BLINK_CLOSE_DUR) {{ blinkPhase = 'opening'; blinkT = 0; }} }}
+      else if (blinkPhase === 'opening') {{ blinkT += dt; safeSetExpression('blink', 1 - Math.min(blinkT / BLINK_OPEN_DUR, 1)); if (blinkT >= BLINK_OPEN_DUR) {{ blinkPhase = 'wait'; blinkTimer = 3.0 + Math.random() * 4.0; safeSetExpression('blink', 0); }} }}
+    }}
+
     const loader = new GLTFLoader();
     loader.register(parser => new VRMLoaderPlugin(parser));
-
     function loadVrm(index = 0) {{
       const url = VRM_URLS[index];
-      if (!url) {{
-        document.getElementById('load-msg').textContent = 'VRM load failed';
-        return;
-      }}
+      if (!url) {{ document.getElementById('load-msg').textContent = 'VRM load failed'; return; }}
       document.getElementById('load-msg').textContent = `loading VRM (${{index + 1}}/${{VRM_URLS.length}})…`;
       loader.load(url, gltf => {{
         vrm = gltf.userData.vrm;
@@ -604,38 +324,24 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         vrm.scene.rotation.y = 0;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
-        console.log('Available expressions:', expressionNames());
         document.getElementById('loader').classList.add('fade');
         setTimeout(() => document.getElementById('loader').remove(), 550);
-      }}, undefined, err => {{
-        console.warn('[aiko-vrm] candidate failed', url, err);
-        loadVrm(index + 1);
-      }});
+      }}, undefined, err => {{ console.warn('[aiko-vrm] candidate failed', url, err); loadVrm(index + 1); }});
     }}
     loadVrm();
 
     function tick() {{
       requestAnimationFrame(tick);
       resize();
-      const dt  = Math.min(clock.getDelta(), 0.05);
+      const dt = Math.min(clock.getDelta(), 0.05);
       controls.update();
       if (vrm) vrm.update(dt);
       applyIdle(dt);
-      applyGestures(dt);
-      const now       = performance.now();
+      const now = performance.now();
       const textMouth = speaking ? currentTextMouth(now) : null;
-      const audioMouth = speaking ? getAudioMouth() : null;
-      if (audioMouth !== null) {{
-        setMouth(audioMouth, textMouth?.viseme ?? 'aa');
-      }} else if (textMouth) {{
-        setMouth(textMouth.weight, textMouth.viseme);
-      }} else if (speaking) {{
-        mouth = 0.12 + Math.abs(Math.sin(now / 110)) * 0.65;
-        setMouth(mouth, 'aa');
-      }} else {{
-        smoothedAudioMouth = 0;
-        clearMouth();
-      }}
+      if (textMouth) setMouth(textMouth.weight, textMouth.viseme);
+      else if (speaking) setMouth(0.12 + Math.abs(Math.sin(now / 110)) * 0.65, 'aa');
+      else clearMouth();
       applyBlink(dt);
       renderer.render(scene, camera);
     }}
