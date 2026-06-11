@@ -205,20 +205,28 @@ with gr.Blocks(title="Aiko-chan 🌸", fill_height=True) as demo:
     # FIXED SUBMIT HANDLER
     # ─────────────────────────────────────────────
     def _submit(message, history):
-        print("SUBMIT:", message)
-
+        print("SUBMIT:", repr(message))
+    
         history = history or []
-
+    
+        message = (message or "").strip()
+        if not message:
+            yield gr.skip(), history, "", None
+            return
+    
+        # ✔ 1. clear ONCE immediately
+        yield gr.update(value=""), history, "", None
+    
         try:
+            # ✔ 2. streaming updates (NO textbox updates here)
             for h, tts, audio in text_chat(message, history):
-                yield gr.update(value=""), h, tts, audio
-
+                yield gr.skip(), h, tts, audio
+    
         except Exception as e:
             history = history + [
                 {"role": "assistant", "content": f"ERROR: {e}"}
             ]
-            yield gr.update(value=""), history, "", None
-
+            yield gr.skip(), history, "", None
     # ─────────────────────────────────────────────
     # ✅ MUST BE INSIDE BLOCKS (THIS FIXES YOUR CRASH)
     # ─────────────────────────────────────────────
@@ -240,6 +248,7 @@ with gr.Blocks(title="Aiko-chan 🌸", fill_height=True) as demo:
         outputs=[chatbot, tts_text, audio_out],
     )
 
+    demo.queue()
 
 # ─────────────────────────────────────────────
 # Launch
