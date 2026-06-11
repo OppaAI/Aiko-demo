@@ -342,16 +342,24 @@ with gr.Blocks(title="Aiko-chan 🌸", css="", fill_height=True) as demo:
                 # Subsequent yields use gr.skip() so we never re-clobber
                 # whatever the user has started typing for their next turn.
 
-                def _submit(message, history):
-                    print("SUBMIT:", repr(message))
-                
-                    history = history or []
-                
+            def _submit(message, history):
+                print("SUBMIT:", repr(message))
+            
+                history = history or []
+            
+                try:
+                    for h, tts, audio in text_chat(message, history):
+                        print("YIELD:", len(h))
+                        yield gr.update(value=""), h, tts, audio
+            
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+            
                     history = history + [
-                        {"role": "user", "content": message},
-                        {"role": "assistant", "content": "HELLO FROM UI"}
+                        {"role": "assistant", "content": f"ERROR: {e}"}
                     ]
-                
+            
                     yield gr.update(value=""), history, "", None
                     
                 for trigger in (msg.submit, send.click):
