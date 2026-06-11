@@ -162,7 +162,7 @@ def voice_chat(audio_path, history):
 # ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
-with gr.Blocks(title="Aiko-chan 🌸", fill_height=True) as demo:
+with gr.Blocks(title="Aiko-chan 🌸", fill_height=True, css=AIKO_CSS) as demo:
 
     gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
 
