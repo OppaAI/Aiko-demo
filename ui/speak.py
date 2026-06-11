@@ -1,5 +1,4 @@
 """Browser-friendly TTS helper for the Gradio Space.
-
 The local terminal app plays MioTTS WAV bytes through sounddevice.  In a Space the
 browser must do playback, so this helper writes an MP3 file that Gradio's Audio
 component can return to the client.
@@ -48,7 +47,6 @@ _EMOJI_EMOTION: dict[str, str] = {
 
 def _is_emoji(ch: str) -> bool:
     """Return True if *ch* is an emoji or emoji modifier/variation character.
-
     Uses unicodedata category + explicit block ranges instead of a broad
     character-class regex so we never accidentally eat punctuation.
     """
@@ -85,26 +83,8 @@ def _is_emoji(ch: str) -> bool:
     return any(lo <= cp <= hi for lo, hi in emoji_ranges)
 
 
-def _strip_emoji(text: str) -> str:
-    """Remove all emoji characters (and their variation/ZWJ combiners) from *text*."""
-    out = []
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        if _is_emoji(ch):
-            i += 1
-            # Consume any immediately following variation selectors / ZWJ sequences
-            while i < len(text) and _is_emoji(text[i]):
-                i += 1
-        else:
-            out.append(ch)
-            i += 1
-    return "".join(out)
-
-
 def _extract_emotion(text: str) -> str:
     """Return the VRM expression name for the first recognisable emoji in *text*.
-
     Soul.md format is '<emoji>:' at the very start of the response.
     Scans left-to-right; returns 'neutral' when nothing matches.
     """
@@ -126,15 +106,15 @@ _MOOD_PREFIX_RE = re.compile(r"^\s*\S+\s*:\s*")  # catches "😊: " or "😊 :"
 
 def _clean_for_tts(text: str) -> str:
     """Strip tokens that make TTS sound awkward.
-
     Removes (in order):
       - soul.md mood-emoji prefix  (e.g. "😊: ")
       - __SEARCHING__ status lines
       - [think]/[search] bracketed tokens
       - *asterisk action text*
-      - all emoji characters (using precise block ranges, not broad char class)
       - leftover markdown characters
       - excess whitespace
+    NOTE: emoji are intentionally NOT stripped from the remaining text —
+    edge-tts will read/voice them (or silently skip ones it can't render).
     """
     # Strip soul.md leading mood prefix only if first non-space char is emoji
     stripped = text.lstrip()
@@ -144,7 +124,6 @@ def _clean_for_tts(text: str) -> str:
     text = re.sub(r"__SEARCHING__:[^\n]+", "", text)
     text = re.sub(r"\[(?:think|search)[^\]]*\]", "", text, flags=re.I)
     text = _ACTION_RE.sub("", text)
-    text = _strip_emoji(text)
     text = re.sub(r"[`_#>~]", "", text)   # remaining markdown (asterisks already gone)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
@@ -165,13 +144,13 @@ async def _edge_tts_to_file(text: str, out_path: Path) -> None:
 
 def speak_to_file(text: str) -> tuple[str | None, str]:
     """Synthesize *text* to an MP3 and return *(filepath, emotion)*.
-
     - *filepath* is the MP3 path for gr.Audio, or None when text is empty.
     - *emotion* is a VRM expression name (e.g. 'happy', 'sad', 'neutral').
-
-    Emoji and *action* tokens are stripped from audio; emotion is captured first.
+    Emotion is captured from the leading mood emoji (which is then stripped
+    along with the ':' separator); any other emoji in the body are left in
+    place and passed through to TTS.
     """
-    emotion = _extract_emotion(text)   # read before stripping
+    emotion = _extract_emotion(text)   # read before stripping the mood prefix
     clean = _clean_for_tts(text)
 
     if not clean:
