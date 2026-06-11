@@ -23,7 +23,11 @@ from ui.speak import speak_to_file
 # ─────────────────────────────────────────────
 # BOOT
 # ─────────────────────────────────────────────
-result = AikoWakeup(text_mode=True).boot()
+result = AikoWakeup(text_mode=True).boot(
+    on_loading=lambda k: print(f"[boot] loading: {k}"),
+    on_done=lambda k: print(f"[boot] done: {k}"),
+    on_skip=lambda k: print(f"[boot] skip: {k}"),
+)
 
 think = result.think
 
