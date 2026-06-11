@@ -170,6 +170,18 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
             <script>
             (function() {
 
+              // ── Create/ensure single emotion label exists ─────────────
+              function ensureEmotionLabel() {
+                const card = document.getElementById('aiko-avatar-card');
+                if (!card) { setTimeout(ensureEmotionLabel, 600); return; }
+                // Remove any existing copies (covers SSR/hydration dupes)
+                document.querySelectorAll('#aiko-emotion-label').forEach(el => el.remove());
+                const label = document.createElement('div');
+                label.id = 'aiko-emotion-label';
+                label.textContent = 'RELAXED';
+                card.prepend(label);
+              }
+
               // ── Emotion label ──────────────────────────────────────────
               function setEmotionLabel(emotion) {
                 const el = document.getElementById('aiko-emotion-label');
@@ -269,6 +281,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
               }
 
               setTimeout(() => {
+                ensureEmotionLabel();
                 hookAudio();
                 watchTtsText();
                 setupChatScroll();
@@ -281,8 +294,8 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
 
         with gr.Row(equal_height=True):
             with gr.Column(scale=1, elem_id="aiko-avatar-card"):
-                # Emotion label overlay (top-left of card)
-                gr.HTML('<div id="aiko-emotion-label">RELAXED</div>')
+                # Emotion label is created dynamically via JS below
+                # (avoids Gradio SSR/hydration double-render of gr.HTML)
 
                 gr.HTML(value=avatar_html(VRM_URLS), show_label=False)
                 audio_out = gr.Audio(
@@ -331,11 +344,11 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                     if not message:
                         yield gr.update(value=""), history, "", None
                         return
-                    # First yield: clear the textbox immediately
-                    yield gr.update(value=""), history, "", None
-                    # Subsequent yields: don't touch the textbox at all
+                    # Clear the textbox immediately and on every subsequent
+                    # yield, so it never re-fills with stale state and stays
+                    # interactive for the next turn.
                     for h, tts, audio in text_chat(message, history):
-                        yield gr.skip(), h, tts, audio
+                        yield gr.update(value=""), h, tts, audio
 
                 for trigger in (msg.submit, send.click):
                     trigger(
