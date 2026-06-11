@@ -8,7 +8,11 @@ load_dotenv()
 
 import gradio as gr
 import time
+import gradio as gr
+import inspect
 
+print("GRADIO VERSION:", gr.__version__)
+print(inspect.signature(gr.Chatbot))
 from core.wakeup import AikoWakeup
 from ui.css import AIKO_CSS
 from ui.asr import transcribe_file
@@ -163,7 +167,7 @@ def voice_chat(audio_path, history):
         yield h, tts, audio
 
 
-with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
+with gr.Blocks(title="Aiko-chan 🌸", css="", fill_height=True) as demo:
     with gr.Column(elem_id="aiko-shell"):
         gr.HTML("""
             <div id="aiko-title">🌸 Aiko-chan</div>
@@ -339,23 +343,17 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                 # whatever the user has started typing for their next turn.
 
                 def _submit(message, history):
-                    """Capture message, clear box once, then stream."""
-                    message = (message or "").strip()
-                    if not message:
-                        yield gr.update(value=""), history, "", None
-                        return
+                    print("SUBMIT:", repr(message))
                 
-                    first = True
+                    history = history or []
                 
-                    for h, tts, audio in text_chat(message, history):
-                        if first:
-                            # Clear the textbox only once
-                            yield gr.update(value=""), h, tts, audio
-                            first = False
-                        else:
-                            # Leave whatever the user is typing alone
-                            yield gr.skip(), h, tts, audio
-
+                    history = history + [
+                        {"role": "user", "content": message},
+                        {"role": "assistant", "content": "HELLO FROM UI"}
+                    ]
+                
+                    yield gr.update(value=""), history, "", None
+                    
                 for trigger in (msg.submit, send.click):
                     trigger(
                         _submit,
