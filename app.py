@@ -231,15 +231,15 @@ with gr.Blocks(
                         elem_id="aiko-send",
                     )
                 
-                            #
-                            # HIDDEN RECORDER
-                            #
-                            mic_audio = gr.Audio(
-                                sources=["microphone"],
-                                type="filepath",
-                                visible=False,
-                                elem_id="aiko-mic-audio",
-                            )
+                    #
+                    # HIDDEN RECORDER
+                    #
+                    mic_audio = gr.Audio(
+                        sources=["microphone"],
+                        type="filepath",
+                        visible=False,
+                        elem_id="aiko-mic-audio",
+                    )
 
     # ─────────────────────────────────────────────
     # FIXED SUBMIT HANDLER
