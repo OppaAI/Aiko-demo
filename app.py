@@ -68,7 +68,7 @@ def _stream_response(message: str, history: list):
         {"role": "assistant", "content": "▋"},
     ]
 
-    yield history, "", None
+    yield history, None, None
 
     buffer = ""
     full_text = ""
@@ -77,7 +77,6 @@ def _stream_response(message: str, history: list):
     done = threading.Event()
     error = {}
 
-    # ───── TOKEN CALLBACK ─────
     def _cb(token):
         nonlocal buffer, full_text
 
@@ -90,7 +89,6 @@ def _stream_response(message: str, history: list):
             buffer += token
             full_text += token
 
-    # ───── MODEL THREAD ─────
     def _run():
         try:
             think.chat(message, token_callback=_cb)
@@ -101,18 +99,15 @@ def _stream_response(message: str, history: list):
 
     threading.Thread(target=_run, daemon=True).start()
 
-    # ─────────────────────────────
-    # STREAM LOOP (FIXED)
-    # ─────────────────────────────
     while not done.is_set() or buffer or full_text != last_emitted:
 
-        # ✨ STREAM TEXT LIVE (NO INPUT CONTROL!)
+        # 🧠 STREAM CHAT TEXT (DO NOT TOUCH INPUT COMPONENTS)
         if full_text != last_emitted:
             history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
             last_emitted = full_text
-            yield history, "", None
+            yield history, None, None
 
-        # 🎧 TTS PER SENTENCE
+        # 🔊 TTS PER SENTENCE
         sentences, buffer = _split_ready_sentences(buffer)
 
         for s in sentences:
@@ -125,7 +120,7 @@ def _stream_response(message: str, history: list):
 
         time.sleep(0.03)
 
-    # ───── FINAL FLUSH ─────
+    # FINAL FLUSH
     if buffer.strip():
         clean = _strip_for_speech(buffer)
         if clean:
@@ -136,11 +131,11 @@ def _stream_response(message: str, history: list):
         raise error["e"]
 
     history[-1]["content"] = full_text
-    yield history, "", None
+    yield history, None, None
 
 
 # ─────────────────────────────────────────────
-# CHAT WRAPPERS
+# WRAPPERS
 # ─────────────────────────────────────────────
 def text_chat(message: str, history: list):
     history = history or []
@@ -236,38 +231,43 @@ with gr.Blocks(
                     )
 
     # ─────────────────────────────────────────────
-    # SUBMIT (FIXED — NO INPUT CONTROL DURING STREAM)
+    # CLEAN INPUT (SEPARATE — FIXES YOUR BUG)
+    # ─────────────────────────────────────────────
+    def _clear():
+        return ""
+
+    # ─────────────────────────────────────────────
+    # STREAM HANDLER (NO INPUT CONTROL HERE)
     # ─────────────────────────────────────────────
     def _submit(message, history):
         history = history or []
         message = (message or "").strip()
 
         if not message:
-            return "", history, "", None
+            return history, None, None
 
-        try:
-            for h, tts, audio in text_chat(message, history):
-                yield "", h, tts, audio
-
-        except Exception as e:
-            history.append({"role": "assistant", "content": f"ERROR: {e}"})
-            yield "", history, "", None
+        for h, tts, audio in text_chat(message, history):
+            yield h, tts, audio
 
 
     # ─────────────────────────────────────────────
-    # EVENTS (IMPORTANT FIX)
+    # EVENTS (FIXED ARCHITECTURE)
     # ─────────────────────────────────────────────
     msg.submit(
         _submit,
         inputs=[msg, chatbot],
-        outputs=[msg, chatbot, tts_text, audio_out],
+        outputs=[chatbot, tts_text, audio_out],
     )
 
     send.click(
         _submit,
         inputs=[msg, chatbot],
-        outputs=[msg, chatbot, tts_text, audio_out],
+        outputs=[chatbot, tts_text, audio_out],
     )
+
+    # clear input AFTER submit (IMPORTANT)
+    msg.submit(_clear, inputs=None, outputs=msg)
+    send.click(_clear, inputs=None, outputs=msg)
 
     mic_audio.change(
         voice_chat,
