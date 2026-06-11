@@ -1,4 +1,4 @@
-gradio
+gradio==6.17.3
 python-dotenv
 sqlite-vec
 fastembed
