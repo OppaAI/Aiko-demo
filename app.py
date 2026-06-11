@@ -207,6 +207,8 @@ with gr.Blocks(
                     chatbot = gr.Chatbot(
                         elem_id="aiko-chatbot",
                         height=600,
+                        show_label=False,
+                        container=False,
                     )
     
                 #
@@ -223,6 +225,8 @@ with gr.Blocks(
                         placeholder="Type a message…",
                         elem_id="aiko-msg",
                         scale=12,
+                        show_label=False,
+                        container=False,
                     )
                 
                     send = gr.Button(
@@ -245,28 +249,28 @@ with gr.Blocks(
     # FIXED SUBMIT HANDLER
     # ─────────────────────────────────────────────
     def _submit(message, history):
-        print("SUBMIT:", repr(message))
     
         history = history or []
     
         message = (message or "").strip()
+    
         if not message:
-            yield gr.skip(), history, "", None
+            yield "", history, "", None
             return
     
-        # ✔ 1. clear ONCE immediately
-        yield gr.update(value=""), history, "", None
-    
         try:
-            # ✔ 2. streaming updates (NO textbox updates here)
             for h, tts, audio in text_chat(message, history):
-                yield gr.skip(), h, tts, audio
+                yield "", h, tts, audio
     
         except Exception as e:
-            history = history + [
-                {"role": "assistant", "content": f"ERROR: {e}"}
-            ]
-            yield gr.skip(), history, "", None
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": f"ERROR: {e}"
+                }
+            )
+    
+            yield "", history, "", None
     # ─────────────────────────────────────────────
     # ✅ MUST BE INSIDE BLOCKS (THIS FIXES YOUR CRASH)
     # ─────────────────────────────────────────────
