@@ -213,38 +213,33 @@ with gr.Blocks(
                 # INPUT OVERLAY
                 #
                 with gr.Row(elem_id="aiko-input-row"):
-    
-                    mic_btn.click(
-                        None,
-                        js="""
-                        () => {
-                            const btn = document.querySelector('#aiko-mic-audio button');
-                            if (btn) btn.click();
-                        }
-                        """
+                
+                    mic_btn = gr.Button(
+                        "🎙️",
+                        elem_id="aiko-mic-btn",
                     )
-    
+                
                     msg = gr.Textbox(
                         placeholder="Type a message…",
                         elem_id="aiko-msg",
                         scale=12,
                     )
-    
+                
                     send = gr.Button(
                         "➤",
                         variant="primary",
                         elem_id="aiko-send",
                     )
-
-            #
-            # HIDDEN RECORDER
-            #
-            mic_audio = gr.Audio(
-                sources=["microphone"],
-                type="filepath",
-                visible=False,
-                elem_id="aiko-mic-audio",
-            )
+                
+                            #
+                            # HIDDEN RECORDER
+                            #
+                            mic_audio = gr.Audio(
+                                sources=["microphone"],
+                                type="filepath",
+                                visible=False,
+                                elem_id="aiko-mic-audio",
+                            )
 
     # ─────────────────────────────────────────────
     # FIXED SUBMIT HANDLER
@@ -291,6 +286,16 @@ with gr.Blocks(
         voice_chat,
         inputs=[mic_audio, chatbot],
         outputs=[chatbot, tts_text, audio_out],
+    )
+
+    mic_btn.click(
+        None,
+        js="""
+        () => {
+            const btn = document.querySelector('#aiko-mic-audio button');
+            if (btn) btn.click();
+        }
+        """
     )
 
     demo.queue()
