@@ -83,6 +83,14 @@ html, body, .gradio-container, main, footer {
   transition: opacity 0.4s ease;
 }
 
+/* Hide any duplicate emotion-label nodes that Gradio's hydration may
+   inject outside the avatar card (keep only the one inside #aiko-avatar-card) */
+#aiko-emotion-label ~ #aiko-emotion-label,
+body > #aiko-emotion-label,
+.gradio-container > #aiko-emotion-label {
+  display: none !important;
+}
+
 /* ── Hide Gradio message action buttons (copy/like/dislike/edit) ── */
 #aiko-chatbot .message-buttons,
 #aiko-chatbot .icon-button,
@@ -188,7 +196,7 @@ div:has(> #aiko-chatbot) {
 #aiko-chatbot [data-testid="user"] {
   padding: 1px 0 !important;
   margin: 0 !important;
-  font-size: 0.74rem !important;
+  font-size: 0.66rem !important;
   line-height: 1.25 !important;
   text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 16px rgba(100,60,180,0.45);
   max-width: 100% !important;
