@@ -245,22 +245,53 @@ div:has(> #aiko-chatbot) {
   min-width: 0;
 }
 
-/* Transparent text input with lavender border */
-#aiko-msg textarea,
-#aiko-msg input,
+#aiko-mic-btn,
+#aiko-mic-btn button,
+#aiko-send,
+#aiko-send button {
+
+    width:48px !important;
+    min-width:48px !important;
+
+    height:48px !important;
+    min-height:48px !important;
+
+    padding:0 !important;
+
+    border-radius:10px !important;
+
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+
+    flex-shrink:0;
+}
+/* Remove Gradio textbox wrapper */
 #aiko-msg,
 #aiko-msg > div,
-#aiko-msg [class*="input"] {
+#aiko-msg .wrap,
+#aiko-msg .container {
   background: transparent !important;
   background-color: transparent !important;
-  color: var(--aiko-accent) !important;
-  border: 1px solid rgba(182, 140, 255, 0.6) !important;
-  border-radius: 10px !important;
-  font-size: 0.9rem !important;
+  border: none !important;
   box-shadow: none !important;
-  backdrop-filter: none !important;
-  height: 100% !important;
-  min-height: 42px;
+  padding: 0 !important;
+}
+
+/* Actual typing area */
+#aiko-msg textarea,
+#aiko-msg input {
+  background: transparent !important;
+  background-color: transparent !important;
+
+  color: var(--aiko-accent) !important;
+
+  border: 1px solid rgba(182,140,255,0.55) !important;
+  border-radius: 10px !important;
+
+  box-shadow: none !important;
+
+  min-height: 42px !important;
 }
 textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important; }
 
