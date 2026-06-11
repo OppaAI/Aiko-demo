@@ -20,6 +20,18 @@ html, body, .gradio-container, main, footer {
 
 #aiko-shell { max-width: 1180px; margin: 0 auto; padding: 0 12px 12px; }
 
+/* ── Title header ──────────────────────────────────────────────────── */
+#aiko-title {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  color: #ecdeff;
+  text-shadow: 0 0 18px rgba(155, 124, 255, .55);
+  padding: 10px 8px 10px;
+  text-align: left;
+}
+
 /* Avatar card is the relative anchor for all overlays */
 #aiko-avatar-card {
   position: relative;
@@ -175,6 +187,13 @@ div:has(> #aiko-chatbot) {
   gap: 6px;
   align-items: stretch;   /* all children same height */
   z-index: 6;
+  flex-wrap: nowrap;
+}
+
+/* Make the textbox column shrink/grow so send/mic never get pushed out */
+#aiko-msg {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* Transparent text input with lavender border */
@@ -237,7 +256,6 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 /* Hide the hidden recorder entirely from layout */
 #aiko-mic-audio { display: none !important; }
 
-#aiko-title { display: none; }
 #aiko-note { display: none; }
 .gradio-container footer { display: none !important; }
 .hide { display: none !important; }
