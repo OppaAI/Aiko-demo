@@ -339,16 +339,22 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                 # whatever the user has started typing for their next turn.
 
                 def _submit(message, history):
-                    """Capture message, clear box, then begin streaming."""
+                    """Capture message, clear box once, then stream."""
                     message = (message or "").strip()
                     if not message:
                         yield gr.update(value=""), history, "", None
                         return
-                    # Clear the textbox immediately and on every subsequent
-                    # yield, so it never re-fills with stale state and stays
-                    # interactive for the next turn.
+                
+                    first = True
+                
                     for h, tts, audio in text_chat(message, history):
-                        yield gr.update(value=""), h, tts, audio
+                        if first:
+                            # Clear the textbox only once
+                            yield gr.update(value=""), h, tts, audio
+                            first = False
+                        else:
+                            # Leave whatever the user is typing alone
+                            yield gr.skip(), h, tts, audio
 
                 for trigger in (msg.submit, send.click):
                     trigger(
