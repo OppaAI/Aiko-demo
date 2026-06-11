@@ -14,14 +14,13 @@ print("GRADIO VERSION:", gr.__version__)
 print(inspect.signature(gr.Chatbot))
 
 from core.wakeup import AikoWakeup
-from ui.css import AIKO_CSS
+from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
 from ui.asr import transcribe_file
 from ui.speak import speak_to_file
-from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
 
 
 # ─────────────────────────────────────────────
-# Boot system
+# Boot
 # ─────────────────────────────────────────────
 result = AikoWakeup(text_mode=True).boot(
     on_loading=lambda k: print(f"[boot] loading: {k}"),
@@ -30,7 +29,6 @@ result = AikoWakeup(text_mode=True).boot(
 )
 
 think = result.think
-memorize = result.memorize
 
 if hasattr(think, "join_warmup"):
     think.join_warmup()
@@ -39,19 +37,14 @@ if hasattr(think, "join_warmup"):
 VRM_PATH = resolve_vrm_path()
 VRM_URLS = gradio_file_urls(VRM_PATH)
 
-try:
-    gr.set_static_paths(paths=[VRM_PATH.parent])
-except Exception:
-    pass
-
 
 # ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
 def _strip_for_speech(text: str) -> str:
-    cleaned = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
-    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL)
-    return cleaned.strip()
+    text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    return text.strip()
 
 
 _SENTENCE_END = re.compile(r'(?<=[.!?。！？\n])\s*')
@@ -82,8 +75,8 @@ def _stream_response(message: str, history: list):
     def _cb(token):
         nonlocal buffer, full_text
         if token.startswith("__SEARCHING__:"):
-            query = token.split(":", 1)[1]
-            note = f"\n🔍 Searching: *{query}*\n"
+            q = token.split(":", 1)[1]
+            note = f"\n🔍 Searching: *{q}*\n"
             buffer += note
             full_text += note
         else:
@@ -106,8 +99,8 @@ def _stream_response(message: str, history: list):
     while not done.is_set() or buffer.strip():
         sentences, buffer = _split_ready_sentences(buffer)
 
-        for sentence in sentences:
-            clean = _strip_for_speech(sentence)
+        for s in sentences:
+            clean = _strip_for_speech(s)
             if not clean:
                 continue
 
@@ -171,39 +164,33 @@ def voice_chat(audio_path, history):
 # ─────────────────────────────────────────────
 with gr.Blocks(title="Aiko-chan 🌸", fill_height=True) as demo:
 
-    gr.HTML("""
-    <div id="aiko-title">🌸 Aiko-chan</div>
-    """)
+    gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
 
     with gr.Row(equal_height=True):
 
-        with gr.Column(scale=1, elem_id="aiko-avatar-card"):
+        with gr.Column(scale=1):
 
             gr.HTML(value=avatar_html(VRM_URLS))
 
             audio_out = gr.Audio(
                 autoplay=True,
-                visible=True,
                 type="filepath",
                 elem_id="aiko-audio",
             )
 
             tts_text = gr.Textbox(
-                value="",
                 visible=False,
                 elem_id="aiko-tts-text",
             )
 
             chatbot = gr.Chatbot(
-                elem_id="aiko-chatbot",
                 height=600,
+                elem_id="aiko-chatbot",
             )
 
-            with gr.Row(elem_id="aiko-input-row"):
-                mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
+            with gr.Row():
                 msg = gr.Textbox(
                     placeholder="Type a message…",
-                    elem_id="aiko-msg",
                     scale=12,
                 )
                 send = gr.Button("➤", variant="primary")
@@ -212,53 +199,46 @@ with gr.Blocks(title="Aiko-chan 🌸", fill_height=True) as demo:
                 sources=["microphone"],
                 type="filepath",
                 visible=False,
-                elem_id="aiko-mic-audio",
             )
 
+    # ─────────────────────────────────────────────
+    # FIXED SUBMIT HANDLER
+    # ─────────────────────────────────────────────
+    def _submit(message, history):
+        print("SUBMIT:", message)
 
-# ─────────────────────────────────────────────
-# FIXED SUBMIT (THIS WAS YOUR BUG)
-# ─────────────────────────────────────────────
-def _submit(message, history):
-    print("SUBMIT:", repr(message))
+        history = history or []
 
-    history = history or []
+        try:
+            for h, tts, audio in text_chat(message, history):
+                yield gr.update(value=""), h, tts, audio
 
-    try:
-        for h, tts, audio in text_chat(message, history):
-            yield gr.update(value=""), h, tts, audio
+        except Exception as e:
+            history = history + [
+                {"role": "assistant", "content": f"ERROR: {e}"}
+            ]
+            yield gr.update(value=""), history, "", None
 
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
+    # ─────────────────────────────────────────────
+    # ✅ MUST BE INSIDE BLOCKS (THIS FIXES YOUR CRASH)
+    # ─────────────────────────────────────────────
+    msg.submit(
+        _submit,
+        inputs=[msg, chatbot],
+        outputs=[msg, chatbot, tts_text, audio_out],
+    )
 
-        history = history + [
-            {"role": "assistant", "content": f"ERROR: {e}"}
-        ]
+    send.click(
+        _submit,
+        inputs=[msg, chatbot],
+        outputs=[msg, chatbot, tts_text, audio_out],
+    )
 
-        yield gr.update(value=""), history, "", None
-
-
-# ─────────────────────────────────────────────
-# ✅ IMPORTANT: EVENT BINDING (MUST BE OUTSIDE)
-# ─────────────────────────────────────────────
-msg.submit(
-    _submit,
-    inputs=[msg, chatbot],
-    outputs=[msg, chatbot, tts_text, audio_out],
-)
-
-send.click(
-    _submit,
-    inputs=[msg, chatbot],
-    outputs=[msg, chatbot, tts_text, audio_out],
-)
-
-mic_audio.change(
-    voice_chat,
-    inputs=[mic_audio, chatbot],
-    outputs=[chatbot, tts_text, audio_out],
-)
+    mic_audio.change(
+        voice_chat,
+        inputs=[mic_audio, chatbot],
+        outputs=[chatbot, tts_text, audio_out],
+    )
 
 
 # ─────────────────────────────────────────────
