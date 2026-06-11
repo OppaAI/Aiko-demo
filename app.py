@@ -167,13 +167,14 @@ def voice_chat(audio_path, history):
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
     with gr.Column(elem_id="aiko-shell"):
         gr.HTML("""
+            <div id="aiko-title">🌸 Aiko-chan</div>
             <script>
             (function() {
               function postToVrm(text, emotion) {
                 const frame = document.getElementById('aiko-vrm-frame');
                 if (!frame) return;
                 frame.contentWindow.postMessage(
-                  { ttsText: text, playNow: true, emotion: emotion || "neutral" },
+                  { ttsText: text, playNow: true, expression: emotion || "neutral" },
                   '*'
                 );
               }
@@ -256,7 +257,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                         elem_id="aiko-chatbot",
                         show_label=False,
                         height=600,
-                        #type="messages",
+                        type="messages",
                     )
 
                 with gr.Row(elem_id="aiko-input-row"):
