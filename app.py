@@ -14,6 +14,7 @@ print("GRADIO VERSION:", gr.__version__)
 print(inspect.signature(gr.Chatbot))
 
 from core.wakeup import AikoWakeup
+from ui.css import AIKO_CSS
 from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
 from ui.asr import transcribe_file
 from ui.speak import speak_to_file
