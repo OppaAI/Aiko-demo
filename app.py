@@ -321,21 +321,21 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS, fill_height=True) as demo:
                 )
 
                 # ── Two-step submit: capture → clear → stream ─────────────
-                # Use a direct approach: pass message value directly to the
-                # stream function to avoid stale State between turns.
+                # Only touch the `msg` textbox on the FIRST yield (clearing it).
+                # Subsequent yields use gr.skip() so we never re-clobber
+                # whatever the user has started typing for their next turn.
 
                 def _submit(message, history):
                     """Capture message, clear box, then begin streaming."""
                     message = (message or "").strip()
                     if not message:
-                        # yield cleared box + unchanged history
                         yield gr.update(value=""), history, "", None
                         return
                     # First yield: clear the textbox immediately
                     yield gr.update(value=""), history, "", None
-                    # Then stream responses
+                    # Subsequent yields: don't touch the textbox at all
                     for h, tts, audio in text_chat(message, history):
-                        yield gr.update(value=""), h, tts, audio
+                        yield gr.skip(), h, tts, audio
 
                 for trigger in (msg.submit, send.click):
                     trigger(
