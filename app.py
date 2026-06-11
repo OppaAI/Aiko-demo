@@ -23,11 +23,7 @@ from ui.speak import speak_to_file
 # ─────────────────────────────────────────────
 # BOOT
 # ─────────────────────────────────────────────
-result = AikoWakeup(text_mode=True).boot(
-    on_loading=lambda k: print(f"[boot] loading: {k}"),
-    on_done=lambda k: print(f"[boot] done: {k}"),
-    on_skip=lambda k: print(f"[boot] skip: {k}"),
-)
+result = AikoWakeup(text_mode=True).boot()
 
 think = result.think
 
@@ -60,7 +56,7 @@ def _split_ready_sentences(buffer: str):
 
 
 # ─────────────────────────────────────────────
-# STREAMING CORE
+# STREAM CORE
 # ─────────────────────────────────────────────
 def _stream_response(message: str, history: list):
     history = list(history) + [
@@ -101,13 +97,13 @@ def _stream_response(message: str, history: list):
 
     while not done.is_set() or buffer or full_text != last_emitted:
 
-        # 🧠 STREAM CHAT TEXT (DO NOT TOUCH INPUT COMPONENTS)
+        # STREAM TEXT (ONLY CHATBOT UPDATED)
         if full_text != last_emitted:
             history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
             last_emitted = full_text
             yield history, None, None
 
-        # 🔊 TTS PER SENTENCE
+        # TTS PER SENTENCE
         sentences, buffer = _split_ready_sentences(buffer)
 
         for s in sentences:
@@ -137,29 +133,27 @@ def _stream_response(message: str, history: list):
 # ─────────────────────────────────────────────
 # WRAPPERS
 # ─────────────────────────────────────────────
-def text_chat(message: str, history: list):
+def _submit(message, history):
     history = history or []
     message = (message or "").strip()
 
     if not message:
-        yield history, None, None
-        return
+        return history, None, None
 
-    yield from _stream_response(message, history)
+    for h, tts, audio in _stream_response(message, history):
+        yield h, tts, audio
 
 
 def voice_chat(audio_path, history):
     history = history or []
 
     if not audio_path:
-        yield history, None, None
-        return
+        return history, None, None
 
     transcript = transcribe_file(audio_path)
 
     if not transcript:
-        yield history, None, None
-        return
+        return history, None, None
 
     for h, tts, audio in _stream_response(transcript, history):
         if h and len(h) >= 2:
@@ -231,27 +225,7 @@ with gr.Blocks(
                     )
 
     # ─────────────────────────────────────────────
-    # CLEAN INPUT (SEPARATE — FIXES YOUR BUG)
-    # ─────────────────────────────────────────────
-    def _clear():
-        return ""
-
-    # ─────────────────────────────────────────────
-    # STREAM HANDLER (NO INPUT CONTROL HERE)
-    # ─────────────────────────────────────────────
-    def _submit(message, history):
-        history = history or []
-        message = (message or "").strip()
-
-        if not message:
-            return history, None, None
-
-        for h, tts, audio in text_chat(message, history):
-            yield h, tts, audio
-
-
-    # ─────────────────────────────────────────────
-    # EVENTS (FIXED ARCHITECTURE)
+    # EVENTS (CLEAN + STABLE)
     # ─────────────────────────────────────────────
     msg.submit(
         _submit,
@@ -264,10 +238,6 @@ with gr.Blocks(
         inputs=[msg, chatbot],
         outputs=[chatbot, tts_text, audio_out],
     )
-
-    # clear input AFTER submit (IMPORTANT)
-    msg.submit(_clear, inputs=None, outputs=msg)
-    send.click(_clear, inputs=None, outputs=msg)
 
     mic_audio.change(
         voice_chat,
