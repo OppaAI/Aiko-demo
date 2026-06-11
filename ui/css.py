@@ -67,6 +67,22 @@ html, body, .gradio-container, main, footer {
 
 #aiko-tts-text { display: none !important; }
 
+/* ── Emotion label (top-left of avatar card) ──────────────────────── */
+#aiko-emotion-label {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  z-index: 10;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(220, 200, 255, 0.75);
+  text-shadow: 0 0 8px rgba(150,100,255,0.6);
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
 /* ── Hide Gradio message action buttons (copy/like/dislike/edit) ── */
 #aiko-chatbot .message-buttons,
 #aiko-chatbot .icon-button,
@@ -93,13 +109,14 @@ html, body, .gradio-container, main, footer {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 6px;
-  pointer-events: none;  /* transparent gaps still pass clicks to VRM */
+  gap: 0;
+  /* pointer-events left ON so scroll works */
+  pointer-events: auto;
   z-index: 5;
   overflow: hidden;
 }
 
-/* Chatbot itself gets pointer events back so scroll works */
+/* Chatbot itself */
 #aiko-chatbot,
 #aiko-chatbot * {
   pointer-events: auto !important;
@@ -144,26 +161,50 @@ div:has(> #aiko-chatbot) {
   padding: 0 !important;
 }
 
-/* Hide chatbot scrollbar */
+/* Scrollable chatbot with subtle scrollbar */
 #aiko-chatbot {
-  overflow-y: auto;
-  scrollbar-width: none;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(182,140,255,0.35) transparent;
   height: 100% !important;
   max-height: 100% !important;
-  padding: 0 !important;
+  padding: 0 4px 0 0 !important;
 }
-#aiko-chatbot::-webkit-scrollbar { display: none; }
+#aiko-chatbot::-webkit-scrollbar {
+  width: 4px;
+}
+#aiko-chatbot::-webkit-scrollbar-track {
+  background: transparent;
+}
+#aiko-chatbot::-webkit-scrollbar-thumb {
+  background: rgba(182,140,255,0.35);
+  border-radius: 4px;
+}
 
-/* Caption-style text — small, tight */
+/* Caption-style text — small, tight, NO extra paragraph spacing */
 #aiko-chatbot .message,
 #aiko-chatbot .bubble,
 #aiko-chatbot [data-testid="bot"],
 #aiko-chatbot [data-testid="user"] {
-  padding: 2px 0 !important;
-  font-size: 0.80rem !important;
-  line-height: 1.3 !important;
+  padding: 1px 0 !important;
+  margin: 0 !important;
+  font-size: 0.74rem !important;
+  line-height: 1.25 !important;
   text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 16px rgba(100,60,180,0.45);
   max-width: 100% !important;
+}
+
+/* Kill paragraph margins inside messages */
+#aiko-chatbot p,
+#aiko-chatbot .md p {
+  margin: 0 0 2px 0 !important;
+}
+
+/* Message row spacing */
+#aiko-chatbot .message-row,
+#aiko-chatbot [class*="message-row"] {
+  margin-bottom: 2px !important;
+  padding: 0 !important;
 }
 
 /* User = light cyan right-aligned; bot = light lavender */
@@ -185,12 +226,12 @@ div:has(> #aiko-chatbot) {
   bottom: 16px;
   display: flex;
   gap: 6px;
-  align-items: stretch;   /* all children same height */
+  align-items: stretch;
   z-index: 6;
   flex-wrap: nowrap;
 }
 
-/* Make the textbox column shrink/grow so send/mic never get pushed out */
+/* Make the textbox column shrink/grow */
 #aiko-msg {
   flex: 1 1 auto;
   min-width: 0;
@@ -215,7 +256,7 @@ div:has(> #aiko-chatbot) {
 }
 textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important; }
 
-/* Square send button — matches row height */
+/* Square send button */
 #aiko-send,
 #aiko-send button {
   background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
@@ -233,7 +274,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   flex-shrink: 0;
 }
 
-/* ── Mic button: square, same size as send ────────────────────────── */
+/* ── Mic button ────────────────────────────────────────────────────── */
 #aiko-mic-btn,
 #aiko-mic-btn button {
   background: rgba(118, 82, 214, 0.25) !important;
