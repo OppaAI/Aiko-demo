@@ -163,43 +163,67 @@ def voice_chat(audio_path, history):
 # ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
-with gr.Blocks(title="Aiko-chan 🌸", fill_height=True, css=AIKO_CSS) as demo:
+with gr.Blocks(
+    title="Aiko-chan 🌸",
+    fill_height=True,
+    css=AIKO_CSS
+) as demo:
 
-    gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
+    # ─────────────────────────────────────────────
+    # ROOT SHELL (IMPORTANT FOR OVERLAY SYSTEM)
+    # ─────────────────────────────────────────────
+    with gr.Column(elem_id="aiko-shell"):
 
-    with gr.Row(equal_height=True):
+        gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
 
-        with gr.Column(scale=1):
+        with gr.Row(equal_height=True):
 
-            gr.HTML(value=avatar_html(VRM_URLS))
+            # ─────────────────────────────────────
+            # VRM BACKGROUND LAYER
+            # ─────────────────────────────────────
+            with gr.Column(elem_id="aiko-vrm-layer", scale=1):
 
-            audio_out = gr.Audio(
-                autoplay=True,
-                type="filepath",
-                elem_id="aiko-audio",
-            )
+                gr.HTML(value=avatar_html(VRM_URLS))
 
-            tts_text = gr.Textbox(
-                visible=False,
-                elem_id="aiko-tts-text",
-            )
-
-            chatbot = gr.Chatbot(
-                height=600,
-                elem_id="aiko-chatbot",
-            )
-
-            with gr.Row():
-                msg = gr.Textbox(
-                    placeholder="Type a message…",
-                    scale=12,
+                audio_out = gr.Audio(
+                    autoplay=True,
+                    type="filepath",
+                    elem_id="aiko-audio",
                 )
-                send = gr.Button("➤", variant="primary")
+
+                tts_text = gr.Textbox(
+                    visible=False,
+                    elem_id="aiko-tts-text",
+                )
+
+            # ─────────────────────────────────────
+            # CHAT OVERLAY LAYER
+            # ─────────────────────────────────────
+            with gr.Column(elem_id="aiko-chat-overlay", scale=1):
+
+                chatbot = gr.Chatbot(
+                    height=600,
+                    elem_id="aiko-chatbot",
+                )
+
+        # ─────────────────────────────────────────────
+        # INPUT DOCK (BOTTOM OVERLAY STYLE)
+        # ─────────────────────────────────────────────
+        with gr.Row(elem_id="aiko-input-row"):
+
+            msg = gr.Textbox(
+                placeholder="Type a message…",
+                scale=12,
+                elem_id="aiko-msg",
+            )
+
+            send = gr.Button("➤", variant="primary")
 
             mic_audio = gr.Audio(
                 sources=["microphone"],
                 type="filepath",
                 visible=False,
+                elem_id="aiko-mic-audio",
             )
 
     # ─────────────────────────────────────────────
