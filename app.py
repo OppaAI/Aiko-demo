@@ -21,7 +21,7 @@ from ui.speak import speak_to_file
 
 
 # ─────────────────────────────────────────────
-# Boot
+# BOOT
 # ─────────────────────────────────────────────
 result = AikoWakeup(text_mode=True).boot(
     on_loading=lambda k: print(f"[boot] loading: {k}"),
@@ -40,7 +40,7 @@ VRM_URLS = gradio_file_urls(VRM_PATH)
 
 
 # ─────────────────────────────────────────────
-# Helpers
+# HELPERS
 # ─────────────────────────────────────────────
 def _strip_for_speech(text: str) -> str:
     text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
@@ -90,7 +90,7 @@ def _stream_response(message: str, history: list):
             buffer += token
             full_text += token
 
-    # ───── RUN MODEL IN THREAD ─────
+    # ───── MODEL THREAD ─────
     def _run():
         try:
             think.chat(message, token_callback=_cb)
@@ -101,16 +101,18 @@ def _stream_response(message: str, history: list):
 
     threading.Thread(target=_run, daemon=True).start()
 
-    # ───── STREAM LOOP ─────
+    # ─────────────────────────────
+    # STREAM LOOP (FIXED)
+    # ─────────────────────────────
     while not done.is_set() or buffer or full_text != last_emitted:
 
-        # 1) REAL-TIME UI STREAM (FIXED)
+        # ✨ STREAM TEXT LIVE (NO INPUT CONTROL!)
         if full_text != last_emitted:
             history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
             last_emitted = full_text
             yield history, "", None
 
-        # 2) TTS SENTENCE STREAM
+        # 🎧 TTS PER SENTENCE
         sentences, buffer = _split_ready_sentences(buffer)
 
         for s in sentences:
@@ -220,7 +222,11 @@ with gr.Blocks(
                         container=False,
                     )
 
-                    send = gr.Button("➤", variant="primary")
+                    send = gr.Button(
+                        "➤",
+                        variant="primary",
+                        elem_id="aiko-send",
+                    )
 
                     mic_audio = gr.Audio(
                         sources=["microphone"],
@@ -230,33 +236,26 @@ with gr.Blocks(
                     )
 
     # ─────────────────────────────────────────────
-    # SUBMIT HANDLER (FIXED)
+    # SUBMIT (FIXED — NO INPUT CONTROL DURING STREAM)
     # ─────────────────────────────────────────────
     def _submit(message, history):
         history = history or []
         message = (message or "").strip()
 
         if not message:
-            yield "", history, "", None
-            return
-
-        # clear input ONCE
-        yield "", history, "", None
+            return "", history, "", None
 
         try:
             for h, tts, audio in text_chat(message, history):
                 yield "", h, tts, audio
 
         except Exception as e:
-            history.append({
-                "role": "assistant",
-                "content": f"ERROR: {e}"
-            })
+            history.append({"role": "assistant", "content": f"ERROR: {e}"})
             yield "", history, "", None
 
 
     # ─────────────────────────────────────────────
-    # EVENTS
+    # EVENTS (IMPORTANT FIX)
     # ─────────────────────────────────────────────
     msg.submit(
         _submit,
