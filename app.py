@@ -60,7 +60,7 @@ def _split_ready_sentences(buffer: str):
 
 
 # ─────────────────────────────────────────────
-# Streaming core
+# STREAMING CORE
 # ─────────────────────────────────────────────
 def _stream_response(message: str, history: list):
     history = list(history) + [
@@ -72,9 +72,15 @@ def _stream_response(message: str, history: list):
 
     buffer = ""
     full_text = ""
+    last_emitted = ""
 
+    done = threading.Event()
+    error = {}
+
+    # ───── TOKEN CALLBACK ─────
     def _cb(token):
         nonlocal buffer, full_text
+
         if token.startswith("__SEARCHING__:"):
             q = token.split(":", 1)[1]
             note = f"\n🔍 Searching: *{q}*\n"
@@ -84,9 +90,7 @@ def _stream_response(message: str, history: list):
             buffer += token
             full_text += token
 
-    done = threading.Event()
-    error = {}
-
+    # ───── RUN MODEL IN THREAD ─────
     def _run():
         try:
             think.chat(message, token_callback=_cb)
@@ -97,7 +101,16 @@ def _stream_response(message: str, history: list):
 
     threading.Thread(target=_run, daemon=True).start()
 
-    while not done.is_set() or buffer.strip():
+    # ───── STREAM LOOP ─────
+    while not done.is_set() or buffer or full_text != last_emitted:
+
+        # 1) REAL-TIME UI STREAM (FIXED)
+        if full_text != last_emitted:
+            history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
+            last_emitted = full_text
+            yield history, "", None
+
+        # 2) TTS SENTENCE STREAM
         sentences, buffer = _split_ready_sentences(buffer)
 
         for s in sentences:
@@ -105,20 +118,14 @@ def _stream_response(message: str, history: list):
             if not clean:
                 continue
 
-            history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
             audio, emotion = speak_to_file(clean)
-
             yield history, f"EMOTION:{emotion}|{clean}", audio
 
-        if not sentences:
-            history[-1]["content"] = full_text + "▋"
-            yield history, "", None
-            time.sleep(0.05)
+        time.sleep(0.03)
 
+    # ───── FINAL FLUSH ─────
     if buffer.strip():
         clean = _strip_for_speech(buffer)
-        history[-1]["content"] = full_text
-
         if clean:
             audio, emotion = speak_to_file(clean)
             yield history, f"EMOTION:{emotion}|{clean}", audio
@@ -130,6 +137,9 @@ def _stream_response(message: str, history: list):
     yield history, "", None
 
 
+# ─────────────────────────────────────────────
+# CHAT WRAPPERS
+# ─────────────────────────────────────────────
 def text_chat(message: str, history: list):
     history = history or []
     message = (message or "").strip()
@@ -169,58 +179,39 @@ with gr.Blocks(
     css=AIKO_CSS
 ) as demo:
 
-    # ─────────────────────────────────────────────
-    # ROOT SHELL (IMPORTANT FOR OVERLAY SYSTEM)
-    # ─────────────────────────────────────────────
     with gr.Column(elem_id="aiko-shell"):
-    
+
         gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
-    
+
         with gr.Row(equal_height=True):
-    
-            #
-            # SINGLE CONTAINER
-            #
+
             with gr.Column(scale=1, elem_id="aiko-avatar-card"):
-    
-                #
-                # VRM BACKGROUND
-                #
+
                 gr.HTML(value=avatar_html(VRM_URLS))
-    
+
                 audio_out = gr.Audio(
                     autoplay=True,
                     type="filepath",
                     elem_id="aiko-audio",
                 )
-    
+
                 tts_text = gr.Textbox(
                     visible=False,
                     elem_id="aiko-tts-text",
                 )
-    
-                #
-                # CHAT OVERLAY
-                #
+
                 with gr.Column(elem_id="aiko-chat-overlay"):
-    
                     chatbot = gr.Chatbot(
                         elem_id="aiko-chatbot",
                         height=600,
                         show_label=False,
                         container=False,
                     )
-    
-                #
-                # INPUT OVERLAY
-                #
+
                 with gr.Row(elem_id="aiko-input-row"):
-                
-                    mic_btn = gr.Button(
-                        "🎙️",
-                        elem_id="aiko-mic-btn",
-                    )
-                
+
+                    mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
+
                     msg = gr.Textbox(
                         placeholder="Type a message…",
                         elem_id="aiko-msg",
@@ -228,16 +219,9 @@ with gr.Blocks(
                         show_label=False,
                         container=False,
                     )
-                
-                    send = gr.Button(
-                        "➤",
-                        variant="primary",
-                        elem_id="aiko-send",
-                    )
-                
-                    #
-                    # HIDDEN RECORDER
-                    #
+
+                    send = gr.Button("➤", variant="primary")
+
                     mic_audio = gr.Audio(
                         sources=["microphone"],
                         type="filepath",
@@ -246,33 +230,33 @@ with gr.Blocks(
                     )
 
     # ─────────────────────────────────────────────
-    # FIXED SUBMIT HANDLER
+    # SUBMIT HANDLER (FIXED)
     # ─────────────────────────────────────────────
     def _submit(message, history):
-    
         history = history or []
-    
         message = (message or "").strip()
-    
+
         if not message:
             yield "", history, "", None
             return
-    
+
+        # clear input ONCE
+        yield "", history, "", None
+
         try:
             for h, tts, audio in text_chat(message, history):
                 yield "", h, tts, audio
-    
+
         except Exception as e:
-            history.append(
-                {
-                    "role": "assistant",
-                    "content": f"ERROR: {e}"
-                }
-            )
-    
+            history.append({
+                "role": "assistant",
+                "content": f"ERROR: {e}"
+            })
             yield "", history, "", None
+
+
     # ─────────────────────────────────────────────
-    # ✅ MUST BE INSIDE BLOCKS (THIS FIXES YOUR CRASH)
+    # EVENTS
     # ─────────────────────────────────────────────
     msg.submit(
         _submit,
@@ -305,7 +289,7 @@ with gr.Blocks(
     demo.queue()
 
 # ─────────────────────────────────────────────
-# Launch
+# LAUNCH
 # ─────────────────────────────────────────────
 allowed_paths = [
     str(Path("/tmp/aiko_tts")),
