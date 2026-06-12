@@ -1,15 +1,16 @@
 """
 core/tools.py
-Aiko's tool belt — web search, weather, timezone, currency, jokes, anime info.
+Aiko's tool belt — web search, weather, timezone, currency, crypto, jokes, anime info.
 All tools return plain strings ready for context injection into the system prompt.
 No API keys required — all free/no-auth endpoints.
 Tools:
-  web_search(query)            — SearXNG JSON API
+  web_search(query)            — SearXNG JSON API (Modal-hosted)
   web_fetch(url)               — raw page fetch + HTML strip
   web_search_and_fetch(query)  — search + fetch top result, combined string
   get_weather(location)        — wttr.in (no key)
   get_timezone(location)       — worldtimeapi.org (no key)
   get_currency(amount, fr, to) — Frankfurter API (no key, ECB data)
+  get_crypto_price(coin, currency) — CoinGecko API (no key)
   get_joke()                   — JokeAPI (no key)
   get_anime(query)             — Jikan API / MyAnimeList (no key)
 Intent detection (used by think.py as fallback when LLM tool-calling
@@ -17,6 +18,7 @@ doesn't produce a tool_call):
   is_weather_intent(text)
   is_timezone_intent(text)
   is_currency_intent(text)
+  is_crypto_intent(text)
   is_joke_intent(text)
   is_anime_intent(text)
   is_search_intent(text)
@@ -24,7 +26,8 @@ LLM-driven tool calling (preferred path, used by think.py):
   TOOL_SCHEMAS   — OpenAI function-calling spec for all tools
   TOOL_DISPATCH  — maps tool name -> (context_tag, callable)
 Environment variables:
-  SEARXNG_BASE_URL — your SearXNG HF Space URL, e.g. https://oppaai-searxng.hf.space
+  SEARXNG_BASE_URL — full URL of your Modal SearXNG search endpoint, e.g.
+                     https://oppa-ai-org--aiko-search-aikosearch-search.modal.run
 """
 
 import os
@@ -34,6 +37,8 @@ import httpx
 
 # ── config ────────────────────────────────────────────────────────────────────
 
+# Full URL to the SearXNG "search" endpoint itself (NOT a base path — do not
+# append "/search", the Modal fastapi_endpoint root IS the search route).
 SEARXNG_BASE_URL = os.getenv("SEARXNG_BASE_URL", "")
 
 # ── intent patterns ───────────────────────────────────────────────────────────
@@ -66,6 +71,16 @@ _CURRENCY_TRIGGERS = re.compile(
     re.IGNORECASE,
 )
 
+_CRYPTO_TRIGGERS = re.compile(
+    r"\b(bitcoin|btc|ethereum|eth|crypto|cryptocurrency|dogecoin|doge|"
+    r"solana|sol|litecoin|ltc|xrp|ripple|cardano|ada)\b"
+    r".*\b(price|worth|value|cost|trading|rate)\b"
+    r"|\b(price|worth|value|cost)\b"
+    r".*\b(bitcoin|btc|ethereum|eth|crypto|dogecoin|doge|solana|sol|"
+    r"litecoin|ltc|xrp|ripple|cardano|ada)\b",
+    re.IGNORECASE,
+)
+
 _JOKE_TRIGGERS = re.compile(
     r"\b(tell me a joke|joke|make me laugh|something funny|"
     r"funny joke|random joke|cheer me up)\b",
@@ -85,6 +100,7 @@ def is_search_intent(text: str)   -> bool: return bool(_SEARCH_TRIGGERS.search(t
 def is_weather_intent(text: str)  -> bool: return bool(_WEATHER_TRIGGERS.search(text))
 def is_timezone_intent(text: str) -> bool: return bool(_TIMEZONE_TRIGGERS.search(text))
 def is_currency_intent(text: str) -> bool: return bool(_CURRENCY_TRIGGERS.search(text))
+def is_crypto_intent(text: str)   -> bool: return bool(_CRYPTO_TRIGGERS.search(text))
 def is_joke_intent(text: str)     -> bool: return bool(_JOKE_TRIGGERS.search(text))
 def is_anime_intent(text: str)    -> bool: return bool(_ANIME_TRIGGERS.search(text))
 
@@ -151,6 +167,41 @@ def extract_currency_parts(text: str) -> tuple[float, str, str]:
     return amount, from_cur, to_cur
 
 
+_CRYPTO_NAME_MAP = {
+    "btc": "bitcoin", "bitcoin": "bitcoin",
+    "eth": "ethereum", "ethereum": "ethereum",
+    "doge": "dogecoin", "dogecoin": "dogecoin",
+    "sol": "solana", "solana": "solana",
+    "ltc": "litecoin", "litecoin": "litecoin",
+    "xrp": "ripple", "ripple": "ripple",
+    "ada": "cardano", "cardano": "cardano",
+}
+
+
+def extract_crypto_parts(text: str) -> tuple[str, str]:
+    """
+    Parse coin + target fiat currency from natural language.
+    Returns (coingecko_coin_id, currency_code).
+    Defaults: ("bitcoin", "usd").
+    """
+    text_lower = text.lower()
+
+    coin = "bitcoin"
+    for key, coingecko_id in _CRYPTO_NAME_MAP.items():
+        if re.search(rf"\b{re.escape(key)}\b", text_lower):
+            coin = coingecko_id
+            break
+
+    currency = "usd"
+    currency_match = re.search(
+        r"\b(usd|eur|jpy|gbp|krw|cad|aud|sgd|thb)\b", text_lower
+    )
+    if currency_match:
+        currency = currency_match.group(1)
+
+    return coin, currency
+
+
 def extract_anime_query(text: str) -> str:
     cleaned = re.sub(
         r"\b(tell me about|search|find|what is|who is|anime called|"
@@ -164,7 +215,7 @@ def extract_anime_query(text: str) -> str:
 # ── web search ────────────────────────────────────────────────────────────────
 
 def web_search(query: str, max_results: int = 5) -> str:
-    """Search via SearXNG JSON API. Falls back to error string on failure."""
+    """Search via SearXNG JSON API (Modal-hosted). Falls back to error string on failure."""
     if not SEARXNG_BASE_URL:
         return "[search unavailable: SEARXNG_BASE_URL not set]"
     query = query.strip().strip("'\"")
@@ -172,7 +223,7 @@ def web_search(query: str, max_results: int = 5) -> str:
         resp = httpx.get(
             SEARXNG_BASE_URL,
             params={"q": query, "format": "json", "language": "en"},
-            timeout=10,
+            timeout=15,
         )
         resp.raise_for_status()
         results = resp.json().get("results", [])
@@ -188,6 +239,7 @@ def web_search(query: str, max_results: int = 5) -> str:
         return "\n\n".join(lines)
     except Exception as e:
         return f"[search failed: {e}]"
+
 
 def web_fetch(url: str, max_chars: int = 6000) -> str:
     """Fetch a URL and strip HTML tags. Returns plain text."""
@@ -263,12 +315,9 @@ def get_weather(location: str) -> str:
 # ── timezone ──────────────────────────────────────────────────────────────────
 
 def get_timezone(location: str) -> str:
-    """
-    Fetch current local time for a location via worldtimeapi.org.
-    Falls back to timezone search if direct city lookup fails.
-    """
-    # worldtimeapi uses timezone strings like "Asia/Tokyo"
-    # try to map common city names first
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
     _CITY_MAP = {
         "tokyo": "Asia/Tokyo", "osaka": "Asia/Tokyo",
         "seoul": "Asia/Seoul", "beijing": "Asia/Shanghai",
@@ -280,39 +329,31 @@ def get_timezone(location: str) -> str:
         "chicago": "America/Chicago", "sydney": "Australia/Sydney",
         "melbourne": "Australia/Melbourne", "dubai": "Asia/Dubai",
         "moscow": "Europe/Moscow", "toronto": "America/Toronto",
+        "vancouver": "America/Vancouver",
     }
 
-    tz = _CITY_MAP.get(location.lower().strip())
-
-    if not tz:
-        # try worldtimeapi timezone list search
+    tz_name = _CITY_MAP.get(location.lower().strip())
+    if not tz_name:
         try:
-            resp = httpx.get("https://worldtimeapi.org/api/timezone", timeout=8)
-            all_zones = resp.json()
+            import zoneinfo
+            all_zones = zoneinfo.available_timezones()
             loc_lower = location.lower().replace(" ", "_")
-            matches   = [z for z in all_zones if loc_lower in z.lower()]
-            tz        = matches[0] if matches else None
+            matches = [z for z in all_zones if loc_lower in z.lower()]
+            tz_name = matches[0] if matches else None
         except Exception:
             pass
 
-    if not tz:
+    if not tz_name:
         return f"[timezone not found for: {location}]"
 
     try:
-        resp = httpx.get(f"https://worldtimeapi.org/api/timezone/{tz}", timeout=8)
-        resp.raise_for_status()
-        data     = resp.json()
-        datetime_str = data.get("datetime", "")[:19].replace("T", " ")
-        weekday      = data.get("day_of_week", "")
-        days         = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
-        day_name     = days[int(weekday)] if str(weekday).isdigit() else ""
-        utc_offset   = data.get("utc_offset", "")
-
+        now = datetime.now(ZoneInfo(tz_name))
+        day_name = now.strftime("%A")
         return (
             f"[Time in {location.title()}]\n"
-            f"Local time : {datetime_str} ({day_name})\n"
-            f"Timezone   : {tz}\n"
-            f"UTC offset : {utc_offset}"
+            f"Local time : {now.strftime('%Y-%m-%d %H:%M:%S')} ({day_name})\n"
+            f"Timezone   : {tz_name}\n"
+            f"UTC offset : {now.strftime('%z')}"
         )
     except Exception as e:
         return f"[timezone fetch failed: {e}]"
@@ -351,6 +392,50 @@ def get_currency(amount: float, from_currency: str, to_currency: str) -> str:
         )
     except Exception as e:
         return f"[currency fetch failed: {e}]"
+
+
+# ── crypto ────────────────────────────────────────────────────────────────────
+
+def get_crypto_price(coin: str, currency: str = "usd") -> str:
+    """
+    Fetch current crypto price via CoinGecko's free API (no key needed).
+    `coin` should be a CoinGecko coin id, e.g. 'bitcoin', 'ethereum', 'dogecoin'.
+    `currency` is a fiat code, e.g. 'usd', 'cad', 'eur', 'jpy'.
+    """
+    coin     = coin.strip().lower()
+    currency = currency.strip().lower()
+    try:
+        resp = httpx.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={
+                "ids": coin,
+                "vs_currencies": currency,
+                "include_24hr_change": "true",
+            },
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        coin_data = data.get(coin)
+
+        if not coin_data or currency not in coin_data:
+            return f"[crypto price not found for {coin} in {currency.upper()}]"
+
+        price  = coin_data[currency]
+        change = coin_data.get(f"{currency}_24h_change")
+
+        lines = [
+            f"[Crypto price — {coin.upper()}]",
+            f"1 {coin.upper()} = {price:,.2f} {currency.upper()}",
+        ]
+        if change is not None:
+            direction = "▲" if change >= 0 else "▼"
+            lines.append(f"24h change: {direction} {change:.2f}%")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"[crypto price fetch failed: {e}]"
 
 
 # ── joke ──────────────────────────────────────────────────────────────────────
@@ -462,7 +547,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "get_currency",
-            "description": "Convert an amount from one currency to another using current exchange rates.",
+            "description": "Convert an amount from one fiat currency to another using current exchange rates.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -477,6 +562,27 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["amount", "from_currency", "to_currency"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_crypto_price",
+            "description": "Get the current price of a cryptocurrency (e.g. Bitcoin, Ethereum) in a given fiat currency. Use this instead of web search for crypto price questions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "coin": {
+                        "type": "string",
+                        "description": "CoinGecko coin id, e.g. 'bitcoin', 'ethereum', 'dogecoin', 'solana'",
+                    },
+                    "currency": {
+                        "type": "string",
+                        "description": "3-letter fiat currency code, e.g. usd, cad, eur, jpy. Defaults to usd.",
+                    },
+                },
+                "required": ["coin"],
             },
         },
     },
@@ -529,6 +635,7 @@ TOOL_DISPATCH = {
     "get_weather":          ("weather_data",   lambda **kw: get_weather(kw["location"])),
     "get_timezone":         ("time_data",      lambda **kw: get_timezone(kw["location"])),
     "get_currency":         ("currency_data",  lambda **kw: get_currency(kw["amount"], kw["from_currency"], kw["to_currency"])),
+    "get_crypto_price":     ("crypto_data",    lambda **kw: get_crypto_price(kw["coin"], kw.get("currency", "usd"))),
     "get_joke":             ("joke",           lambda **kw: get_joke()),
     "get_anime":            ("anime_data",     lambda **kw: get_anime(kw["query"])),
     "web_search_and_fetch": ("search_results", lambda **kw: web_search_and_fetch(kw["query"])),
