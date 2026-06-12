@@ -80,7 +80,16 @@ div:has(> div > #aiko-audio) {
   visibility: hidden !important;
 }
 
-#aiko-tts-text { display: none !important; }
+#aiko-tts-text,
+#aiko-tts-text.block,
+div:has(> #aiko-tts-text),
+div:has(> div > #aiko-tts-text) {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
 
 /* ── Emotion label (top-left of avatar card) ──────────────────────── */
 #aiko-emotion-label {
