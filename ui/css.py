@@ -14,6 +14,17 @@ html, body, .gradio-container, main, footer {
   margin: 0 !important;
   padding: 0 !important;
 }
+.gradio-container *, .gradio-container .prose, .gradio-container label {
+  color: var(--aiko-text);
+}
+
+/* NEW BLOCK */
+.gradio-container > .flex-1,
+body > .gradio-container {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+}
 html, body {
   height: 100% !important;
   overflow: hidden !important;
