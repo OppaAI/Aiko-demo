@@ -6,7 +6,7 @@ All tools return plain strings ready for context injection into the system promp
 No API keys required — all free/no-auth endpoints.
 
 Tools:
-  web_search(query)            — SearXNG JSON API
+  web_search(query)            — DuckDuckGo/DDGS search
   web_fetch(url)               — raw page fetch + HTML strip
   web_search_and_fetch(query)  — search + fetch top result, combined string
   get_weather(location)        — wttr.in (no key)
@@ -29,7 +29,7 @@ LLM-driven tool calling (preferred path, used by think.py):
   TOOL_DISPATCH  — maps tool name -> (context_tag, callable)
 
 Environment variables:
-  SEARXNG_BASE_URL — your SearXNG HF Space URL, e.g. https://oppaai-searxng.hf.space
+  AIKO_SEARCH_ENDPOINT — optional JSON search endpoint, e.g. your Modal /search URL
 """
 
 import os
@@ -39,7 +39,7 @@ import httpx
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-SEARXNG_BASE_URL = os.getenv("SEARXNG_BASE_URL", "")
+AIKO_SEARCH_ENDPOINT = os.getenv("AIKO_SEARCH_ENDPOINT", "")
 
 # ── intent patterns ───────────────────────────────────────────────────────────
 
@@ -168,27 +168,57 @@ def extract_anime_query(text: str) -> str:
 
 # ── web search ────────────────────────────────────────────────────────────────
 
+def _normalize_search_result(result: dict) -> dict:
+    """Return one common shape across DDGS and optional HTTP search backends."""
+    return {
+        "title": (result.get("title") or "").strip(),
+        "url": (result.get("href") or result.get("url") or "").strip(),
+        "content": (result.get("body") or result.get("content") or "").strip(),
+    }
+
+
+def _ddg_search(query: str, max_results: int) -> list[dict]:
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        from duckduckgo_search import DDGS
+
+    results = DDGS().text(query, max_results=max_results)
+    return [_normalize_search_result(r) for r in (results or [])]
+
+
+def _endpoint_search(query: str, max_results: int) -> list[dict]:
+    resp = httpx.get(
+        AIKO_SEARCH_ENDPOINT,
+        params={"query": query, "max_results": max_results},
+        timeout=10,
+        follow_redirects=True,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    results = payload.get("results", payload if isinstance(payload, list) else [])
+    return [_normalize_search_result(r) for r in (results or [])]
+
+
 def web_search(query: str, max_results: int = 5) -> str:
-    """Search via SearXNG JSON API. Falls back to error string on failure."""
-    if not SEARXNG_BASE_URL:
-        return "[search unavailable: SEARXNG_BASE_URL not set]"
+    """Search via DDGS, optionally falling back to a configured JSON endpoint."""
     query = query.strip().strip("'\"")
     try:
-        resp = httpx.get(
-            f"{SEARXNG_BASE_URL.rstrip('/')}/search",
-            params={"q": query, "format": "json", "count": max_results},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        results = resp.json().get("results", [])
+        try:
+            results = _ddg_search(query, max_results)
+        except Exception:
+            if not AIKO_SEARCH_ENDPOINT:
+                raise
+            results = _endpoint_search(query, max_results)
+
         if not results:
             return f"[no results found for: {query}]"
         lines = [f"[Web search results for: {query}]"]
         for i, r in enumerate(results[:max_results], 1):
             lines.append(
-                f"{i}. {r.get('title', '').strip()}\n"
-                f"   {r.get('url', '').strip()}\n"
-                f"   {r.get('content', '').strip()}"
+                f"{i}. {r.get('title', '')}\n"
+                f"   {r.get('url', '')}\n"
+                f"   {r.get('content', '')}"
             )
         return "\n\n".join(lines)
     except Exception as e:
