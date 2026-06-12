@@ -172,9 +172,9 @@ def web_search(query: str, max_results: int = 5) -> str:
     """Search via SearXNG JSON API. Falls back to error string on failure."""
     if not SEARXNG_BASE_URL:
         return "[search unavailable: SEARXNG_BASE_URL not set]"
-    # strip stray quotes and whitespace
     query = query.strip().strip("'\"")
-    try:        resp = httpx.get(
+    try:
+        resp = httpx.get(
             f"{SEARXNG_BASE_URL.rstrip('/')}/search",
             params={"q": query, "format": "json", "count": max_results},
             timeout=10,
@@ -193,7 +193,6 @@ def web_search(query: str, max_results: int = 5) -> str:
         return "\n\n".join(lines)
     except Exception as e:
         return f"[search failed: {e}]"
-
 
 def web_fetch(url: str, max_chars: int = 6000) -> str:
     """Fetch a URL and strip HTML tags. Returns plain text."""
