@@ -73,6 +73,7 @@ def _get_model():
     scaledown_window=5 * MINUTES,
     min_containers=0,
     volumes={str(MODELS_DIR): volume},
+    secrets=[modal.Secret.from_name("huggingface")],  # add this
 )
 class ASRServer:
 
