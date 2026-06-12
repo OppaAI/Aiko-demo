@@ -3,7 +3,7 @@ core/think.py
 
 Aiko's cognitive loop.
   - Retrieves relevant memories before each turn
-  - Explicit search gate: fires ONLY when user asks Aiko to search the web
+  - Tool routing: weather, timezone, currency, joke, anime, web search
   - Streams LLM response via token_callback
   - Stores the turn into long-term memory after each response (background thread)
   - Supports single-shot reasoning mode via set_reasoning(True) / /think command
@@ -31,67 +31,24 @@ BOOT_LABELS = {
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-LLAMA_BASE_URL       = os.getenv("LLAMA_BASE_URL",       "https://your-modal-endpoint.modal.run")
-LLAMA_MODEL          = os.getenv("LLAMA_MODEL",           "meta-llama/Llama-3.1-8B-Instruct")
-LLAMA_API_KEY        = os.getenv("LLAMA_API_KEY",         "")
+LLAMA_BASE_URL       = os.getenv("LLAMA_BASE_URL",  "https://your-modal-endpoint.modal.run")
+LLAMA_MODEL          = os.getenv("LLAMA_MODEL",      "meta-llama/Llama-3.1-8B-Instruct")
+LLAMA_API_KEY        = os.getenv("LLAMA_API_KEY",    "")
 CONTEXT_WINDOW_TURNS = int(os.getenv("CONTEXT_WINDOW_TURNS", 20))
 
-_BASE_PREDICT    = 400   # normal token budget per turn
-_REASONING_SCALE = 3     # multiplier applied in reasoning mode
+_BASE_PREDICT    = 400
+_REASONING_SCALE = 3
 
 _PERSONA_PATH = Path(__file__).resolve().parent.parent / "persona" / "soul.md"
 
 
 def _load_persona() -> str:
-    """Read and return the persona definition from soul.md."""
     if not _PERSONA_PATH.exists():
         raise FileNotFoundError(f"soul.md not found at {_PERSONA_PATH}")
     persona = _PERSONA_PATH.read_text(encoding="utf-8").strip()
     user_id = os.getenv("USER_ID", "OppaAI")
     today   = datetime.now().strftime("%B %d, %Y")
     return persona.replace("USER_ID_HERE", user_id).replace("TODAY_HERE", today)
-
-
-# ── search intent gate ────────────────────────────────────────────────────────
-
-_SEARCH_TRIGGERS = re.compile(
-    r"\b(check (?:the )?internet|search (?:the )?web|look it up|go online|"
-    r"search online|check online|look online|google that|browse for|"
-    r"fetch.*web|web search|internet search)\b",
-    re.IGNORECASE,
-)
-
-_LEADING_JUNK = re.compile(r"^[\s,;.\-—–]+")
-
-_LEADING_FILLER = re.compile(
-    r"^("
-    r"and\s+|but\s+|then\s+|so\s+|for\s+"
-    r"|hey aiko[,.]?\s*|aiko[,.]?\s*"
-    r"|can you\s*|could you\s*|please\s*|me\s+"
-    r"|tell me\s*|give me\s*|show me\s*|get me\s*"
-    r"|find\s+(?:out\s+)?|look\s+(?:up\s+)?"
-    r"|(?:some\s+)?(?:detailed?\s+)?info(?:rmation)?\s+(?:about\s+|on\s+)?"
-    r"|(?:more\s+)?details?\s+(?:about\s+|on\s+)?"
-    r"|about\s+"
-    r")",
-    re.IGNORECASE,
-)
-
-
-def _is_data_intent(text: str) -> bool:
-    """Return True only when the user explicitly asks Aiko to search the web."""
-    return bool(_SEARCH_TRIGGERS.search(text.strip()))
-
-
-def _build_search_query(text: str) -> str:
-    """Strip trigger phrase + conversational filler, leaving a clean DDG query."""
-    cleaned = _SEARCH_TRIGGERS.sub("", text).strip()
-    prev = None
-    while prev != cleaned:
-        prev    = cleaned
-        cleaned = _LEADING_JUNK.sub("", cleaned).strip()
-        cleaned = _LEADING_FILLER.sub("", cleaned).strip()
-    return cleaned or text.strip()
 
 
 # ── think ─────────────────────────────────────────────────────────────────────
@@ -141,10 +98,6 @@ class AikoThink:
     # ── public api ────────────────────────────────────────────────────────────
 
     def join_warmup(self) -> None:
-        """
-        Block until the background LLM warmup thread completes.
-        Called by wakeup.py after boot so the first real request hits a hot model.
-        """
         if self._warmup_thread.is_alive():
             self._warmup_thread.join()
 
@@ -164,27 +117,68 @@ class AikoThink:
         if memory_block:
             system = f"{system}\n\n{memory_block}"
 
-        # 3. explicit search gate — only fires when user asks Aiko to search
-        if _is_data_intent(user_input):
-            query = _build_search_query(user_input)
-            log.debug("Search intent detected — querying: %s", query)
+        # 3. tool routing — inject result into system prompt before LLM call
+        from core.tools import (
+            is_search_intent, is_weather_intent, is_timezone_intent,
+            is_currency_intent, is_joke_intent, is_anime_intent,
+            extract_search_query, extract_location, extract_currency_parts,
+            extract_anime_query,
+            web_search_and_fetch, get_weather, get_timezone,
+            get_currency, get_joke, get_anime,
+        )
 
+        tool_result = None
+        tool_tag    = None
+
+        if is_joke_intent(user_input):
+            tool_result = get_joke()
+            tool_tag    = "joke"
+
+        elif is_weather_intent(user_input):
+            location    = extract_location(user_input)
+            if token_callback:
+                token_callback(f"__TOOL__:Checking weather for {location}...")
+            tool_result = get_weather(location)
+            tool_tag    = "weather_data"
+
+        elif is_timezone_intent(user_input):
+            location    = extract_location(user_input)
+            if token_callback:
+                token_callback(f"__TOOL__:Looking up time in {location}...")
+            tool_result = get_timezone(location)
+            tool_tag    = "time_data"
+
+        elif is_currency_intent(user_input):
+            amount, from_cur, to_cur = extract_currency_parts(user_input)
+            if token_callback:
+                token_callback(f"__TOOL__:Converting {from_cur} to {to_cur}...")
+            tool_result = get_currency(amount, from_cur, to_cur)
+            tool_tag    = "currency_data"
+
+        elif is_anime_intent(user_input):
+            query       = extract_anime_query(user_input)
+            if token_callback:
+                token_callback(f"__TOOL__:Searching anime for {query}...")
+            tool_result = get_anime(query)
+            tool_tag    = "anime_data"
+
+        elif is_search_intent(user_input):
+            query       = extract_search_query(user_input)
             if token_callback:
                 token_callback(f"__SEARCHING__:{query}")
-
             try:
-                from core.tools import web_search_and_fetch
-                results = web_search_and_fetch(query)
-
-                system = (
-                    f"{system}\n\n"
-                    f"<search_results>\n{results}\n</search_results>\n\n"
-                    "IMPORTANT: Answer using ONLY the search results above. "
-                    "Do not use your training data for this topic. "
-                    "If the answer is in the results, state it directly."
-                )
+                tool_result = web_search_and_fetch(query)
+                tool_tag    = "search_results"
             except Exception as exc:
                 log.warning("Web search failed: %s", exc)
+
+        if tool_result and tool_tag:
+            system = (
+                f"{system}\n\n"
+                f"<{tool_tag}>\n{tool_result}\n</{tool_tag}>\n\n"
+                f"Use the above {tool_tag.replace('_', ' ')} to inform your response naturally. "
+                f"Don't recite raw data — weave it into your answer as Aiko would."
+            )
 
         # 4. wrap user turn with reasoning instruction if active
         if self._reasoning:
@@ -213,10 +207,10 @@ class AikoThink:
         # 9. append assistant turn to history
         self._history.append({"role": "assistant", "content": response_text})
 
-        # 10. persist to memory (background) — store original input, not wrapped prompt
+        # 10. persist to memory (background)
         self._store_async(user_input, response_text)
 
-        # 11. auto-reset reasoning mode — single-shot per /think invocation
+        # 11. auto-reset reasoning mode
         self._reasoning = False
 
         return response_text
@@ -228,21 +222,17 @@ class AikoThink:
     def last_turn(self) -> tuple[str, str] | None:
         """Return the latest complete user/assistant exchange, or None."""
         assistant_text: str | None = None
-
         for message in reversed(self._history):
             role    = message.get("role")
             content = (message.get("content") or "").strip()
             if not content:
                 continue
-
             if assistant_text is None:
                 if role == "assistant":
                     assistant_text = content
                 continue
-
             if role == "user":
                 return content, assistant_text
-
         return None
 
     def set_reasoning(self, enabled: bool) -> None:
@@ -262,22 +252,20 @@ class AikoThink:
             response = self._client.post(
                 "/chat/completions",
                 json={
-                    "model":            LLAMA_MODEL,
-                    "messages":         ([{"role": "system", "content": system}] + messages) if system else messages,
-                    "stream":           False,
-                    "temperature":      float(os.getenv("LLAMA_TEMPERATURE",    0.75)),
-                    "max_tokens":       num_predict,
-                    "top_p":            float(os.getenv("LLAMA_TOP_P",          0.90)),
-                    "top_k":            int(os.getenv("LLAMA_TOP_K",            40)),
-                    "repeat_penalty":   float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
-                    "stop":             ["<|im_end|>", "</s>", "[INST]"],
+                    "model":          LLAMA_MODEL,
+                    "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
+                    "stream":         False,
+                    "temperature":    float(os.getenv("LLAMA_TEMPERATURE",    0.75)),
+                    "max_tokens":     num_predict,
+                    "top_p":          float(os.getenv("LLAMA_TOP_P",          0.90)),
+                    "top_k":          int(os.getenv("LLAMA_TOP_K",            40)),
+                    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
+                    "stop":           ["<|im_end|>", "</s>", "[INST]"],
                 },
             )
 
             data      = response.json()
             full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
-
-            # strip any leaked search tags (defensive)
             clean_text = re.sub(r"\[?SEARCH:\s*.+?\]?", "", full_text, flags=re.IGNORECASE).strip()
 
             if self._token_callback and clean_text:
@@ -296,21 +284,17 @@ class AikoThink:
         """Enforce strict user/assistant alternation."""
         if not messages:
             return []
-
         sanitized = [messages[0]]
         for msg in messages[1:]:
             if msg["role"] == sanitized[-1]["role"]:
                 sanitized[-1] = msg
             else:
                 sanitized.append(msg)
-
         while sanitized and sanitized[0]["role"] != "user":
             sanitized.pop(0)
-
         return sanitized
 
     def _store_async(self, user_input: str, response_text: str) -> None:
-        """Enqueue a completed turn for background memory persistence."""
         self._mem_queue.put((user_input, response_text))
 
     def _mem_write_loop(self) -> None:
