@@ -4,20 +4,12 @@ core/think.py
 Aiko's cognitive loop.
   - Retrieves relevant memories before each turn
   - Explicit search gate: fires ONLY when user asks Aiko to search the web
-  - Streams LLM response to console + TTS simultaneously
+  - Streams LLM response via token_callback
   - Stores the turn into long-term memory after each response (background thread)
   - Supports single-shot reasoning mode via set_reasoning(True) / /think command
 """
 
-import logging
 import os
-import warnings
-
-warnings.filterwarnings("ignore")
-logging.getLogger("phonemizer").setLevel(logging.ERROR)
-logging.getLogger("torch").setLevel(logging.ERROR)
-os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
-
 from datetime import datetime
 import httpx
 from pathlib import Path
@@ -26,7 +18,6 @@ import re
 import threading
 
 from core.memorize import AikoMemorize
-from core.speak    import AikoSpeak
 from core.log      import get_logger
 
 log = get_logger(__name__)
@@ -40,10 +31,9 @@ BOOT_LABELS = {
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-LLAMA_BASE_URL       = os.getenv("LLAMA_BASE_URL", "http://localhost:11434")
-LLAMA_MODEL          = os.getenv("LLAMA_MODEL",    "ministral-3:3b-instruct-2512-q4_K_M")
-GROQ_BASE_URL        = os.getenv("GROQ_BASE_URL",  "https://api.groq.com/openai/v1")
-GROQ_MODEL           = os.getenv("GROQ_MODEL",     "llama-3.1-8b-instant")
+LLAMA_BASE_URL       = os.getenv("LLAMA_BASE_URL",       "https://your-modal-endpoint.modal.run")
+LLAMA_MODEL          = os.getenv("LLAMA_MODEL",           "meta-llama/Llama-3.1-8B-Instruct")
+LLAMA_API_KEY        = os.getenv("LLAMA_API_KEY",         "")
 CONTEXT_WINDOW_TURNS = int(os.getenv("CONTEXT_WINDOW_TURNS", 20))
 
 _BASE_PREDICT    = 400   # normal token budget per turn
@@ -71,10 +61,8 @@ _SEARCH_TRIGGERS = re.compile(
     re.IGNORECASE,
 )
 
-# leading punctuation/whitespace left after trigger removal
 _LEADING_JUNK = re.compile(r"^[\s,;.\-—–]+")
 
-# conversational filler peeled iteratively until stable
 _LEADING_FILLER = re.compile(
     r"^("
     r"and\s+|but\s+|then\s+|so\s+|for\s+"
@@ -100,7 +88,7 @@ def _build_search_query(text: str) -> str:
     cleaned = _SEARCH_TRIGGERS.sub("", text).strip()
     prev = None
     while prev != cleaned:
-        prev = cleaned
+        prev    = cleaned
         cleaned = _LEADING_JUNK.sub("", cleaned).strip()
         cleaned = _LEADING_FILLER.sub("", cleaned).strip()
     return cleaned or text.strip()
@@ -111,18 +99,22 @@ def _build_search_query(text: str) -> str:
 class AikoThink:
     """
     Aiko's conversational core.
-    speak is injected pre-warmed from wakeup.py.
     LLM warmup starts immediately on init in a background thread.
     wakeup.py calls join_warmup() to block until the model is hot.
+    speak is accepted but ignored (kept for BootResult API compatibility).
     """
 
-    def __init__(self, memorize: AikoMemorize, speak: AikoSpeak | None = None) -> None:
+    def __init__(self, memorize: AikoMemorize, speak=None) -> None:
+        headers = {"Content-Type": "application/json"}
+        if LLAMA_API_KEY:
+            headers["Authorization"] = f"Bearer {LLAMA_API_KEY}"
+
         self._client = httpx.Client(
             base_url=LLAMA_BASE_URL,
+            headers=headers,
             timeout=120.0,
         )
         self._memorize  = memorize
-        self._speak     = speak
         self._persona   = _load_persona()
         self._history:  list[dict] = []
         self._reasoning = False
@@ -136,12 +128,11 @@ class AikoThink:
     def _warmup_llm(self) -> None:
         try:
             self._client.post(
-                "/",
+                "/chat/completions",
                 json={
-                    "model":     LLAMA_MODEL,
-                    "n_predict": 1,
-                    "messages":  [{"role": "user", "content": "hi"}],
-                    "stream":    False,
+                    "model":      LLAMA_MODEL,
+                    "max_tokens": 1,
+                    "messages":   [{"role": "user", "content": "hi"}],
                 },
             )
         except Exception as e:
@@ -153,7 +144,6 @@ class AikoThink:
         """
         Block until the background LLM warmup thread completes.
         Called by wakeup.py after boot so the first real request hits a hot model.
-        Safe to call multiple times — joining a finished thread is a no-op.
         """
         if self._warmup_thread.is_alive():
             self._warmup_thread.join()
@@ -161,11 +151,7 @@ class AikoThink:
     def chat(self, user_input: str, token_callback=None) -> str:
         self._token_callback = token_callback
 
-        # 1. interrupt any ongoing speech before processing new input
-        if self._speak and self._speak.is_playing():
-            self._speak.stop()
-
-        # 2. retrieve relevant long-term memories
+        # 1. retrieve relevant long-term memories
         if self._memorize:
             memories     = self._memorize.search(user_input, limit=int(os.getenv("MEMORY_RECALL_LIMIT", 5)))
             memory_block = self._memorize.format_for_context(memories)
@@ -173,12 +159,12 @@ class AikoThink:
             memories     = []
             memory_block = None
 
-        # 3. build system prompt — persona + memories
+        # 2. build system prompt — persona + memories
         system = self._persona
         if memory_block:
             system = f"{system}\n\n{memory_block}"
 
-        # 4. explicit search gate — only fires when user asks Aiko to search
+        # 3. explicit search gate — only fires when user asks Aiko to search
         if _is_data_intent(user_input):
             query = _build_search_query(user_input)
             log.debug("Search intent detected — querying: %s", query)
@@ -200,7 +186,7 @@ class AikoThink:
             except Exception as exc:
                 log.warning("Web search failed: %s", exc)
 
-        # 5. wrap user turn with reasoning instruction if active
+        # 4. wrap user turn with reasoning instruction if active
         if self._reasoning:
             prompt = (
                 f"{user_input}\n\n"
@@ -210,27 +196,27 @@ class AikoThink:
         else:
             prompt = user_input
 
-        # 6. append user turn
+        # 5. append user turn
         self._history.append({"role": "user", "content": prompt})
 
-        # 7. trim history to context window
+        # 6. trim history to context window
         trimmed = self._sanitize_history(self._history[-(CONTEXT_WINDOW_TURNS * 2):])
 
-        # 8. single LLM call — search results already in system prompt if needed
+        # 7. LLM call
         response_text, _ = self._stream_response(trimmed, system=system)
 
-        # 9. remove orphaned user turn on empty response
+        # 8. remove orphaned user turn on empty response
         if not response_text:
             if self._history and self._history[-1]["role"] == "user":
                 self._history.pop()
 
-        # 10. append assistant turn to history
+        # 9. append assistant turn to history
         self._history.append({"role": "assistant", "content": response_text})
 
-        # 11. persist to memory (background) — store original input, not wrapped prompt
+        # 10. persist to memory (background) — store original input, not wrapped prompt
         self._store_async(user_input, response_text)
 
-        # 12. auto-reset reasoning mode — single-shot per /think invocation
+        # 11. auto-reset reasoning mode — single-shot per /think invocation
         self._reasoning = False
 
         return response_text
@@ -263,33 +249,28 @@ class AikoThink:
         """Enable or disable reasoning mode for the next turn only."""
         self._reasoning = enabled
 
-    def set_speak(self, speak) -> None:
-        """Hot-swap the TTS backend. Pass None to silence, speak instance to restore."""
-        self._speak = speak
-
     def wait_for_memory(self) -> None:
         """Block until all enqueued memory writes have been persisted."""
         self._mem_queue.join()
 
     # ── internal ──────────────────────────────────────────────────────────────
 
-    def _stream_response(self, messages: list[dict], system: str = "") -> tuple[str, str | None]:
-        """Returns (response_text, None). Search tag emission is no longer used."""
+    def _stream_response(self, messages: list[dict], system: str = "") -> tuple[str, None]:
         num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
 
         try:
             response = self._client.post(
-                "/",
+                "/chat/completions",
                 json={
-                    "model":          LLAMA_MODEL,
-                    "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
-                    "stream":         False,
-                    "temperature":    float(os.getenv("LLAMA_TEMPERATURE", 0.75)),
-                    "max_tokens":     num_predict,
-                    "top_p":          float(os.getenv("LLAMA_TOP_P", 0.90)),
-                    "top_k":          int(os.getenv("LLAMA_TOP_K", 40)),
-                    "repeat_penalty": float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
-                    "stop":           ["<|im_end|>", "</s>", "[INST]"],
+                    "model":            LLAMA_MODEL,
+                    "messages":         ([{"role": "system", "content": system}] + messages) if system else messages,
+                    "stream":           False,
+                    "temperature":      float(os.getenv("LLAMA_TEMPERATURE",    0.75)),
+                    "max_tokens":       num_predict,
+                    "top_p":            float(os.getenv("LLAMA_TOP_P",          0.90)),
+                    "top_k":            int(os.getenv("LLAMA_TOP_K",            40)),
+                    "repeat_penalty":   float(os.getenv("LLAMA_REPEAT_PENALTY", 1.18)),
+                    "stop":             ["<|im_end|>", "</s>", "[INST]"],
                 },
             )
 
@@ -301,12 +282,6 @@ class AikoThink:
 
             if self._token_callback and clean_text:
                 self._token_callback(clean_text)
-            else:
-                print(f"\nAiko-chan: {clean_text}")
-
-            if self._speak and full_text:
-                self._speak.feed(full_text)
-                self._speak.play_async()
 
         except Exception as exc:
             msg = f"Stream failed: {exc}"
@@ -349,6 +324,6 @@ class AikoThink:
                         {"role": "assistant", "content": response_text[:800]},
                     ])
             except Exception as exc:
-                log.error(f"Async memory write failed: {exc}")
+                log.error("Async memory write failed: %s", exc)
             finally:
                 self._mem_queue.task_done()
