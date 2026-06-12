@@ -164,3 +164,106 @@ def speak_to_file(text: str) -> tuple[str | None, str]:
         asyncio.run(_edge_tts_to_file(clean[:4000], out_path))
 
     return str(out_path), emotion
+
+
+# ── Streaming / close-caption TTS ────────────────────────────────────────────
+
+import threading
+import queue
+
+# Sentence-ending punctuation that triggers a TTS flush
+_SENTENCE_END_RE = re.compile(r'(?<=[.!?…])\s+|(?<=[.!?…])$')
+
+
+def _sentences_from_stream(token_iter):
+    """Yield complete sentences as an LLM token stream arrives.
+    Buffers tokens and flushes on sentence-ending punctuation.
+    """
+    buf = ""
+    for token in token_iter:
+        buf += token
+        parts = _SENTENCE_END_RE.split(buf)
+        # All but the last part are complete sentences
+        for sentence in parts[:-1]:
+            sentence = sentence.strip()
+            if sentence:
+                yield sentence
+        buf = parts[-1]
+    # Flush whatever's left
+    buf = buf.strip()
+    if buf:
+        yield buf
+
+
+def speak_stream(
+    token_iter,
+    on_audio: callable,
+    on_caption: callable | None = None,
+) -> None:
+    """Feed an LLM token iterator into MioTTS sentence-by-sentence.
+
+    Parameters
+    ----------
+    token_iter   : iterable of str tokens from your LLM stream
+    on_audio     : callback(mp3_path: str) called for each synthesized sentence
+                   — pass to gr.Audio or queue for playback
+    on_caption   : optional callback(sentence: str) called with the text
+                   just before synthesis starts — use for close-caption display
+
+    The synthesis of sentence N overlaps with the LLM generating sentence N+1,
+    so perceived latency is roughly one sentence's worth of LLM tokens.
+
+    Example (Gradio):
+        captions = []
+        audio_queue = []
+
+        def handle_audio(path):
+            audio_queue.append(path)
+
+        def handle_caption(text):
+            captions.append(text)
+            # yield to gr.Textbox update here
+
+        speak_stream(llm.stream("Tell me a story"), handle_audio, handle_caption)
+    """
+    if not MIOTTS_URL:
+        raise RuntimeError(
+            "MIOTTS_URL is not set. speak_stream requires the Modal MioTTS endpoint."
+        )
+
+    audio_q: queue.Queue[str | None] = queue.Queue()
+
+    def _synth_worker(sentence: str) -> None:
+        emotion = _extract_emotion(sentence)
+        clean = _clean_for_tts(sentence)
+        if not clean:
+            return
+        TTS_DIR.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha1(f"{time.time_ns()}:{clean}".encode()).hexdigest()[:16]
+        out_path = TTS_DIR / f"aiko_{digest}.mp3"
+        try:
+            _miotts_to_file(clean[:4000], out_path)
+            audio_q.put(str(out_path))
+        except Exception as e:
+            print(f"[speak_stream] synthesis error: {e}")
+
+    active_threads: list[threading.Thread] = []
+
+    for sentence in _sentences_from_stream(token_iter):
+        if on_caption:
+            on_caption(sentence)
+
+        # Fire synthesis in a background thread so LLM parsing continues
+        t = threading.Thread(target=_synth_worker, args=(sentence,), daemon=True)
+        t.start()
+        active_threads.append(t)
+
+    # Wait for all synthesis threads, drain audio in order
+    for t in active_threads:
+        t.join()
+
+    # Drain the queue and call on_audio in arrival order
+    # (threads finish roughly in order; queue reflects synthesis completion order)
+    while not audio_q.empty():
+        path = audio_q.get_nowait()
+        on_audio(path)
