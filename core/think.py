@@ -44,14 +44,12 @@ _REASONING_SCALE = 3
 
 _PERSONA_PATH = Path(__file__).resolve().parent.parent / "persona" / "soul.md"
 
+_DEFAULT_USER_ID = os.getenv("USER_ID", "OppaAI")
 
-def _load_persona() -> str:
-    if not _PERSONA_PATH.exists():
-        raise FileNotFoundError(f"soul.md not found at {_PERSONA_PATH}")
-    persona = _PERSONA_PATH.read_text(encoding="utf-8").strip()
-    user_id = os.getenv("USER_ID", "OppaAI")
-    today   = datetime.now().strftime("%B %d, %Y")
-    return persona.replace("USER_ID_HERE", user_id).replace("TODAY_HERE", today)
+
+def _render_persona(template: str, user_id: str) -> str:
+    today = datetime.now().strftime("%B %d, %Y")
+    return template.replace("USER_ID_HERE", user_id).replace("TODAY_HERE", today)
 
 
 # ── think ─────────────────────────────────────────────────────────────────────
@@ -75,7 +73,11 @@ class AikoThink:
             timeout=120.0,
         )
         self._memorize  = memorize
-        self._persona   = _load_persona()
+
+        if not _PERSONA_PATH.exists():
+            raise FileNotFoundError(f"soul.md not found at {_PERSONA_PATH}")
+        self._persona_raw = _PERSONA_PATH.read_text(encoding="utf-8").strip()
+
         self._history:  list[dict] = []
         self._reasoning = False
         self._token_callback = None
@@ -105,7 +107,7 @@ class AikoThink:
         if self._warmup_thread.is_alive():
             self._warmup_thread.join()
 
-    def chat(self, user_input: str, token_callback=None) -> str:
+    def chat(self, user_input: str, user_id: str = _DEFAULT_USER_ID, token_callback=None) -> str:
         self._token_callback = token_callback
 
         # 1. retrieve relevant long-term memories
@@ -116,8 +118,8 @@ class AikoThink:
             memories     = []
             memory_block = None
 
-        # 2. build system prompt — persona + memories
-        system = self._persona
+        # 2. build system prompt — persona (templated per-user) + memories
+        system = _render_persona(self._persona_raw, user_id)
         if memory_block:
             system = f"{system}\n\n{memory_block}"
 
