@@ -210,7 +210,6 @@ with gr.Blocks(
                 with gr.Column(elem_id="aiko-chat-overlay"):
                     chatbot = gr.Chatbot(
                         elem_id="aiko-chatbot",
-                        type="messages",
                         height=600,
                         show_label=False,
                         container=False,
