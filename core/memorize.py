@@ -1,31 +1,16 @@
 """
 core/memorize.py
-Aiko's persistent memory — custom backend via sqlite-vec + fastembed + Ollama.
+Aiko's persistent memory — custom backend via sqlite-vec + fastembed + Modal LLM.
 Abstracts all memory calls so think.py stays clean.
 
 Memory lifecycle:
   - Every search() call increments access_count and updates last_accessed_at
     in the memories table, enabling Ebbinghaus-style exponential decay scoring.
-  - dream() runs nightly (00:00) as a consolidation pass — no new vectors
-    are written. It boosts salient memories, merges near-duplicates, then
-    prunes decayed entries. Order matters: boost before prune so boosted
-    memories aren't immediately swept.
   - cleanup() deletes memories below decay threshold, with grace period
     protection for newly created entries.
   - Decay logic lives in core/forget.py (pure math, no I/O).
   - Pinned memories (created via pin()) are permanently immune to decay
-    cleanup and dream pruning. The pinned flag lives in the memories table.
-
-Dream pass overview:
-  1. Boost  — increment access_count on memories matching salience heuristics
-              (keyword signals, high prior access, recency) so they survive decay.
-  2. Merge  — cosine-similarity search per memory; near-duplicates above
-              threshold are collapsed: keep the higher access_count copy,
-              delete the redundant one to stay in sync.
-              Pinned memories are never chosen as the loser in a merge.
-  3. Prune  — standard cleanup() pass; runs after boost so newly protected
-              memories aren't caught in the sweep.
-              Pinned memories are skipped entirely.
+    cleanup. The pinned flag lives in the memories table.
 
 Storage layout (single .db file):
   memories        — canonical record: id, user_id, memory, metadata
@@ -48,11 +33,9 @@ Custom backend (replaces Qdrant + mem0):
   - All schema fields (memory, user_id, created_at, access_count,
     last_accessed_at, pinned) are owned by this module — no hidden schema.
 
-Extraction LLM routing:
-  - If LLAMA_BASE_URL is set (Modal / llama.cpp OpenAI-compat endpoint),
-    extraction uses the same endpoint as think.py (OpenAI /v1 format).
-  - Falls back to OLLAMA_BASE_URL + /api/chat (Ollama format) for local dev.
-  - Model resolved via: EXTRACT_MODEL → LLAMA_MODEL → OLLAMA_MODEL.
+Extraction LLM:
+  - Uses LLAMA_BASE_URL (Modal OpenAI-compat endpoint) + LLAMA_API_KEY.
+  - Model resolved via: EXTRACT_MODEL → LLAMA_MODEL.
 
 Dependencies:
   pip install sqlite-vec fastembed
@@ -83,47 +66,30 @@ log = get_logger(__name__)
 # ── boot labels ───────────────────────────────────────────────────────────────
 
 BOOT_LABELS = {
-    'mem_sqlite':  'Opening sqlite-vec memory store...',
-    'mem_cleanup': 'Running memory cleanup...',
-    'mem_ready':   'Memory backend ready',
+    'mem_sqlite_vec': 'Opening sqlite-vec memory store...',
+    'mem_embed':      'Loading fastembed model...',
+    'mem_cleanup':    'Running memory cleanup...',
+    'mem_ready':      'Memory backend ready',
 }
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
 EMBED_MODEL = "BAAI/bge-base-en-v1.5"
 EMBED_DIMS  = 768
-RRF_K       = 60          # standard RRF constant — dampens outlier ranks
-KNN_LIMIT   = 20          # candidates fetched before RRF re-rank
-FTS_LIMIT   = 20          # candidates fetched before RRF re-rank
+RRF_K       = 60    # standard RRF constant — dampens outlier ranks
+KNN_LIMIT   = 20    # candidates fetched before RRF re-rank
+FTS_LIMIT   = 20    # candidates fetched before RRF re-rank
 
 USER_ID = os.getenv("USER_ID", "OppaAI")
-
-# Cosine similarity threshold for near-duplicate detection during dream pass.
-# 0.92 is conservative — only collapses near-identical phrasings.
-# Lower (e.g. 0.85) catches more semantic duplicates but risks false merges.
-DREAM_MERGE_THRESHOLD = float(os.getenv("DREAM_MERGE_THRESHOLD", 0.92))
-
-# access_count boost applied to salient memories during dream pass.
-DREAM_BOOST_AMOUNT = int(os.getenv("DREAM_BOOST_AMOUNT", 2))
-
-# Salience keywords — memories containing these are boosted during dream pass.
-_SALIENCE_KEYWORDS = frozenset([
-    "name", "called", "likes", "loves", "hates", "dislikes", "always", "never",
-    "important", "remember", "favourite", "favorite", "birthday", "works",
-    "lives", "studying", "job", "afraid", "dream", "goal",
-])
 
 # Minimum conversation size (chars) worth sending to LLM for extraction.
 # Skips trivial turns (greetings, one-word replies) to save inference time.
 _EXTRACT_MIN_CHARS = int(os.getenv("MEMORY_EXTRACT_MIN_CHARS", 80))
 
 # Extraction prompt — tuned for small models.
-# Asks for a flat JSON array of atomic fact strings. Nothing else.
 _EXTRACT_PROMPT = """\
 Extract memorable facts about the USER from this conversation.
 The USER is OppaAI (he/him). The ASSISTANT is Aiko.
-Oppa built you recently" not "User created Aiko
-Oppa's birthday is June 3" not "User's birthday is June 3
 Write every fact from Aiko's perspective, using second-person for the user.
 Example format: "Oppa's birthday is June 3, 2026"  "Oppa created you (Aiko) recently"
 Return ONLY a JSON array of short strings. Each string is one atomic fact.
@@ -135,18 +101,16 @@ Do NOT explain. No markdown.
 Conversation:
 {conversation}"""
 
+
 def _sanitize_fts_query(query: str) -> str:
     """
     Strip characters that break FTS5 query parsing.
     FTS5 treats , " ( ) * ^ : - ' as syntax tokens — remove them all.
-    Args:
-        query (str): The query string to sanitize.
-    Returns:
-        str: The sanitized query string.
     """
-    cleaned = re.sub(r'[^\w\s]', ' ', query)   # keep only word chars and spaces
-    cleaned = ' '.join(cleaned.split())          # collapse whitespace
+    cleaned = re.sub(r'[^\w\s]', ' ', query)
+    cleaned = ' '.join(cleaned.split())
     return cleaned or "*"
+
 
 # ── schema ────────────────────────────────────────────────────────────────────
 
@@ -154,7 +118,6 @@ _DDL = """
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
--- canonical memory records
 CREATE TABLE IF NOT EXISTS memories (
     id               TEXT PRIMARY KEY,
     user_id          TEXT NOT NULL,
@@ -162,12 +125,11 @@ CREATE TABLE IF NOT EXISTS memories (
     created_at       TEXT NOT NULL,
     access_count     INTEGER NOT NULL DEFAULT 0,
     last_accessed_at TEXT NOT NULL DEFAULT 'never',
-    pinned           INTEGER NOT NULL DEFAULT 0   -- 0=false 1=true
+    pinned           INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
 
--- FTS5 for lexical BM25 search — mirrors memories.memory column
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
     memory,
     id UNINDEXED,
@@ -175,13 +137,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
     content_rowid='rowid'
 );
 
--- vec0 for KNN cosine search — one embedding per memory
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_vec USING vec0(
     id TEXT PRIMARY KEY,
     embedding FLOAT[{dims}]
 );
 
--- keep FTS5 in sync with memories via triggers
 CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
     INSERT INTO memories_fts(rowid, memory, id)
     VALUES (new.rowid, new.memory, new.id);
@@ -201,16 +161,9 @@ END;
 """.format(dims=EMBED_DIMS)
 
 
-# ── sqlite payload helpers ────────────────────────────────────────────────────
-# These replace the self._qdrant.retrieve / set_payload / scroll calls
-# that AikoMemorize used to make directly against Qdrant.
+# ── sqlite helpers ────────────────────────────────────────────────────────────
 
 def _sqlite_get_payload(conn: sqlite3.Connection, mem_id: str) -> dict:
-    """
-    Fetch the full memories row for a single id.
-    Equivalent to qdrant.retrieve(ids=[mem_id], with_payload=True).
-    Returns {} if not found.
-    """
     conn.row_factory = sqlite3.Row
     row = conn.execute(
         "SELECT * FROM memories WHERE id = ?", (mem_id,)
@@ -218,16 +171,7 @@ def _sqlite_get_payload(conn: sqlite3.Connection, mem_id: str) -> dict:
     return dict(row) if row else {}
 
 
-def _sqlite_set_payload(
-    conn: sqlite3.Connection,
-    mem_id: str,
-    payload: dict,
-) -> None:
-    """
-    Update arbitrary column subset for a single memory row.
-    Equivalent to qdrant.set_payload(payload=..., points=[mem_id]).
-    Only valid memories column names should be passed as keys.
-    """
+def _sqlite_set_payload(conn: sqlite3.Connection, mem_id: str, payload: dict) -> None:
     if not payload:
         return
     cols = ", ".join(f"{k} = ?" for k in payload)
@@ -236,15 +180,7 @@ def _sqlite_set_payload(
     conn.commit()
 
 
-def _sqlite_batch_get_payloads(
-    conn: sqlite3.Connection,
-    mem_ids: list[str],
-) -> dict:
-    """
-    Batch-fetch access_count + last_accessed_at in a single query.
-    Equivalent to the Qdrant _batch_get_payloads() round-trip.
-    Returns {mem_id: (access_count, last_accessed_at)}.
-    """
+def _sqlite_batch_get_payloads(conn: sqlite3.Connection, mem_ids: list[str]) -> dict:
     if not mem_ids:
         return {}
     conn.row_factory = sqlite3.Row
@@ -259,29 +195,7 @@ def _sqlite_batch_get_payloads(
     }
 
 
-def _sqlite_get_vector(conn: sqlite3.Connection, mem_id: str) -> list[float]:
-    """
-    Retrieve the raw embedding for one memory from the vec0 table.
-    Equivalent to qdrant.retrieve(ids=[mem_id], with_vectors=True).
-    Returns [] on miss or error — callers should skip on empty.
-    """
-    row = conn.execute(
-        "SELECT embedding FROM memories_vec WHERE id = ?", (mem_id,)
-    ).fetchone()
-    if row and row[0]:
-        raw = row[0]
-        n   = len(raw) // 4
-        return list(struct.unpack(f"{n}f", raw))   # deserialise float32 blob
-    return []
-
-
 def _sqlite_is_pinned(conn: sqlite3.Connection, mem_id: str) -> bool:
-    """
-    Return True if memories.pinned == 1 for this id.
-    Equivalent to checking qdrant payload pinned=True.
-    Defaults to False on any error — safe: a miss leaves memory subject to
-    normal decay rather than silently deleting it.
-    """
     row = conn.execute(
         "SELECT pinned FROM memories WHERE id = ?", (mem_id,)
     ).fetchone()
@@ -293,117 +207,55 @@ def _sqlite_knn_search(
     vector: list[float],
     user_id: str,
     limit: int,
-    threshold: Optional[float] = None,
 ) -> list[sqlite3.Row]:
-    """
-    KNN cosine search against memories_vec, filtered by user_id.
-    Used by both _MemoryBackend.search() and _dream_merge() similarity lookup.
-    When threshold is supplied, only rows with dist <= (1 - threshold) are
-    returned (cosine distance = 1 - cosine similarity).
-    """
     vec_blob = sqlite_vec.serialize_float32(vector)
-    if threshold is not None:
-        # convert similarity threshold to distance ceiling
-        dist_ceil = 1.0 - threshold
-        rows = conn.execute(
-            """
-            SELECT v.id, vec_distance_cosine(v.embedding, ?) AS dist
-            FROM memories_vec v
-            JOIN memories m ON m.id = v.id
-            WHERE m.user_id = ?
-              AND vec_distance_cosine(v.embedding, ?) <= ?
-            ORDER BY dist ASC
-            LIMIT ?
-            """,
-            (vec_blob, user_id, vec_blob, dist_ceil, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT v.id, vec_distance_cosine(v.embedding, ?) AS dist
-            FROM memories_vec v
-            JOIN memories m ON m.id = v.id
-            WHERE m.user_id = ?
-            ORDER BY dist ASC
-            LIMIT ?
-            """,
-            (vec_blob, user_id, limit),
-        ).fetchall()
+    rows = conn.execute(
+        """
+        SELECT v.id, vec_distance_cosine(v.embedding, ?) AS dist
+        FROM memories_vec v
+        JOIN memories m ON m.id = v.id
+        WHERE m.user_id = ?
+        ORDER BY dist ASC
+        LIMIT ?
+        """,
+        (vec_blob, user_id, limit),
+    ).fetchall()
     return rows
 
 
 # ── extraction LLM call ───────────────────────────────────────────────────────
 
-def _call_extraction_llm(
-    prompt:          str,
-    llama_base_url:  str,
-    llama_model:     str,
-    ollama_base_url: str,
-    ollama_model:    str,
-) -> str:
+def _call_extraction_llm(prompt: str, base_url: str, model: str, api_key: str) -> str:
     """
-    Send the extraction prompt to whichever LLM backend is configured.
-
-    Routing priority:
-      1. LLAMA_BASE_URL (Modal / llama.cpp OpenAI-compat) — uses OpenAI
-         /v1/chat/completions format, same as think.py's _stream_response.
-      2. OLLAMA_BASE_URL fallback — uses Ollama /api/chat format for local dev.
-
-    Returns the raw response string, or raises on failure.
+    Send the extraction prompt to the Modal OpenAI-compat endpoint.
+    Raises on failure — caller catches and returns [].
     """
-    if llama_base_url:
-        # OpenAI-compatible endpoint (Modal / llama.cpp) — mirrors think.py
-        base = llama_base_url.rstrip("/")
-        resp = httpx.post(
-            f"{base}/",
-            json={
-                "model":       llama_model,
-                "messages":    [{"role": "user", "content": prompt}],
-                "stream":      False,
-                "temperature": 0.1,
-                "max_tokens":  512,
-            },
-            timeout=45,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
-    # local Ollama fallback
-    base = ollama_base_url.rstrip("/")
     resp = httpx.post(
-        f"{base}/api/chat",
+        f"{base_url.rstrip('/')}/chat/completions",
+        headers=headers,
         json={
-            "model":    ollama_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream":   False,
-            "options": {
-                "temperature": 0.1,
-                "num_predict": 512,
-                "num_ctx":     int(os.getenv("OLLAMA_NUM_CTX", 3072)),
-            },
+            "model":       model,
+            "messages":    [{"role": "user", "content": prompt}],
+            "stream":      False,
+            "temperature": 0.1,
+            "max_tokens":  512,
         },
         timeout=45,
     )
     resp.raise_for_status()
-    return resp.json()["message"]["content"].strip()
+    return resp.json()["choices"][0]["message"]["content"].strip()
 
 
 # ── memory backend ────────────────────────────────────────────────────────────
 
 class _MemoryBackend:
     """
-    sqlite-vec + FTS5 + RRF replacement for the Qdrant _MemoryBackend.
-
-    Public API is identical to the Qdrant version:
-        add(), search(), get_all(), delete(), delete_all()
-
-    AikoMemorize calls these and nothing else — all Qdrant-specific helpers
-    (_batch_get_payloads, _get_vector, _is_pinned, set_payload equivalents)
-    are re-implemented as module-level sqlite helper functions above.
-
-    The .db file path is read from env var SQLITE_MEMORY_PATH,
-    defaulting to ~/.aiko/memory.db.
+    sqlite-vec + FTS5 + RRF backend.
+    Public API: add(), search(), get_all(), delete(), delete_all()
     """
 
     def __init__(
@@ -411,16 +263,14 @@ class _MemoryBackend:
         db_path:         str,
         llama_base_url:  str,
         llama_model:     str,
-        ollama_base_url: str,
-        ollama_model:    str,
+        llama_api_key:   str,
         fastembed_cache: Optional[str] = None,
     ) -> None:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._db_path        = db_path
-        self._llama_base_url = llama_base_url   # Modal / llama.cpp (preferred)
+        self._db_path       = db_path
+        self._llama_base_url = llama_base_url
         self._llama_model    = llama_model
-        self._ollama         = ollama_base_url   # local Ollama fallback
-        self._ollama_model   = ollama_model
+        self._llama_api_key  = llama_api_key
         self._embedder = TextEmbedding(
             model_name=EMBED_MODEL,
             cache_dir=fastembed_cache,
@@ -428,33 +278,22 @@ class _MemoryBackend:
         self._conn = self._connect()
         self._apply_schema()
 
-    # ── connection ────────────────────────────────────────────────────────────
-
     def _connect(self) -> sqlite3.Connection:
-        """Open WAL-mode connection and load sqlite-vec extension."""
         conn = sqlite3.connect(self._db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        sqlite_vec.load(conn)   # registers vec0 + vec_distance etc.
+        sqlite_vec.load(conn)
         return conn
 
     def _apply_schema(self) -> None:
-        """Create tables/triggers if they don't exist yet."""
         self._conn.executescript(_DDL)
         self._conn.commit()
 
-    # ── embedding ─────────────────────────────────────────────────────────────
-
     def _embed(self, text: str) -> list[float]:
-        """Embed a single string with fastembed. Returns a plain float list."""
         return list(self._embedder.embed([text]))[0].tolist()
 
     # ── extraction ────────────────────────────────────────────────────────────
 
     def _should_extract(self, messages: list[dict]) -> bool:
-        """
-        Return False for trivial turns. Only counts user/assistant content
-        to avoid passing threshold on system/tool noise.
-        """
         total = sum(
             len(m.get("content") or "")
             for m in messages
@@ -464,30 +303,18 @@ class _MemoryBackend:
         return total >= _EXTRACT_MIN_CHARS
 
     def _extract_facts(self, messages: list[dict]) -> list[str]:
-        """
-        Send conversation to extraction LLM and parse the returned JSON fact array.
-        Routes to Modal (OpenAI-compat) if LLAMA_BASE_URL is set, else Ollama.
-        Only user/assistant turns are included. Orphaned roles (system, tool,
-        empty content) are stripped before formatting to prevent LLM confusion.
-        """
         if not self._should_extract(messages):
             return []
 
-        # filter to only user/assistant turns with real content
         clean_messages = [
             m for m in messages
             if m.get("role") in ("user", "assistant")
             and (m.get("content") or "").strip()
         ]
 
-        # guard: must start with a user turn and alternate properly
-        # strip leading assistant turns (orphans from tool responses, etc.)
         while clean_messages and clean_messages[0].get("role") != "user":
             clean_messages.pop(0)
-
-        # strip trailing assistant-only tail if it has no user context
-        while clean_messages and clean_messages[-1].get("role") == "assistant":
-            # keep if there's at least one user message before it
+        while len(clean_messages) > 1 and clean_messages[-1].get("role") == "assistant":
             if any(m.get("role") == "user" for m in clean_messages[:-1]):
                 break
             clean_messages.pop()
@@ -495,7 +322,6 @@ class _MemoryBackend:
         if not clean_messages:
             return []
 
-        # re-check min chars after filtering
         total = sum(len(m.get("content") or "") for m in clean_messages)
         if total < _EXTRACT_MIN_CHARS:
             return []
@@ -504,25 +330,20 @@ class _MemoryBackend:
             f"{m['role'].upper()}: {m['content'].strip()}"
             for m in clean_messages
         )
-
         prompt = _EXTRACT_PROMPT.format(conversation=convo)
 
         try:
             raw = _call_extraction_llm(
                 prompt=prompt,
-                llama_base_url=self._llama_base_url,
-                llama_model=self._llama_model,
-                ollama_base_url=self._ollama,
-                ollama_model=self._ollama_model,
+                base_url=self._llama_base_url,
+                model=self._llama_model,
+                api_key=self._llama_api_key,
             )
         except Exception as e:
-            log.warning(f"Extraction LLM call failed: {e}")
+            log.warning("Extraction LLM call failed: %s", e)
             return []
 
-        # strip CoT think blocks before JSON parsing
         raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
-
-        # strip accidental markdown fences
         raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
 
         try:
@@ -530,20 +351,13 @@ class _MemoryBackend:
             if isinstance(facts, list):
                 return [f.strip() for f in facts if isinstance(f, str) and f.strip()]
         except json.JSONDecodeError:
-            log.warning(f"Failed to parse extraction JSON: {raw[:200]!r}")
+            log.warning("Failed to parse extraction JSON: %r", raw[:200])
 
         return []
 
     # ── write ─────────────────────────────────────────────────────────────────
 
     def add(self, messages: list[dict], user_id: str) -> list[str]:
-        """
-        Extract facts and persist each as a row in memories + memories_vec.
-        FTS5 triggers handle memories_fts automatically.
-
-        Returns list of new memory IDs (UUIDs). Empty list if nothing extracted
-        or extraction fails — callers treat this as a no-op, not an error.
-        """
         facts = self._extract_facts(messages)
         if not facts:
             return []
@@ -555,8 +369,6 @@ class _MemoryBackend:
             mem_id = str(uuid.uuid4())
             try:
                 vector = self._embed(fact)
-
-                # insert canonical record — FTS5 trigger fires automatically
                 self._conn.execute(
                     """
                     INSERT INTO memories
@@ -565,17 +377,14 @@ class _MemoryBackend:
                     """,
                     (mem_id, user_id, fact, now),
                 )
-
-                # insert embedding into vec0 table
                 self._conn.execute(
                     "INSERT INTO memories_vec(id, embedding) VALUES (?, ?)",
                     (mem_id, sqlite_vec.serialize_float32(vector)),
                 )
-
                 self._conn.commit()
                 ids.append(mem_id)
             except Exception as e:
-                log.warning(f"Failed to upsert fact {mem_id!r}: {e}")
+                log.warning("Failed to upsert fact %r: %s", mem_id, e)
                 self._conn.rollback()
 
         return ids
@@ -583,29 +392,10 @@ class _MemoryBackend:
     # ── read ──────────────────────────────────────────────────────────────────
 
     def search(self, query: str, user_id: str, limit: int = 5) -> list[dict]:
-        """
-        KNN + FTS5 → RRF fusion search.
-
-        1. KNN: top-KNN_LIMIT by cosine distance from memories_vec
-           (user_id filter applied in JOIN — vec0 doesn't support standalone WHERE)
-        2. FTS5: top-FTS_LIMIT by BM25 from memories_fts
-           (user_id filter in JOIN)
-        3. RRF: score = 1/(k+rank_knn) + 1/(k+rank_fts)
-           ids appearing in only one source get 0 for the missing rank
-        4. Return top `limit` by RRF score as payload dicts
-
-        Access tracking (access_count, last_accessed_at) is handled by
-        AikoMemorize.search() — not here, matching original contract.
-        """
-        vector = self._embed(query)
-
-        # ── KNN candidates ────────────────────────────────────────────────────
+        vector   = self._embed(query)
         knn_rows = _sqlite_knn_search(self._conn, vector, user_id, KNN_LIMIT)
-
-        # rank_knn: {id: 1-based rank}
         rank_knn = {row["id"]: i + 1 for i, row in enumerate(knn_rows)}
 
-        # ── FTS5 candidates ───────────────────────────────────────────────────
         fts_rows = self._conn.execute(
             """
             SELECT f.id
@@ -618,61 +408,42 @@ class _MemoryBackend:
             """,
             (_sanitize_fts_query(query), user_id, FTS_LIMIT),
         ).fetchall()
-
         rank_fts = {row["id"]: i + 1 for i, row in enumerate(fts_rows)}
 
-        # ── RRF fusion ────────────────────────────────────────────────────────
         all_ids = set(rank_knn) | set(rank_fts)
         if not all_ids:
             return []
 
         def rrf(mem_id: str) -> float:
-            knn = rank_knn.get(mem_id, 0)
-            fts = rank_fts.get(mem_id, 0)
             score = 0.0
-            if knn:
-                score += 1.0 / (RRF_K + knn)
-            if fts:
-                score += 1.0 / (RRF_K + fts)
+            if mem_id in rank_knn:
+                score += 1.0 / (RRF_K + rank_knn[mem_id])
+            if mem_id in rank_fts:
+                score += 1.0 / (RRF_K + rank_fts[mem_id])
             return score
 
-        ranked = sorted(all_ids, key=rrf, reverse=True)[:limit]
-
-        # ── fetch full payloads ───────────────────────────────────────────────
+        ranked      = sorted(all_ids, key=rrf, reverse=True)[:limit]
         placeholders = ",".join("?" * len(ranked))
-        rows = self._conn.execute(
-            f"SELECT * FROM memories WHERE id IN ({placeholders})",
-            ranked,
+        rows        = self._conn.execute(
+            f"SELECT * FROM memories WHERE id IN ({placeholders})", ranked
         ).fetchall()
 
-        # preserve RRF order
         order       = {mid: i for i, mid in enumerate(ranked)}
         rows_sorted = sorted(rows, key=lambda r: order.get(r["id"], 999))
-
         return [dict(r) for r in rows_sorted]
 
     def get_all(self, user_id: str) -> list[dict]:
-        """Return all memory records for a user."""
         rows = self._conn.execute(
-            "SELECT * FROM memories WHERE user_id = ?",
-            (user_id,),
+            "SELECT * FROM memories WHERE user_id = ?", (user_id,)
         ).fetchall()
         return [dict(r) for r in rows]
 
-    # ── delete ────────────────────────────────────────────────────────────────
-
     def delete(self, memory_id: str) -> None:
-        """
-        Delete a memory from all three tables.
-        FTS5 trigger on memories handles memories_fts automatically.
-        memories_vec must be deleted explicitly (no FK cascade on virtual tables).
-        """
         self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
         self._conn.commit()
 
     def delete_all(self, user_id: str) -> None:
-        """Delete every memory for a user from all three tables."""
         ids = [
             r["id"] for r in self._conn.execute(
                 "SELECT id FROM memories WHERE user_id = ?", (user_id,)
@@ -681,12 +452,8 @@ class _MemoryBackend:
         if not ids:
             return
         placeholders = ",".join("?" * len(ids))
-        self._conn.execute(
-            f"DELETE FROM memories WHERE id IN ({placeholders})", ids
-        )
-        self._conn.execute(
-            f"DELETE FROM memories_vec WHERE id IN ({placeholders})", ids
-        )
+        self._conn.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", ids)
+        self._conn.execute(f"DELETE FROM memories_vec WHERE id IN ({placeholders})", ids)
         self._conn.commit()
 
 
@@ -694,41 +461,23 @@ class _MemoryBackend:
 
 class AikoMemorize:
     """
-    Persistent memory with Ebbinghaus decay lifecycle and nightly dream() pass.
+    Persistent memory with Ebbinghaus decay lifecycle.
 
-    Uses a custom _MemoryBackend (LLM extraction + fastembed + sqlite-vec)
-    instead of Qdrant + mem0. Public API and all lifecycle behaviour are unchanged.
+    Uses _MemoryBackend (LLM extraction + fastembed + sqlite-vec).
 
-    Extraction LLM routing (env vars):
-      LLAMA_BASE_URL  — Modal / llama.cpp OpenAI-compat endpoint (preferred on HF Spaces)
-      LLAMA_MODEL     — model name for the above
-      EXTRACT_MODEL   — override model name for extraction specifically
-      OLLAMA_BASE_URL — local Ollama fallback (default: http://localhost:11434)
-      OLLAMA_MODEL    — model name for Ollama fallback
+    Env vars:
+      LLAMA_BASE_URL      — Modal OpenAI-compat endpoint
+      LLAMA_API_KEY       — Modal API key
+      EXTRACT_MODEL       — override model for extraction (falls back to LLAMA_MODEL)
+      SQLITE_MEMORY_PATH  — path to .db file (default: ~/.aiko/memory.db)
+                            Point this at a persistent volume on HF Space.
+      FASTEMBED_CACHE_PATH — optional cache dir for fastembed model weights
 
-    Boot sequence (called by wakeup.py in order):
-        memorize = AikoMemorize()   # opens sqlite-vec store + loads fastembed
-        memorize.cleanup()          # prune decayed memories on startup
+    Boot sequence (called by wakeup.py):
+        memorize = AikoMemorize()
+        memorize.cleanup()
 
-    Access tracking:
-        Every search() call updates the memories table (access_count,
-        last_accessed_at) so the decay formula has fresh data.
-
-    Pinned memories:
-        Created via pin() — the pinned=1 column flag makes them
-        immune to cleanup(), dream prune, and dream merge (as the loser).
-
-    Dream pass (call nightly at 00:00):
-        1. Boost salient memories' access_count so they survive decay.
-        2. Merge near-duplicate vectors — keeps higher-access copy.
-           Pinned memories are never deleted as a merge loser.
-        3. Prune decayed memories via cleanup().
-           Pinned memories are always kept.
-
-    Cleanup:
-        Also available standalone — deletes memories below decay threshold,
-        with grace period protection for newly created entries.
-        Pinned memories are always kept regardless of score.
+    Pinned memories are immune to cleanup() regardless of decay score.
     """
 
     def __init__(self, silent: bool = False) -> None:
@@ -740,26 +489,18 @@ class AikoMemorize:
         if not silent:
             log.info("Opening sqlite-vec memory store...")
 
-        # resolve extraction model: EXTRACT_MODEL > LLAMA_MODEL > OLLAMA_MODEL
         extract_model = (
             os.getenv("EXTRACT_MODEL")
-            or os.getenv("LLAMA_MODEL",  "ministral-3:3b-instruct-2512-q4_K_M")
-        )
-        ollama_model = (
-            os.getenv("EXTRACT_MODEL")
-            or os.getenv("OLLAMA_MODEL", "ministral-3:3b-instruct-2512-q4_K_M")
+            or os.getenv("LLAMA_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
         )
 
         self._mem = _MemoryBackend(
             db_path=db_path,
-            llama_base_url=os.getenv("LLAMA_BASE_URL", ""),   # Modal / llama.cpp (preferred)
+            llama_base_url=os.getenv("LLAMA_BASE_URL", ""),
             llama_model=extract_model,
-            ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            ollama_model=ollama_model,
+            llama_api_key=os.getenv("LLAMA_API_KEY", ""),
             fastembed_cache=os.getenv("FASTEMBED_CACHE_PATH"),
         )
-        # direct connection handle for payload operations (access tracking,
-        # pinning, vector retrieval) that bypass the backend abstraction
         self._conn = self._mem._conn
 
         if not silent:
@@ -769,40 +510,26 @@ class AikoMemorize:
 
     def add(self, messages: list[dict], user_id: str = USER_ID) -> bool:
         """
-        Store a conversation turn (or batch) into long-term memory.
-
-        Runs synchronously — LLM extraction completes before returning.
-        Callers that need non-blocking writes should enqueue via their own
-        worker (e.g. think.py's _mem_write_loop).
-
-        Returns True on success, False on failure so callers can log/alert.
+        Extract facts from a conversation turn and persist to memory.
+        Returns True on success, False on failure.
         """
         try:
             t       = time.perf_counter()
             ids     = self._mem.add(messages, user_id=user_id)
             elapsed = time.perf_counter() - t
             if ids:
-                log.info(f"Saved {len(ids)} memories in {elapsed:.2f}s")
+                log.info("Saved %d memories in %.2fs", len(ids), elapsed)
             else:
-                log.debug(f"No facts extracted ({elapsed:.2f}s) — nothing saved.")
+                log.debug("No facts extracted (%.2fs) — nothing saved.", elapsed)
             return True
         except Exception as e:
-            log.error(f"Save failed: {e}")
+            log.error("Save failed: %s", e)
             return False
 
     def pin(self, messages: list[dict], user_id: str = USER_ID) -> bool:
         """
-        Store messages and immediately mark all resulting memories as pinned.
-
-        Pinned memories are permanently immune to:
-          - decay cleanup (cleanup() skips them regardless of score)
-          - dream pruning (dream() prune stage skips them)
-          - dream merging (never chosen as the loser in a duplicate collapse)
-
-        Uses before/after snapshot of get_all() to identify new memory IDs,
-        then sets pinned=1 in their memories row.
-
-        Returns True on success, False on any failure (check logs).
+        Store messages and mark all resulting memories as pinned.
+        Pinned memories are immune to cleanup() regardless of decay score.
         """
         try:
             before  = {str(m["id"]) for m in self.get_all(user_id=user_id)}
@@ -813,7 +540,6 @@ class AikoMemorize:
             pin_ids = list(after - before)
 
             if not pin_ids:
-                # fallback: search for the closest matching memories
                 query = "\n".join(
                     (m.get("content") or "").strip()
                     for m in messages
@@ -826,27 +552,24 @@ class AikoMemorize:
                 ]
 
             if not pin_ids:
-                log.warning("pin(): add succeeded but no memory IDs were found to pin.")
+                log.warning("pin(): add succeeded but no memory IDs found to pin.")
                 return False
 
-            # mark each new memory as pinned in the memories table
             for mem_id in pin_ids:
                 _sqlite_set_payload(self._conn, mem_id, {"pinned": 1})
 
-            log.info(f"Pinned {len(pin_ids)} memories: {pin_ids}")
+            log.info("Pinned %d memories: %s", len(pin_ids), pin_ids)
             return True
         except Exception as e:
-            log.error(f"Pin failed: {e}")
+            log.error("Pin failed: %s", e)
             return False
 
     # ── read ──────────────────────────────────────────────────────────────────
 
     def search(self, query: str, user_id: str = USER_ID, limit: int = 5) -> list[dict]:
         """
-        Retrieve top-k memories relevant to the current query.
-
-        Side-effect: increments access_count and updates last_accessed_at
-        in the memories table for each returned memory, feeding decay scoring.
+        Retrieve top-k memories relevant to query via KNN + FTS5 RRF fusion.
+        Side-effect: increments access_count and updates last_accessed_at.
         """
         results = self._mem.search(query, user_id=user_id, limit=limit)
 
@@ -857,24 +580,21 @@ class AikoMemorize:
                 if not mem_id:
                     continue
                 try:
-                    # fetch current access_count before incrementing
                     payload       = _sqlite_get_payload(self._conn, mem_id)
                     current_count = payload.get("access_count", 0) or 0
-
-                    # update access tracking — cap at 255 to bound the column
                     _sqlite_set_payload(self._conn, mem_id, {
                         "access_count":     min(current_count + 1, 255),
                         "last_accessed_at": now,
                     })
                 except Exception as e:
-                    log.warning(f"Access tracking failed for {mem_id}: {e}")
+                    log.warning("Access tracking failed for %s: %s", mem_id, e)
 
         return results
 
     def format_for_context(self, memories: list[dict]) -> Optional[str]:
         """
-        Format retrieved memories into a compact string for injection
-        into the conversation context. Returns None if nothing to inject.
+        Format retrieved memories into a string for injection into system prompt.
+        Returns None if nothing to inject.
         """
         if not memories:
             return None
@@ -909,233 +629,6 @@ class AikoMemorize:
         lines.append("</memory_context>")
         return "\n".join(lines)
 
-    # ── dream pass ────────────────────────────────────────────────────────────
-
-    def dream(
-        self,
-        user_id:   str   = USER_ID,
-        dry_run:   bool  = False,
-        threshold: float = DREAM_MERGE_THRESHOLD,
-    ) -> dict:
-        """
-        Nightly memory consolidation pass. No new vectors are written.
-
-        Stages (in order):
-          1. Boost  — salient memories get +DREAM_BOOST_AMOUNT access_count.
-          2. Merge  — near-duplicate pairs (cosine >= threshold) are collapsed;
-                      higher access_count copy survives, other is deleted.
-                      Pinned memories are never chosen as the loser.
-          3. Prune  — standard decay cleanup runs last, after boosts are applied,
-                      so newly protected memories aren't swept.
-                      Pinned memories are always kept.
-
-        Args:
-            dry_run:   Report actions without writing or deleting anything.
-            threshold: Cosine similarity cutoff for duplicate detection.
-
-        Returns dict: {boosted, merged, pruned, duration_s}
-        """
-        t_start = time.perf_counter()
-        log.info(f"{'(dry-run) ' if dry_run else ''}Starting consolidation pass...")
-
-        all_mems = self.get_all(user_id=user_id)
-        if not all_mems:
-            log.info("No memories found — nothing to do.")
-            return {"boosted": 0, "merged": 0, "pruned": 0, "duration_s": 0.0}
-
-        mem_ids     = [str(m.get("id", "")) for m in all_mems if m.get("id")]
-        payload_map = self._batch_get_payloads(mem_ids)
-
-        boosted      = self._dream_boost(all_mems, payload_map, dry_run=dry_run)
-        merged       = self._dream_merge(mem_ids, user_id=user_id, threshold=threshold, dry_run=dry_run)
-        prune_result = self.cleanup(user_id=user_id, dry_run=dry_run)
-        pruned       = prune_result.get("deleted", 0)
-
-        duration = round(time.perf_counter() - t_start, 2)
-        log.info(
-            f"{'(dry-run) ' if dry_run else ''}"
-            f"Done — boosted={boosted}, merged={merged}, pruned={pruned}, "
-            f"duration={duration}s"
-        )
-        return {"boosted": boosted, "merged": merged, "pruned": pruned, "duration_s": duration}
-
-    def _dream_boost(
-        self,
-        all_mems:    list[dict],
-        payload_map: dict,
-        dry_run:     bool = False,
-    ) -> int:
-        """
-        Increment access_count on memories that match salience heuristics.
-
-        Salience criteria (any one triggers boost):
-          - Text contains a keyword from _SALIENCE_KEYWORDS
-          - access_count >= 3 (user has repeatedly surfaced this memory)
-          - created_at within the last 7 days (recency grace boost)
-
-        Pinned memories pass through the boost unchanged — they don't need it.
-
-        Returns count of memories boosted.
-        """
-        now     = datetime.now(timezone.utc)
-        boosted = 0
-
-        for m in all_mems:
-            mem_id = str(m.get("id", ""))
-            if not mem_id:
-                continue
-
-            if _sqlite_is_pinned(self._conn, mem_id):
-                continue
-
-            text     = (m.get("memory") or "").lower()
-            ac, _la  = payload_map.get(mem_id, (0, "never"))
-
-            # check recency — grace boost for memories within 7 days
-            is_recent  = False
-            created_at = m.get("created_at", "")
-            if created_at:
-                try:
-                    ts        = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                    is_recent = (now - ts).days <= 7
-                except Exception:
-                    pass
-
-            is_salient = (
-                any(kw in text for kw in _SALIENCE_KEYWORDS)
-                or ac >= 3
-                or is_recent
-            )
-
-            if not is_salient:
-                continue
-
-            if not dry_run:
-                try:
-                    # increment access_count, capped at 255
-                    _sqlite_set_payload(self._conn, mem_id, {
-                        "access_count": min(ac + DREAM_BOOST_AMOUNT, 255)
-                    })
-                except Exception as e:
-                    log.warning(f"Boost failed for {mem_id}: {e}")
-                    continue
-
-            boosted += 1
-
-        if boosted:
-            log.info(f"{'(dry-run) ' if dry_run else ''}Boosted {boosted} memories.")
-        return boosted
-
-    def _dream_merge(
-        self,
-        mem_ids:   list[str],
-        user_id:   str,
-        threshold: float = DREAM_MERGE_THRESHOLD,
-        dry_run:   bool  = False,
-    ) -> int:
-        """
-        Detect and collapse near-duplicate memory vectors.
-
-        For each memory, performs a KNN cosine search filtered by user_id and
-        threshold. When a duplicate pair is found, the lower access_count copy
-        is deleted. Tracks already-deleted IDs to avoid double-deletes in the
-        same pass.
-
-        Pinned memories are skipped as query origins and are never chosen as
-        the loser in _resolve_duplicate() — a pinned memory always survives.
-
-        Returns count of memories deleted as duplicates.
-        """
-        deleted_ids: set[str] = set()
-        merged = 0
-
-        for mem_id in mem_ids:
-            if mem_id in deleted_ids:
-                continue
-
-            if _sqlite_is_pinned(self._conn, mem_id):
-                continue
-
-            # retrieve the embedding for this memory to use as query vector
-            vector = _sqlite_get_vector(self._conn, mem_id)
-            if not vector:
-                continue
-
-            try:
-                # search for neighbors above the similarity threshold
-                neighbor_rows = _sqlite_knn_search(
-                    self._conn, vector, user_id, limit=4, threshold=threshold
-                )
-            except Exception as e:
-                log.warning(f"Similarity search failed for {mem_id}: {e}")
-                continue
-
-            for row in neighbor_rows:
-                neighbor_id = row["id"]
-                if neighbor_id == mem_id:
-                    continue
-                if neighbor_id in deleted_ids:
-                    continue
-
-                # cosine distance → similarity score for logging
-                similarity = 1.0 - row["dist"]
-
-                n_merged = self._resolve_duplicate(
-                    mem_id, neighbor_id, similarity, dry_run=dry_run
-                )
-                if n_merged:
-                    deleted_ids.add(neighbor_id)
-                    merged += 1
-
-        if merged:
-            log.info(f"{'(dry-run) ' if dry_run else ''}Merged {merged} duplicate memories.")
-        return merged
-
-    def _resolve_duplicate(
-        self,
-        id_a:    str,
-        id_b:    str,
-        score:   float,
-        dry_run: bool = False,
-    ) -> bool:
-        """
-        Compare two near-duplicate memories and delete the weaker one.
-
-        Keeps the copy with higher access_count. On a tie, keeps id_a
-        (the query origin) and deletes id_b.
-
-        If either memory is pinned, the merge is aborted — a pinned memory
-        is never deleted regardless of access_count comparison.
-
-        Returns True if a deletion occurred (or would occur in dry_run).
-        """
-        if _sqlite_is_pinned(self._conn, id_a) or _sqlite_is_pinned(self._conn, id_b):
-            log.info(f"Skipping merge: one or both of ({id_a}, {id_b}) is pinned.")
-            return False
-
-        payload_map = self._batch_get_payloads([id_a, id_b])
-        ac_a, _     = payload_map.get(id_a, (0, "never"))
-        ac_b, _     = payload_map.get(id_b, (0, "never"))
-        loser       = id_b if ac_a >= ac_b else id_a   # tie goes to id_a (query origin)
-
-        if dry_run:
-            log.info(
-                f"(dry-run) Would merge: score={score:.3f} "
-                f"ac_a={ac_a} ac_b={ac_b} → delete {loser}"
-            )
-            return True
-
-        try:
-            self._mem.delete(memory_id=loser)
-            log.info(
-                f"Merged duplicate (score={score:.3f}, "
-                f"ac_a={ac_a}, ac_b={ac_b}) → deleted {loser}"
-            )
-            return True
-        except Exception as e:
-            log.warning(f"Merge delete failed for {loser}: {e}")
-            return False
-
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
     def cleanup(
@@ -1146,29 +639,16 @@ class AikoMemorize:
     ) -> dict:
         """
         Prune decayed memories below threshold score.
-
-        Fetches all memories, batch-retrieves payloads (single round-trip),
-        evaluates decay score via should_cleanup(), and deletes candidates
-        directly to keep the vector store in sync.
-
-        Grace period (14 days) protects newly created memories from deletion
-        even if they score below threshold.
-
-        Pinned memories are unconditionally kept — the pinned flag overrides
-        all decay scoring.
-
-        Args:
-            threshold: Override decay threshold (default: CLEANUP_THRESHOLD = 0.05).
-            dry_run:   If True, report candidates without deleting.
-
-        Returns dict with counts: deleted, kept, failed, candidates (dry_run only).
+        Grace period (14 days) protects newly created memories.
+        Pinned memories are unconditionally kept.
+        Returns dict: {deleted, kept, failed}
         """
         all_mems = self.get_all(user_id=user_id)
         if not all_mems:
             return {"deleted": 0, "kept": 0, "failed": 0}
 
         mem_ids     = [str(m.get("id", "")) for m in all_mems if m.get("id")]
-        payload_map = self._batch_get_payloads(mem_ids)
+        payload_map = _sqlite_batch_get_payloads(self._conn, mem_ids)
 
         candidates = []
         kept       = 0
@@ -1178,78 +658,44 @@ class AikoMemorize:
             ac, la     = payload_map.get(mem_id, (0, "never"))
             created_at = m.get("created_at", "")
 
-            # pinned memories are immune to all decay paths
             if _sqlite_is_pinned(self._conn, mem_id):
                 kept += 1
                 continue
 
             if should_cleanup(ac, la, created_at):
-                w = compute_weighted_score(ac, la)
                 candidates.append({
-                    "id":               mem_id,
-                    "memory":           m.get("memory", "")[:120],
-                    "access_count":     ac,
-                    "weighted_score":   round(w, 4),
-                    "last_accessed_at": la,
+                    "id":             mem_id,
+                    "weighted_score": round(compute_weighted_score(ac, la), 4),
                 })
             else:
                 kept += 1
 
-        # sort by weakest score first so logs are most-pruneable-first
         candidates.sort(key=lambda x: x["weighted_score"])
 
         if dry_run:
-            log.info(f"Dry run: {len(candidates)} candidates for deletion, {kept} kept.")
+            log.info("Dry run: %d candidates for deletion, %d kept.", len(candidates), kept)
             return {"deleted": 0, "kept": kept, "failed": 0, "candidates": candidates}
 
-        deleted = []
-        failed  = []
+        deleted = 0
+        failed  = 0
         for c in candidates:
             try:
                 self._mem.delete(memory_id=c["id"])
-                deleted.append(c["id"])
+                deleted += 1
             except Exception as e:
-                failed.append({"id": c["id"], "error": str(e)})
+                log.warning("Cleanup delete failed for %s: %s", c["id"], e)
+                failed += 1
 
-        log.info(f"Cleanup: deleted={len(deleted)}, kept={kept}, failed={len(failed)}")
-        return {"deleted": len(deleted), "kept": kept, "failed": len(failed)}
+        log.info("Cleanup: deleted=%d, kept=%d, failed=%d", deleted, kept, failed)
+        return {"deleted": deleted, "kept": kept, "failed": failed}
 
     # ── debug ─────────────────────────────────────────────────────────────────
 
     def get_all(self, user_id: str = USER_ID) -> list[dict]:
-        """Return all stored memories for a user (for debugging / dream pass)."""
+        """Return all stored memories for a user."""
         return self._mem.get_all(user_id=user_id)
 
     def clear(self, user_id: str = USER_ID) -> None:
         """Wipe all memories for a user. Use carefully."""
         self._mem.delete_all(user_id=user_id)
-        log.info(f"Cleared all memories for user '{user_id}'.")
-
-    # ── internal ──────────────────────────────────────────────────────────────
-
-    def _batch_get_payloads(self, mem_ids: list[str]) -> dict:
-        """
-        Batch retrieve access_count + last_accessed_at in a single query.
-        Single round-trip — eliminates N+1 query problem for cleanup/stats.
-        Returns dict: {mem_id: (access_count, last_accessed_at)}
-        """
-        return _sqlite_batch_get_payloads(self._conn, mem_ids)
-
-    def _get_vector(self, mem_id: str) -> list[float]:
-        """
-        Retrieve the raw embedding vector for a single memory.
-        Used by _dream_merge() to run similarity searches.
-        Returns empty list on failure — callers should skip on empty.
-        """
-        return _sqlite_get_vector(self._conn, mem_id)
-
-    def _is_pinned(self, mem_id: str) -> bool:
-        """
-        Return True if memories.pinned == 1 for this id.
-
-        Used as a guard in cleanup(), _dream_merge(), and _resolve_duplicate()
-        to make pinned memories permanently immune to all deletion paths.
-        Defaults to False on any error — safe because a False miss at worst
-        leaves a memory subject to normal decay, not silently deletes it.
-        """
-        return _sqlite_is_pinned(self._conn, mem_id)
+        log.info("Cleared all memories for user '%s'.", user_id)
