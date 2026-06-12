@@ -18,8 +18,8 @@ Usage:
     )
     think    = result.think
     memorize = result.memorize
-Note: TTS and ASR subsystems are not used in Gradio/HF Space deployments.
-      Gradio handles audio I/O via gr.Audio; speak and listen are always None.
+Note: TTS, ASR, and dream scheduler are not used in this Gradio/HF Space demo.
+      speak and listen are always None.
 """
 
 import threading
@@ -49,10 +49,7 @@ class AikoWakeup:
     Parallel boot orchestrator for Aiko cognitive subsystems.
     Boots AikoThink and AikoMemorize concurrently with granular progress
     reporting per step.
-    TTS and ASR subsystems are excluded — Gradio handles audio I/O natively
-    via gr.Audio, so speak/listen are always None.
-    Each subsystem owns its BOOT_LABELS; ALL_BOOT_LABELS merges them so
-    the UI can register display text before boot begins.
+    TTS, ASR, and dream scheduler are excluded from this demo deployment.
     """
 
     ALL_BOOT_LABELS: dict[str, str] = {
@@ -113,10 +110,6 @@ class AikoWakeup:
                 log.error("Memory boot failed: %s", e)
             finally:
                 mem_ready.set()  # always unblock init_think, even on failure
-            if memorize[0] is None:
-                return
-            from core.dream import start as start_dream_scheduler
-            start_dream_scheduler(memorize[0])
 
         t1 = threading.Thread(target=init_think,    daemon=True)
         t2 = threading.Thread(target=init_memorize, daemon=True)
