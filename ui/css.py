@@ -8,14 +8,13 @@ AIKO_CSS = r"""
   --aiko-user: #9be8ff;
   --aiko-bot: #d8c8ff;
 }
-html, body, .gradio-container, main, footer {
-  background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%) !important;
-  color: var(--aiko-text) !important;
-  margin: 0 !important;
-  padding: 0 !important;
+html, body {
+  height: 100% !important;
+  overflow: hidden !important;
 }
-.gradio-container *, .gradio-container .prose, .gradio-container label {
-  color: var(--aiko-text);
+.gradio-container {
+  min-height: 100vh !important;
+  transform: none !important;
 }
 
 #aiko-shell { max-width: 1180px; margin: 0 auto; padding: 0 12px 12px; }
@@ -341,21 +340,30 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 .hide { display: none !important; }
 
 /* ── Login overlay ─────────────────────────────────────────────────── */
+/* ── Login overlay ─────────────────────────────────────────────────── */
 #aiko-login-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  z-index: 99999;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 22px;
   background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%);
-  /* Ensure it never participates in document flow */
   pointer-events: auto;
 }
 #aiko-login-overlay.hidden {
   display: none !important;
+}
+#aiko-login-overlay > * {
+  max-width: 90vw;
 }
 #aiko-login-overlay h1 {
   margin: 0;
