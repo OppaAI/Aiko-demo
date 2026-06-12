@@ -413,45 +413,112 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (lH)  {{ lH.rotation.x = REST.leftHand.x;  lH.rotation.y = REST.leftHand.y  + Math.sin(idleTime * 0.33) * 0.008; lH.rotation.z = REST.leftHand.z; }}
       if (rH)  {{ rH.rotation.x = REST.rightHand.x; rH.rotation.y = REST.rightHand.y + Math.sin(idleTime * 0.29 + 1.2) * 0.008; rH.rotation.z = REST.rightHand.z; }}
     }}
-    // ── Idle gesture state machine (unchanged from original) ─────────────────
+    // ── Idle gesture state machine ───────────────────────────────────────────
     let gestureState    = 'none';
     let gestureT        = 0;
     let gestureDuration = 0;
     let gestureCooldown = 4 + Math.random() * 6;
     let gestureTarget   = null;
-    const GESTURES = ['lookAround', 'tiltHead', 'shiftWeight', 'touchHair', 'stretchNeck'];
+    const GESTURES = ['lookAround', 'sideGlance', 'meetGaze', 'curiousTilt', 'shiftWeight', 'hairTuck', 'stretchNeck'];
+    const GESTURE_DURATION = {{
+      lookAround: 3.2,
+      sideGlance: 2.2,
+      meetGaze: 2.8,
+      curiousTilt: 2.4,
+      shiftWeight: 3.2,
+      hairTuck: 2.7,
+      stretchNeck: 2.6,
+    }};
     function pickGesture() {{
       const g = GESTURES[Math.floor(Math.random() * GESTURES.length)];
       gestureState    = g;
       gestureT        = 0;
-      gestureDuration = {{ lookAround: 2.5, tiltHead: 2.0, shiftWeight: 3.0, touchHair: 3.5, stretchNeck: 2.5 }}[g];
-      gestureTarget   = {{ lookAround: (Math.random() - 0.5) * 0.5, tiltHead: (Math.random() - 0.5) * 0.25 }};
+      gestureDuration = GESTURE_DURATION[g] ?? 2.5;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      gestureTarget = {{
+        lookAround: side * (0.22 + Math.random() * 0.18),
+        sideGlance: side * (0.16 + Math.random() * 0.10),
+        curiousTilt: side * (0.08 + Math.random() * 0.07),
+        hairSide: side,
+      }};
     }}
     function easeInOutSine(t) {{ return -(Math.cos(Math.PI * t) - 1) / 2; }}
+    function holdCurve(progress, inPortion = 0.28, outPortion = 0.30) {{
+      if (progress < inPortion) return easeInOutSine(progress / inPortion);
+      if (progress > 1 - outPortion) return easeInOutSine((1 - progress) / outPortion);
+      return 1;
+    }}
     function applyGestures(dt) {{
       if (!vrm?.humanoid) return;
       if (speaking) {{ gestureState = 'none'; return; }}
       if (gestureState === 'none') {{
         gestureCooldown -= dt;
-        if (gestureCooldown <= 0) {{ pickGesture(); gestureCooldown = 5 + Math.random() * 8; }}
+        if (gestureCooldown <= 0) {{ pickGesture(); gestureCooldown = 4 + Math.random() * 6; }}
         return;
       }}
       gestureT += dt;
       const progress  = Math.min(1, gestureT / gestureDuration);
       const intensity = Math.sin(progress * Math.PI);
       const eased     = easeInOutSine(progress);
+      const held      = holdCurve(progress);
       const head = getBone('head'), neck = getBone('neck');
       const lUA  = getBone('leftUpperArm'), lLA = getBone('leftLowerArm'), lH = getBone('leftHand');
+      const rUA  = getBone('rightUpperArm'), rLA = getBone('rightLowerArm'), rH = getBone('rightHand');
       const spine = getBone('spine'), hips = getBone('hips');
       switch (gestureState) {{
-        case 'lookAround':  if (head) head.rotation.y += gestureTarget.lookAround * intensity; break;
-        case 'tiltHead':    if (head) head.rotation.z += gestureTarget.tiltHead   * intensity; break;
-        case 'shiftWeight': if (hips) hips.position.x += Math.sin(eased * Math.PI) * 0.018; if (spine) spine.rotation.z += Math.sin(eased * Math.PI) * 0.02; break;
-        case 'touchHair':
-          if (lUA) {{ lUA.rotation.z = REST.leftUpperArm.z + intensity * 1.6; lUA.rotation.x = REST.leftUpperArm.x - intensity * 0.6; }}
-          if (lLA) lLA.rotation.x = REST.leftLowerArm.x - intensity * 1.4;
-          if (lH)  lH.rotation.z  = REST.leftHand.z     - intensity * 0.4;
-          if (head) head.rotation.z += intensity * 0.06;
+        case 'lookAround':
+          if (head) {{
+            head.rotation.y += gestureTarget.lookAround * held;
+            head.rotation.x += Math.sin(eased * Math.PI) * 0.025;
+          }}
+          if (neck) neck.rotation.y += gestureTarget.lookAround * 0.22 * held;
+          break;
+        case 'sideGlance':
+          if (head) {{
+            head.rotation.y += gestureTarget.sideGlance * held;
+            head.rotation.z -= gestureTarget.sideGlance * 0.18 * intensity;
+          }}
+          safeSetExpression('relaxed', 0.28);
+          break;
+        case 'meetGaze':
+          if (head) {{
+            head.rotation.y *= 1 - held * 0.78;
+            head.rotation.z *= 1 - held * 0.70;
+            head.rotation.x += held * 0.018;
+          }}
+          if (neck) {{
+            neck.rotation.y *= 1 - held * 0.55;
+            neck.rotation.z *= 1 - held * 0.55;
+          }}
+          safeSetExpression('relaxed', 0.30);
+          safeSetExpression('happy', 0.04 * held);
+          break;
+        case 'curiousTilt':
+          if (head) {{
+            head.rotation.z += gestureTarget.curiousTilt * held;
+            head.rotation.x -= 0.018 * intensity;
+          }}
+          if (neck) neck.rotation.z += gestureTarget.curiousTilt * 0.45 * held;
+          break;
+        case 'shiftWeight':
+          if (hips) hips.position.x += Math.sin(eased * Math.PI) * 0.016;
+          if (spine) spine.rotation.z += Math.sin(eased * Math.PI) * 0.018;
+          if (head) head.rotation.z -= Math.sin(eased * Math.PI) * 0.012;
+          break;
+        case 'hairTuck':
+          if (gestureTarget.hairSide < 0) {{
+            if (lUA) {{ lUA.rotation.z = REST.leftUpperArm.z + intensity * 0.34; lUA.rotation.x = REST.leftUpperArm.x - intensity * 0.12; }}
+            if (lLA) {{ lLA.rotation.x = REST.leftLowerArm.x - intensity * 0.26; lLA.rotation.z = REST.leftLowerArm.z - intensity * 0.10; }}
+            if (lH)  {{ lH.rotation.y  = REST.leftHand.y + intensity * 0.16; lH.rotation.z = REST.leftHand.z - intensity * 0.10; }}
+          }} else {{
+            if (rUA) {{ rUA.rotation.z = REST.rightUpperArm.z - intensity * 0.34; rUA.rotation.x = REST.rightUpperArm.x - intensity * 0.12; }}
+            if (rLA) {{ rLA.rotation.x = REST.rightLowerArm.x - intensity * 0.26; rLA.rotation.z = REST.rightLowerArm.z + intensity * 0.10; }}
+            if (rH)  {{ rH.rotation.y  = REST.rightHand.y - intensity * 0.16; rH.rotation.z = REST.rightHand.z + intensity * 0.10; }}
+          }}
+          if (head) {{
+            head.rotation.z -= gestureTarget.hairSide * intensity * 0.035;
+            head.rotation.y += gestureTarget.hairSide * intensity * 0.025;
+          }}
           break;
         case 'stretchNeck':
           if (neck) neck.rotation.x += -intensity * 0.05;
