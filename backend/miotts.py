@@ -60,9 +60,15 @@ image = (
     # Install uv
     .run_commands("curl -Ls https://astral.sh/uv/install.sh | sh")
     # Build llama.cpp with CUDA so we get llama-server
+    # Fix: symlink libcuda.so.1 stub (devel image has .so but not .so.1)
+    # and pass stubs path to linker so the final link step succeeds
     .run_commands(
         "git clone --depth 1 https://github.com/ggml-org/llama.cpp /opt/llama.cpp",
-        "cmake /opt/llama.cpp -B /opt/llama.cpp/build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release",
+        "ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1",
+        "cmake /opt/llama.cpp -B /opt/llama.cpp/build"
+        " -DGGML_CUDA=ON"
+        " -DCMAKE_BUILD_TYPE=Release"
+        " -DCMAKE_EXE_LINKER_FLAGS='-L/usr/local/cuda/lib64/stubs -Wl,-rpath,/usr/local/cuda/lib64'",
         "cmake --build /opt/llama.cpp/build --config Release -j$(nproc) --target llama-server",
     )
     # Clone MioTTS-Inference and install its Python deps
