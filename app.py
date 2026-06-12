@@ -63,7 +63,7 @@ def _split_ready_sentences(buffer: str):
 # ─────────────────────────────────────────────
 # STREAM CORE
 # ─────────────────────────────────────────────
-def _stream_response(message: str, history: list, user_id: str = "guest"):
+def _stream_response(message: str, history: list, user_id: str = "OppaAI"):
     history = list(history) + [
         {"role": "user", "content": message},
         {"role": "assistant", "content": "▋"},
