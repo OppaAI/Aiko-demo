@@ -3,13 +3,16 @@ core/think.py
 
 Aiko's cognitive loop.
   - Retrieves relevant memories before each turn
-  - Tool routing: weather, timezone, currency, joke, anime, web search
+  - Tool routing: LLM-driven tool calling (preferred), with regex-based
+    intent detection as fallback for weather, timezone, currency, joke,
+    anime, and web search
   - Streams LLM response via token_callback
   - Stores the turn into long-term memory after each response (background thread)
   - Supports single-shot reasoning mode via set_reasoning(True) / /think command
 """
 
 import os
+import json
 from datetime import datetime
 import httpx
 from pathlib import Path
@@ -75,6 +78,7 @@ class AikoThink:
         self._persona   = _load_persona()
         self._history:  list[dict] = []
         self._reasoning = False
+        self._token_callback = None
         self._mem_queue  = queue.Queue()
         self._mem_worker = threading.Thread(target=self._mem_write_loop, daemon=True)
         self._mem_worker.start()
@@ -117,60 +121,68 @@ class AikoThink:
         if memory_block:
             system = f"{system}\n\n{memory_block}"
 
-        # 3. tool routing — inject result into system prompt before LLM call
-        from core.tools import (
-            is_search_intent, is_weather_intent, is_timezone_intent,
-            is_currency_intent, is_joke_intent, is_anime_intent,
-            extract_search_query, extract_location, extract_currency_parts,
-            extract_anime_query,
-            web_search_and_fetch, get_weather, get_timezone,
-            get_currency, get_joke, get_anime,
-        )
-
+        # 3. tool routing — try LLM-driven tool calling first, fall back to regex
         tool_result = None
         tool_tag    = None
 
-        if is_joke_intent(user_input):
-            tool_result = get_joke()
-            tool_tag    = "joke"
+        history_for_check = self._sanitize_history(
+            self._history[-(CONTEXT_WINDOW_TURNS * 2):] + [{"role": "user", "content": user_input}]
+        )
 
-        elif is_weather_intent(user_input):
-            location    = extract_location(user_input)
-            if token_callback:
-                token_callback(f"__TOOL__:Checking weather for {location}...")
-            tool_result = get_weather(location)
-            tool_tag    = "weather_data"
+        tool_tag, tool_result = self._try_tool_call(history_for_check, system)
 
-        elif is_timezone_intent(user_input):
-            location    = extract_location(user_input)
-            if token_callback:
-                token_callback(f"__TOOL__:Looking up time in {location}...")
-            tool_result = get_timezone(location)
-            tool_tag    = "time_data"
+        if tool_result is None:
+            # fallback: regex-based intent detection (unchanged behavior)
+            from core.tools import (
+                is_search_intent, is_weather_intent, is_timezone_intent,
+                is_currency_intent, is_joke_intent, is_anime_intent,
+                extract_search_query, extract_location, extract_currency_parts,
+                extract_anime_query,
+                web_search_and_fetch, get_weather, get_timezone,
+                get_currency, get_joke, get_anime,
+            )
 
-        elif is_currency_intent(user_input):
-            amount, from_cur, to_cur = extract_currency_parts(user_input)
-            if token_callback:
-                token_callback(f"__TOOL__:Converting {from_cur} to {to_cur}...")
-            tool_result = get_currency(amount, from_cur, to_cur)
-            tool_tag    = "currency_data"
+            if is_joke_intent(user_input):
+                tool_result = get_joke()
+                tool_tag    = "joke"
 
-        elif is_anime_intent(user_input):
-            query       = extract_anime_query(user_input)
-            if token_callback:
-                token_callback(f"__TOOL__:Searching anime for {query}...")
-            tool_result = get_anime(query)
-            tool_tag    = "anime_data"
+            elif is_weather_intent(user_input):
+                location    = extract_location(user_input)
+                if token_callback:
+                    token_callback(f"__TOOL__:Checking weather for {location}...")
+                tool_result = get_weather(location)
+                tool_tag    = "weather_data"
 
-        elif is_search_intent(user_input):
-            query       = extract_search_query(user_input)
-            if token_callback:
-                token_callback(f"__SEARCHING__:{query}")
-            try:
-                tool_result = web_search_and_fetch(query)
-                tool_tag    = "search_results"
-            except Exception as exc:
-                log.warning("Web search failed: %s", exc)
+            elif is_timezone_intent(user_input):
+                location    = extract_location(user_input)
+                if token_callback:
+                    token_callback(f"__TOOL__:Looking up time in {location}...")
+                tool_result = get_timezone(location)
+                tool_tag    = "time_data"
+
+            elif is_currency_intent(user_input):
+                amount, from_cur, to_cur = extract_currency_parts(user_input)
+                if token_callback:
+                    token_callback(f"__TOOL__:Converting {from_cur} to {to_cur}...")
+                tool_result = get_currency(amount, from_cur, to_cur)
+                tool_tag    = "currency_data"
+
+            elif is_anime_intent(user_input):
+                query       = extract_anime_query(user_input)
+                if token_callback:
+                    token_callback(f"__TOOL__:Searching anime for {query}...")
+                tool_result = get_anime(query)
+                tool_tag    = "anime_data"
+
+            elif is_search_intent(user_input):
+                query       = extract_search_query(user_input)
+                if token_callback:
+                    token_callback(f"__SEARCHING__:{query}")
+                try:
+                    tool_result = web_search_and_fetch(query)
+                    tool_tag    = "search_results"
+                except Exception as exc:
+                    log.warning("Web search failed: %s", exc)
 
         if tool_result and tool_tag:
             system = (
@@ -244,6 +256,70 @@ class AikoThink:
         self._mem_queue.join()
 
     # ── internal ──────────────────────────────────────────────────────────────
+
+    def _try_tool_call(self, messages: list[dict], system: str) -> tuple[str | None, str | None]:
+        """
+        Ask the LLM whether a tool should be called for this turn.
+
+        Sends the conversation + tool schemas with tool_choice="auto" and a
+        short max_tokens budget (this is a routing decision, not the final
+        answer). If the model returns tool_calls, dispatch the first one to
+        its Python implementation and return (tag, result) for context
+        injection. Returns (None, None) if no tool call was made, the tool
+        name/args were invalid, or the request failed for any reason — in
+        which case the caller falls back to regex-based intent detection.
+        """
+        from core.tools import TOOL_SCHEMAS, TOOL_DISPATCH
+
+        try:
+            response = self._client.post(
+                "/chat/completions",
+                json={
+                    "model":       LLAMA_MODEL,
+                    "messages":    [{"role": "system", "content": system}] + messages,
+                    "tools":       TOOL_SCHEMAS,
+                    "tool_choice": "auto",
+                    "stream":      False,
+                    "temperature": 0.2,
+                    "max_tokens":  150,
+                },
+            )
+            data = response.json()
+            msg  = data.get("choices", [{}])[0].get("message", {})
+            calls = msg.get("tool_calls")
+
+            if not calls:
+                return None, None
+
+            call     = calls[0]
+            name     = call.get("function", {}).get("name")
+            args_raw = call.get("function", {}).get("arguments", "{}")
+
+            if name not in TOOL_DISPATCH:
+                log.warning("LLM requested unknown tool: %s", name)
+                return None, None
+
+            try:
+                args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+            except (ValueError, TypeError) as exc:
+                log.warning("Failed to parse tool args for %s: %s (%r)", name, exc, args_raw)
+                return None, None
+
+            tag, fn = TOOL_DISPATCH[name]
+            if self._token_callback:
+                self._token_callback(f"__TOOL__:Calling {name}...")
+
+            try:
+                result = fn(**args)
+            except Exception as exc:
+                log.warning("Tool execution failed for %s: %s", name, exc)
+                return None, None
+
+            return tag, result
+
+        except Exception as exc:
+            log.warning("Tool-call attempt failed: %s", exc)
+            return None, None
 
     def _stream_response(self, messages: list[dict], system: str = "") -> tuple[str, None]:
         num_predict = _BASE_PREDICT * _REASONING_SCALE if self._reasoning else _BASE_PREDICT
