@@ -63,7 +63,7 @@ def _split_ready_sentences(buffer: str):
 # ─────────────────────────────────────────────
 # STREAM CORE
 # ─────────────────────────────────────────────
-def _stream_response(message: str, history: list):
+def _stream_response(message: str, history: list, user_id: str = "guest"):
     history = list(history) + [
         {"role": "user", "content": message},
         {"role": "assistant", "content": "▋"},
@@ -97,7 +97,7 @@ def _stream_response(message: str, history: list):
 
     def _run():
         try:
-            think.chat(message, token_callback=_cb)
+            think.chat(message, user_id=user_id, token_callback=_cb)
         except Exception as e:
             error["e"] = e
         finally:
@@ -143,16 +143,17 @@ def _stream_response(message: str, history: list):
 # ─────────────────────────────────────────────
 # WRAPPERS
 # ─────────────────────────────────────────────
-def _submit(message, history):
+def _submit(message, history, profile: gr.OAuthProfile | None = None):
     history = history or []
     message = (message or "").strip()
+    user_id = profile.username if profile else "guest"
 
     if not message:
         yield history, None, None, message
         return
 
     first = True
-    for h, tts, audio in _stream_response(message, history):
+    for h, tts, audio in _stream_response(message, history, user_id):
         if first:
             yield h, tts, audio, ""
             first = False
@@ -160,8 +161,9 @@ def _submit(message, history):
             yield h, tts, audio, gr.update()
 
 
-def voice_chat(audio_path, history):
+def voice_chat(audio_path, history, profile: gr.OAuthProfile | None = None):
     history = history or []
+    user_id = profile.username if profile else "guest"
 
     if not audio_path:
         return history, None, None
@@ -171,7 +173,7 @@ def voice_chat(audio_path, history):
     if not transcript:
         return history, None, None
 
-    for h, tts, audio in _stream_response(transcript, history):
+    for h, tts, audio in _stream_response(transcript, history, user_id):
         if h and len(h) >= 2:
             h[-2]["content"] = f"🎙️ {transcript}"
         yield h, tts, audio
