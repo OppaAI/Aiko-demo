@@ -235,7 +235,7 @@ def _call_extraction_llm(prompt: str, base_url: str, model: str, api_key: str) -
         headers["Authorization"] = f"Bearer {api_key}"
 
     resp = httpx.post(
-        f"{base_url.rstrip('/')}/chat/completions",
+        base_url.rstrip('/'),
         headers=headers,
         json={
             "model":       model,
