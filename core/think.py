@@ -89,7 +89,7 @@ class AikoThink:
     def _warmup_llm(self) -> None:
         try:
             self._client.post(
-                "/chat/completions",
+                "/",
                 json={
                     "model":      LLAMA_MODEL,
                     "max_tokens": 1,
@@ -273,7 +273,7 @@ class AikoThink:
 
         try:
             response = self._client.post(
-                "/chat/completions",
+                "/",
                 json={
                     "model":       LLAMA_MODEL,
                     "messages":    [{"role": "system", "content": system}] + messages,
@@ -326,7 +326,7 @@ class AikoThink:
 
         try:
             response = self._client.post(
-                "/chat/completions",
+                "/",
                 json={
                     "model":          LLAMA_MODEL,
                     "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
