@@ -35,16 +35,16 @@ image = (
         "&& cmake --build build --config Release -j$(nproc) -t llama-server",
         "cp /llama.cpp/build/bin/llama-server /usr/local/bin/llama-server",
     )
-    .pip_install("huggingface_hub", "httpx", "fastapi[standard]", "ddgs")
+    .pip_install("huggingface_hub", "httpx", "fastapi[standard]")
 )
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
-#HF_REPO    = "unsloth/Ministral-3-3B-Instruct-2512-GGUF"
-#HF_FILE    = "Ministral-3-3B-Instruct-2512-UD-Q4_K_XL.gguf"
+HF_REPO    = "unsloth/Ministral-3-3B-Instruct-2512-GGUF"
+HF_FILE    = "Ministral-3-3B-Instruct-2512-UD-Q4_K_XL.gguf"
 #MODEL_PATH = f"/models/{HF_FILE}"
-HF_REPO = "unsloth/Ministral-3-8B-Instruct-2512-GGUF"
-HF_FILE = "Ministral-3-8B-Instruct-2512-UD-Q4_K_XL.gguf"
+#HF_REPO = "unsloth/Ministral-3-8B-Instruct-2512-GGUF"
+#HF_FILE = "Ministral-3-8B-Instruct-2512-UD-Q4_K_XL.gguf"
 MODEL_PATH = f"/models/{HF_FILE}"
 LLAMA_PORT = 8080
 
@@ -120,18 +120,3 @@ class AikoLLM:
     @modal.fastapi_endpoint(method="GET")
     def health(self):
         return {"status": "ok", "model": HF_FILE}
-
-@app.function(image=image)
-@modal.fastapi_endpoint(method="GET")
-def search(query: str, max_results: int = 3):
-    from ddgs import DDGS
-    print(f"[search] query received: {query}")  # ← add this
-    try:
-        results = DDGS().text(query, max_results=max_results)
-        print(f"[search] results count: {len(results or [])}")  # ← and this
-    except Exception as e:
-        return {"results": [], "error": str(e)}
-    return {"results": [
-        {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
-        for r in (results or [])
-    ]}
