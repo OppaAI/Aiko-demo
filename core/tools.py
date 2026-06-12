@@ -15,13 +15,18 @@ Tools:
   get_joke()                   — JokeAPI (no key)
   get_anime(query)             — Jikan API / MyAnimeList (no key)
 
-Intent detection (used by think.py):
+Intent detection (used by think.py as fallback when LLM tool-calling
+doesn't produce a tool_call):
   is_weather_intent(text)
   is_timezone_intent(text)
   is_currency_intent(text)
   is_joke_intent(text)
   is_anime_intent(text)
   is_search_intent(text)
+
+LLM-driven tool calling (preferred path, used by think.py):
+  TOOL_SCHEMAS   — OpenAI function-calling spec for all tools
+  TOOL_DISPATCH  — maps tool name -> (context_tag, callable)
 
 Environment variables:
   SEARXNG_BASE_URL — your SearXNG HF Space URL, e.g. https://oppaai-searxng.hf.space
@@ -418,3 +423,117 @@ def get_anime(query: str) -> str:
         return "\n\n".join(lines)
     except Exception as e:
         return f"[anime fetch failed: {e}]"
+
+
+# ── LLM tool-calling schemas + dispatch ─────────────────────────────────────────
+
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get current weather conditions for a city or location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "City name, e.g. 'Tokyo' or 'Vancouver, BC'",
+                    }
+                },
+                "required": ["location"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_timezone",
+            "description": "Get the current local time and timezone for a city or location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "City name, e.g. 'Seoul' or 'New York'",
+                    }
+                },
+                "required": ["location"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_currency",
+            "description": "Convert an amount from one currency to another using current exchange rates.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": {"type": "number", "description": "Amount to convert"},
+                    "from_currency": {
+                        "type": "string",
+                        "description": "3-letter source currency code, e.g. USD",
+                    },
+                    "to_currency": {
+                        "type": "string",
+                        "description": "3-letter target currency code, e.g. JPY",
+                    },
+                },
+                "required": ["amount", "from_currency", "to_currency"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_joke",
+            "description": "Get a random clean joke to lighten the mood.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_anime",
+            "description": "Search for anime or manga information including score, episodes, synopsis, and genres.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Anime or manga title to search for",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search_and_fetch",
+            "description": "Search the web for current information and fetch the top result's content. Use for recent events, facts you're unsure about, or anything requiring up-to-date info.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
+]
+
+# dispatch table — maps tool name -> (context tag for injection, callable)
+TOOL_DISPATCH = {
+    "get_weather":          ("weather_data",   lambda **kw: get_weather(kw["location"])),
+    "get_timezone":         ("time_data",      lambda **kw: get_timezone(kw["location"])),
+    "get_currency":         ("currency_data",  lambda **kw: get_currency(kw["amount"], kw["from_currency"], kw["to_currency"])),
+    "get_joke":             ("joke",           lambda **kw: get_joke()),
+    "get_anime":            ("anime_data",     lambda **kw: get_anime(kw["query"])),
+    "web_search_and_fetch": ("search_results", lambda **kw: web_search_and_fetch(kw["query"])),
+}
