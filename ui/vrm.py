@@ -549,7 +549,47 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let lastAudio      = null;
     let audioContext   = null;
     let analyserAudio  = null;
-    function getAudioMouth() {{ return null; }}  // CORS-safe: text visemes only
+    let audioData      = null;
+    let audioSource    = null;
+    let audioMeterOk   = false;
+    let meteredAudio   = null;
+    function setupAudioMeter(audio) {{
+      if (!audio || audioMeterOk && audio === meteredAudio) return;
+      try {{
+        audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+        if (audioContext.state === 'suspended') audioContext.resume().catch(() => {{}});
+        analyserAudio = audioContext.createAnalyser();
+        analyserAudio.fftSize = 512;
+        analyserAudio.smoothingTimeConstant = 0.72;
+        audioData = new Uint8Array(analyserAudio.fftSize);
+        audioSource = audio._aikoMediaSource || audioContext.createMediaElementSource(audio);
+        audio._aikoMediaSource = audioSource;
+        audioSource.connect(analyserAudio);
+        analyserAudio.connect(audioContext.destination);
+        audioMeterOk = true;
+        meteredAudio = audio;
+      }} catch (err) {{
+        console.warn('[aiko-vrm] audio meter unavailable; using text lip-sync fallback', err);
+        audioMeterOk = false;
+        meteredAudio = null;
+        analyserAudio = null;
+        audioData = null;
+      }}
+    }}
+    function getAudioMouth() {{
+      if (!analyserAudio || !audioData) return null;
+      analyserAudio.getByteTimeDomainData(audioData);
+      let sum = 0;
+      for (let i = 0; i < audioData.length; i++) {{
+        const centered = (audioData[i] - 128) / 128;
+        sum += centered * centered;
+      }}
+      const rms = Math.sqrt(sum / audioData.length);
+      const gated = Math.max(0, rms - 0.018);
+      const target = Math.min(1, Math.pow(gated * 7.5, 0.72));
+      smoothedAudioMouth += (target - smoothedAudioMouth) * (target > smoothedAudioMouth ? 0.55 : 0.28);
+      return smoothedAudioMouth;
+    }}
     function findParentAudio() {{
       try {{ return parent.document.querySelector('#aiko-audio audio') || parent.document.querySelector('audio'); }}
       catch (_) {{ return null; }}
@@ -564,6 +604,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         lastAudio = audio;
         audio.addEventListener('play', () => {{
           setSpeaking(true);
+          setupAudioMeter(audio);
           let tries = 0;
           const poll = setInterval(() => {{
             const text = findParentSpeechText();
@@ -577,6 +618,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         }});
         audio.addEventListener('playing', () => {{
           setSpeaking(true);
+          setupAudioMeter(audio);
           const text = findParentSpeechText();
           if (text) setSpeechText(text, audio.duration);
         }});
