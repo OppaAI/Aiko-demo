@@ -148,10 +148,16 @@ def _submit(message, history):
     message = (message or "").strip()
 
     if not message:
-        return history, None, None
+        yield history, None, None, message
+        return
 
+    first = True
     for h, tts, audio in _stream_response(message, history):
-        yield h, tts, audio
+        if first:
+            yield h, tts, audio, ""
+            first = False
+        else:
+            yield h, tts, audio, gr.update()
 
 
 def voice_chat(audio_path, history):
@@ -240,13 +246,13 @@ with gr.Blocks(
     msg.submit(
         _submit,
         inputs=[msg, chatbot],
-        outputs=[chatbot, tts_text, audio_out],
+        outputs=[chatbot, tts_text, audio_out, msg],
     )
 
     send.click(
         _submit,
         inputs=[msg, chatbot],
-        outputs=[chatbot, tts_text, audio_out],
+        outputs=[chatbot, tts_text, audio_out, msg],
     )
 
     mic_audio.change(
