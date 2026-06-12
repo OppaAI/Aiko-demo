@@ -367,7 +367,16 @@ with gr.Blocks(
         inputs=[msg, chatbot],
         outputs=[chatbot, tts_text, msg],
     )
-
+    
+    demo.load(fn=None, js="""
+    () => {
+        const overlay = document.getElementById('aiko-login-overlay');
+        if (overlay && overlay.parentElement !== document.body) {
+            document.body.appendChild(overlay);
+        }
+    }
+    """)
+    
     send.click(
         _submit,
         inputs=[msg, chatbot],
