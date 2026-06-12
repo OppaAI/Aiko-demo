@@ -49,22 +49,22 @@ html, body {
 }
 
 /* Avatar card is the relative anchor for all overlays */
-#aiko-avatar-card {
-  position: relative;
-  border-radius: 22px;
-  overflow: hidden;
-  border: 1px solid rgba(155,127,212,0.34);
-  background: #080810;
-  box-shadow: 0 22px 80px rgba(0,0,0,0.42);
+#aiko-avatar-card,
+#aiko-avatar-card .html-container,
+#aiko-avatar-card .prose {
+  height: min(78vh, 760px) !important;
+  max-height: min(78vh, 760px) !important;
+  overflow: hidden !important;
 }
 #aiko-vrm-frame {
   display: block;
   width: 100%;
-  height: min(78vh, 760px);
-  min-height: 480px;
+  height: 100% !important;
+  max-height: 100% !important;
   border: 0;
   background: #080810;
 }
+
 
 /* ── Audio: completely removed from layout flow ─────────────────────
    Gradio wraps gr.Audio in multiple divs; we must collapse ALL of them.
