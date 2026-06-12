@@ -79,6 +79,9 @@ class AikoLLM:
             print("[aiko] model already cached, skipping download")
 
         # ── start llama.cpp server ────────────────────────────────────────────
+        # --jinja enables the model's chat template (incl. tool-calling format
+        # for Ministral) so `tools` / `tool_choice` in requests are honored and
+        # the response can contain `tool_calls`.
         self._proc = subprocess.Popen([
             "/usr/local/bin/llama-server",
             "--model",        MODEL_PATH,
@@ -88,6 +91,7 @@ class AikoLLM:
             "--ctx-size",     "4096",
             "--threads",      "4",
             "--parallel",     "1",
+            "--jinja",
         ])
 
         # ── wait for server ready ─────────────────────────────────────────────
@@ -116,7 +120,7 @@ class AikoLLM:
     @modal.fastapi_endpoint(method="GET")
     def health(self):
         return {"status": "ok", "model": HF_FILE}
-        
+
 @app.function(image=image)
 @modal.fastapi_endpoint(method="GET")
 def search(query: str, max_results: int = 3):
