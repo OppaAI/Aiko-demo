@@ -8,6 +8,12 @@ AIKO_CSS = r"""
   --aiko-user: #9be8ff;
   --aiko-bot: #d8c8ff;
 }
+html, body, .gradio-container, main, footer {
+  background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%) !important;
+  color: var(--aiko-text) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
 html, body {
   height: 100% !important;
   overflow: hidden !important;
