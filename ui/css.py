@@ -339,4 +339,50 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 #aiko-note { display: none; }
 .gradio-container footer { display: none !important; }
 .hide { display: none !important; }
+
+/* ── Login overlay ─────────────────────────────────────────────────── */
+#aiko-login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%);
+}
+#aiko-login-overlay.hidden {
+  display: none !important;
+}
+#aiko-login-overlay h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+  color: #ecdeff;
+  text-shadow: 0 0 18px rgba(155, 124, 255, .55);
+}
+#aiko-login-overlay p {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: .12em;
+  color: var(--aiko-muted);
+  text-transform: uppercase;
+}
+#aiko-login-overlay button {
+  background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: #fff !important;
+  padding: 12px 28px !important;
+  font-size: 0.85rem !important;
+  letter-spacing: .08em;
+  box-shadow: 0 8px 30px rgba(155,124,255,0.35);
+}
+
+#aiko-shell.locked {
+  display: none !important;
+}
 """
