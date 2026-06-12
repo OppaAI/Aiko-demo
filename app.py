@@ -23,7 +23,7 @@ from ui.speak import speak_to_file
 # ─────────────────────────────────────────────
 # BOOT
 # ─────────────────────────────────────────────
-result = AikoWakeup(text_mode=True).boot(
+result = AikoWakeup().boot(
     on_loading=lambda k: print(f"[boot] loading: {k}"),
     on_done=lambda k: print(f"[boot] done: {k}"),
     on_skip=lambda k: print(f"[boot] skip: {k}"),
@@ -44,6 +44,7 @@ VRM_URLS = gradio_file_urls(VRM_PATH)
 # ─────────────────────────────────────────────
 def _strip_for_speech(text: str) -> str:
     text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
+    text = re.sub(r"\n?🔧 .*?\n?", "", text)
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     return text.strip()
 
@@ -85,6 +86,11 @@ def _stream_response(message: str, history: list):
             note = f"\n🔍 Searching: *{q}*\n"
             buffer += note
             full_text += note
+        elif token.startswith("__TOOL__:"):
+            note = token.split(":", 1)[1]
+            display = f"\n🔧 {note}\n"
+            buffer += display
+            full_text += display
         else:
             buffer += token
             full_text += token
