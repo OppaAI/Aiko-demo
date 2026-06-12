@@ -156,6 +156,15 @@ def speak_to_file(text: str) -> tuple[str | None, str]:
     if not clean:
         return None, emotion
 
+    # Strip non-ASCII characters that break edge-tts (Japanese, symbols, etc.)
+    clean = re.sub(r'[^\x00-\x7F]+', ' ', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+
+    if not clean:
+        return None, emotion
+
+    TTS_DIR.mkdir(parents=True, exist_ok=True)
+
     TTS_DIR.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha1(f"{time.time_ns()}:{clean}".encode("utf-8")).hexdigest()[:16]
     out_path = TTS_DIR / f"aiko_{digest}.mp3"
