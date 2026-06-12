@@ -69,7 +69,7 @@ def _stream_response(message: str, history: list, user_id: str = "OppaAI"):
         {"role": "assistant", "content": "▋"},
     ]
 
-    yield history, None, None
+    yield history, None
 
     buffer = ""
     full_text = ""
@@ -111,7 +111,7 @@ def _stream_response(message: str, history: list, user_id: str = "OppaAI"):
         if full_text != last_emitted:
             history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
             last_emitted = full_text
-            yield history, None, None
+            yield history, None
 
         # TTS PER SENTENCE
         sentences, buffer = _split_ready_sentences(buffer)
@@ -121,8 +121,12 @@ def _stream_response(message: str, history: list, user_id: str = "OppaAI"):
             if not clean:
                 continue
 
-            audio, emotion = speak_to_file(clean)
-            yield history, f"EMOTION:{emotion}|{clean}", audio
+            audio_path, emotion = speak_to_file(clean)
+            # Encode audio as base64 data URI and pass via tts_text
+            # This avoids using gr.Audio which expands layout on each update
+            audio_b64 = _encode_audio_b64(audio_path)
+            payload = f"AUDIO:{audio_b64}|EMOTION:{emotion}|TEXT:{clean}"
+            yield history, payload
 
         time.sleep(0.03)
 
@@ -130,14 +134,28 @@ def _stream_response(message: str, history: list, user_id: str = "OppaAI"):
     if buffer.strip():
         clean = _strip_for_speech(buffer)
         if clean:
-            audio, emotion = speak_to_file(clean)
-            yield history, f"EMOTION:{emotion}|{clean}", audio
+            audio_path, emotion = speak_to_file(clean)
+            audio_b64 = _encode_audio_b64(audio_path)
+            payload = f"AUDIO:{audio_b64}|EMOTION:{emotion}|TEXT:{clean}"
+            yield history, payload
 
     if error:
         raise error["e"]
 
     history[-1]["content"] = full_text
-    yield history, None, None
+    yield history, None
+
+
+def _encode_audio_b64(audio_path: str | None) -> str:
+    """Read an audio file and return base64-encoded string, or empty string."""
+    if not audio_path:
+        return ""
+    try:
+        import base64
+        with open(audio_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    except Exception:
+        return ""
 
 
 # ─────────────────────────────────────────────
@@ -149,16 +167,16 @@ def _submit(message, history, profile: gr.OAuthProfile | None = None):
     user_id = profile.username if profile else "guest"
 
     if not message:
-        yield history, None, None, message
+        yield history, None, message
         return
 
     first = True
-    for h, tts, audio in _stream_response(message, history, user_id):
+    for h, tts in _stream_response(message, history, user_id):
         if first:
-            yield h, tts, audio, ""
+            yield h, tts, ""
             first = False
         else:
-            yield h, tts, audio, gr.update()
+            yield h, tts, gr.update()
 
 
 def voice_chat(audio_path, history, profile: gr.OAuthProfile | None = None):
@@ -166,33 +184,106 @@ def voice_chat(audio_path, history, profile: gr.OAuthProfile | None = None):
     user_id = profile.username if profile else "guest"
 
     if not audio_path:
-        return history, None, None
+        return history, None
 
     transcript = transcribe_file(audio_path)
 
     if not transcript:
-        return history, None, None
+        return history, None
 
-    for h, tts, audio in _stream_response(transcript, history, user_id):
+    for h, tts in _stream_response(transcript, history, user_id):
         if h and len(h) >= 2:
             h[-2]["content"] = f"🎙️ {transcript}"
-        yield h, tts, audio
+        yield h, tts
 
 
 # ─────────────────────────────────────────────
 # AUTH GATE
 # ─────────────────────────────────────────────
 def _check_auth(profile: gr.OAuthProfile | None = None):
-    """Show/hide the login overlay and main shell based on OAuth session.
-
-    Runs on page load. If no OAuth profile is present (not signed in),
-    the login overlay stays visible and the main UI remains hidden.
-    """
+    """Show/hide the login overlay and main shell based on OAuth session."""
     logged_in = profile is not None
     return (
         gr.update(visible=not logged_in),                        # login_overlay
         gr.update(elem_classes=[] if logged_in else ["locked"]),  # main_shell
     )
+
+
+# ─────────────────────────────────────────────
+# AUDIO PLAYER JS
+# Injected once on page load. Listens to tts_text changes and plays
+# audio via a hidden <audio> element — zero Gradio widget overhead.
+# ─────────────────────────────────────────────
+AUDIO_PLAYER_JS = """
+() => {
+    // Create a single persistent <audio> element
+    let _aikoAudio = document.getElementById('_aiko_audio_player');
+    if (!_aikoAudio) {
+        _aikoAudio = document.createElement('audio');
+        _aikoAudio.id = '_aiko_audio_player';
+        _aikoAudio.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(_aikoAudio);
+    }
+
+    const queue = [];
+    let playing = false;
+
+    function playNext() {
+        if (!queue.length) { playing = false; return; }
+        playing = true;
+        const { b64, emotion, text } = queue.shift();
+        if (!b64) { playNext(); return; }
+
+        // Update emotion label if present
+        const label = document.getElementById('aiko-emotion-label');
+        if (label && emotion) label.textContent = emotion;
+
+        // Trigger VRM viseme via tts text box (existing pipeline)
+        const ttsBox = document.querySelector('#aiko-tts-text textarea');
+        if (ttsBox) {
+            ttsBox.value = text;
+            ttsBox.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        _aikoAudio.src = 'data:audio/mpeg;base64,' + b64;
+        _aikoAudio.onended = playNext;
+        _aikoAudio.onerror = playNext;
+        _aikoAudio.play().catch(() => {
+            // Autoplay blocked — try on next user interaction
+            document.addEventListener('click', () => _aikoAudio.play(), { once: true });
+        });
+    }
+
+    // Watch the tts_text textbox for new payloads
+    const observer = new MutationObserver(() => {
+        const box = document.querySelector('#aiko-tts-text textarea');
+        if (!box || !box.value) return;
+
+        const raw = box.value;
+        box.value = '';  // clear so next update triggers again
+
+        if (!raw.startsWith('AUDIO:')) return;
+
+        // Parse: AUDIO:<b64>|EMOTION:<emotion>|TEXT:<text>
+        const audioMatch = raw.match(/^AUDIO:(.*?)\|EMOTION:(.*?)\|TEXT:([\s\S]*)$/);
+        if (!audioMatch) return;
+
+        queue.push({ b64: audioMatch[1], emotion: audioMatch[2], text: audioMatch[3] });
+        if (!playing) playNext();
+    });
+
+    // Observe the tts_text container for DOM changes
+    function attachObserver() {
+        const ttsContainer = document.querySelector('#aiko-tts-text');
+        if (ttsContainer) {
+            observer.observe(ttsContainer, { subtree: true, characterData: true, childList: true });
+        } else {
+            setTimeout(attachObserver, 500);
+        }
+    }
+    attachObserver();
+}
+"""
 
 
 # ─────────────────────────────────────────────
@@ -219,12 +310,8 @@ with gr.Blocks(
 
                 gr.HTML(value=avatar_html(VRM_URLS))
 
-                audio_out = gr.Audio(
-                    autoplay=True,
-                    type="filepath",
-                    elem_id="aiko-audio",
-                )
-
+                # tts_text carries the base64 audio payload to JS
+                # audio_out gr.Audio is removed — JS handles playback directly
                 tts_text = gr.Textbox(
                     visible=False,
                     elem_id="aiko-tts-text",
@@ -264,7 +351,7 @@ with gr.Blocks(
                     )
 
     # ─────────────────────────────────────────────
-    # EVENTS (CLEAN + STABLE)
+    # EVENTS
     # ─────────────────────────────────────────────
     demo.load(
         _check_auth,
@@ -272,22 +359,25 @@ with gr.Blocks(
         outputs=[login_overlay, main_shell],
     )
 
+    # Inject audio player JS on load
+    demo.load(fn=None, js=AUDIO_PLAYER_JS)
+
     msg.submit(
         _submit,
         inputs=[msg, chatbot],
-        outputs=[chatbot, tts_text, audio_out, msg],
+        outputs=[chatbot, tts_text, msg],
     )
 
     send.click(
         _submit,
         inputs=[msg, chatbot],
-        outputs=[chatbot, tts_text, audio_out, msg],
+        outputs=[chatbot, tts_text, msg],
     )
 
     mic_audio.change(
         voice_chat,
         inputs=[mic_audio, chatbot],
-        outputs=[chatbot, tts_text, audio_out],
+        outputs=[chatbot, tts_text],
     )
 
     mic_btn.click(
