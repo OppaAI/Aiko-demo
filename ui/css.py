@@ -50,19 +50,29 @@ html, body, .gradio-container, main, footer {
   background: #080810;
 }
 
-/* Audio: rendered but invisible so autoplay isn't blocked */
-#aiko-audio {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-#aiko-audio * {
-  background: transparent !important;
+/* ── Audio: completely removed from layout flow ─────────────────────
+   Gradio wraps gr.Audio in multiple divs; we must collapse ALL of them.
+   The selector chain hits: the component block > the wrap > inner audio.
+   Using !important on every dimension + overflow property to prevent
+   any Gradio update from re-expanding it. */
+#aiko-audio,
+#aiko-audio > *,
+div:has(> #aiko-audio),
+div:has(> div > #aiko-audio) {
+  position: absolute !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
   border: none !important;
-  box-shadow: none !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 #aiko-tts-text { display: none !important; }
@@ -118,7 +128,6 @@ body > #aiko-emotion-label,
   flex-direction: column;
   justify-content: flex-end;
   gap: 0;
-  /* pointer-events left ON so scroll works */
   pointer-events: auto;
   z-index: 5;
   overflow: hidden;
@@ -249,23 +258,18 @@ div:has(> #aiko-chatbot) {
 #aiko-mic-btn button,
 #aiko-send,
 #aiko-send button {
-
     width:48px !important;
     min-width:48px !important;
-
     height:48px !important;
     min-height:48px !important;
-
     padding:0 !important;
-
     border-radius:10px !important;
-
     display:flex !important;
     align-items:center !important;
     justify-content:center !important;
-
     flex-shrink:0;
 }
+
 /* Remove Gradio textbox wrapper */
 #aiko-msg,
 #aiko-msg > div,
@@ -283,14 +287,10 @@ div:has(> #aiko-chatbot) {
 #aiko-msg input {
   background: transparent !important;
   background-color: transparent !important;
-
   color: var(--aiko-accent) !important;
-
   border: 1px solid rgba(182,140,255,0.55) !important;
   border-radius: 10px !important;
-
   box-shadow: none !important;
-
   min-height: 42px !important;
 }
 textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important; }
@@ -351,6 +351,8 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   justify-content: center;
   gap: 22px;
   background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%);
+  /* Ensure it never participates in document flow */
+  pointer-events: auto;
 }
 #aiko-login-overlay.hidden {
   display: none !important;
