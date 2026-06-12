@@ -105,7 +105,7 @@ def _stream_response(message: str, history: list):
 
     threading.Thread(target=_run, daemon=True).start()
 
-    while not done.is_set() or buffer or full_text != last_emitted:
+    while not done.is_set() or full_text != last_emitted:
 
         # STREAM TEXT (ONLY CHATBOT UPDATED)
         if full_text != last_emitted:
@@ -210,6 +210,7 @@ with gr.Blocks(
                 with gr.Column(elem_id="aiko-chat-overlay"):
                     chatbot = gr.Chatbot(
                         elem_id="aiko-chatbot",
+                        type="messages",
                         height=600,
                         show_label=False,
                         container=False,
