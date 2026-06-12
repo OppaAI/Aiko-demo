@@ -180,6 +180,22 @@ def voice_chat(audio_path, history, profile: gr.OAuthProfile | None = None):
 
 
 # ─────────────────────────────────────────────
+# AUTH GATE
+# ─────────────────────────────────────────────
+def _check_auth(profile: gr.OAuthProfile | None = None):
+    """Show/hide the login overlay and main shell based on OAuth session.
+
+    Runs on page load. If no OAuth profile is present (not signed in),
+    the login overlay stays visible and the main UI remains hidden.
+    """
+    logged_in = profile is not None
+    return (
+        gr.update(visible=not logged_in),                        # login_overlay
+        gr.update(elem_classes=[] if logged_in else ["locked"]),  # main_shell
+    )
+
+
+# ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
 with gr.Blocks(
@@ -188,7 +204,12 @@ with gr.Blocks(
     css=AIKO_CSS
 ) as demo:
 
-    with gr.Column(elem_id="aiko-shell"):
+    # ── LOGIN OVERLAY ───────────────────────────────────────────────
+    with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
+        gr.HTML("<h1>🌸 Aiko-chan</h1><p>Please sign in to continue</p>")
+        gr.LoginButton(value="Sign in with Hugging Face")
+
+    with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
 
         gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
 
@@ -245,6 +266,12 @@ with gr.Blocks(
     # ─────────────────────────────────────────────
     # EVENTS (CLEAN + STABLE)
     # ─────────────────────────────────────────────
+    demo.load(
+        _check_auth,
+        inputs=None,
+        outputs=[login_overlay, main_shell],
+    )
+
     msg.submit(
         _submit,
         inputs=[msg, chatbot],
