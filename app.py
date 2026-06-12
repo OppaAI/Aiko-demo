@@ -360,7 +360,7 @@ with gr.Blocks(
     )
 
     # Inject audio player JS on load
-    demo.load(fn=None, js=AUDIO_PLAYER_JS)
+    #demo.load(fn=None, js=AUDIO_PLAYER_JS)
 
     msg.submit(
         _submit,
