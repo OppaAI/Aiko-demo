@@ -376,6 +376,15 @@ with gr.Blocks(
         }
     }
     """)
+
+    demo.load(fn=None, js="""
+    () => {
+        document.documentElement.style.height = '100vh';
+        document.body.style.height = '100vh';
+        document.body.style.overflow = 'hidden';
+        document.body.style.maxHeight = '100vh';
+    }
+    """)
     
     send.click(
         _submit,
