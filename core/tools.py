@@ -168,12 +168,13 @@ def extract_anime_query(text: str) -> str:
 
 # ── web search ────────────────────────────────────────────────────────────────
 
-def web_search(query: str, max_results: int = 5) -> str:
+pythondef web_search(query: str, max_results: int = 5) -> str:
     """Search via SearXNG JSON API. Falls back to error string on failure."""
     if not SEARXNG_BASE_URL:
         return "[search unavailable: SEARXNG_BASE_URL not set]"
-    try:
-        resp = httpx.get(
+    # strip stray quotes and whitespace
+    query = query.strip().strip("'\"")
+    try:        resp = httpx.get(
             f"{SEARXNG_BASE_URL.rstrip('/')}/search",
             params={"q": query, "format": "json", "count": max_results},
             timeout=10,
@@ -216,6 +217,7 @@ def web_fetch(url: str, max_chars: int = 6000) -> str:
 
 def web_search_and_fetch(query: str, max_results: int = 5) -> str:
     """Search + fetch top result. Returns combined string for context injection."""
+    query = query.strip().strip("'\"")
     results = web_search(query, max_results=max_results)
     urls    = re.findall(r"https?://[^\s]+", results)[:3]
     for url in urls:
