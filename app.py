@@ -385,6 +385,13 @@ with gr.Blocks(
         document.body.style.maxHeight = '100vh';
     }
     """)
+
+    demo.load(fn=None, js="""
+    () => {
+        const gc = document.querySelector('.gradio-container');
+        if (gc) gc.removeAttribute('data-iframe-height');
+    }
+    """)
     
     send.click(
         _submit,
