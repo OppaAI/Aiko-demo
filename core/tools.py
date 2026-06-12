@@ -168,7 +168,7 @@ def extract_anime_query(text: str) -> str:
 
 # ── web search ────────────────────────────────────────────────────────────────
 
-pythondef web_search(query: str, max_results: int = 5) -> str:
+def web_search(query: str, max_results: int = 5) -> str:
     """Search via SearXNG JSON API. Falls back to error string on failure."""
     if not SEARXNG_BASE_URL:
         return "[search unavailable: SEARXNG_BASE_URL not set]"
