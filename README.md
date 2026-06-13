@@ -1,12 +1,12 @@
 ---
 title: Aiko Chan
-emoji: 💬
-colorFrom: yellow
+emoji: 👀
+colorFrom: purple
 colorTo: purple
 sdk: gradio
-sdk_version: 6.17.3
+sdk_version: 6.18.0
 app_file: app.py
-pinned: false
+pinned: true
 fullWidth: true
 hf_oauth: true
 hf_oauth_scopes:
