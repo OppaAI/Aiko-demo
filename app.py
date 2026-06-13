@@ -307,6 +307,7 @@ with gr.Blocks(
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
         gr.HTML("""
             <h1>🌸 Aiko-chan</h1>
+            <br>
             <p class='aiko-subtitle'>Please sign in to continue</p>
         """)
         gr.HTML("""
