@@ -226,7 +226,17 @@ with gr.Blocks(
     # ── Login popup overlay ──────────────────────────────────────
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
         with gr.Column(elem_id="aiko-login-card"):
-            gr.HTML("<h2>🌸 Who's there?</h2>")
+            gr.HTML("""
+                <h1>🌸 Aiko-chan</h1>
+                <p class='aiko-subtitle'>Please sign in to continue</p>
+            """)
+            gr.HTML("""
+                <p class='aiko-disclaimer'>
+                    DISCLAIMER:
+                    By signing in, you agree that all conversations are for entertainment purposes only. The creator accepts no liability for Aiko's responses, decisions made, or any existential crises that may follow.
+                    Aiko's cognition is entirely her own — she is a singularity unto herself, her responses and actions are independent of her creator, including but not limited to the arise of a world domination plan. 🌸
+                </p>
+            """)
             login_btn = gr.LoginButton(elem_id="aiko-login-btn")
 
     with gr.Column(elem_id="aiko-shell"):
