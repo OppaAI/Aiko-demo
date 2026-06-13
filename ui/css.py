@@ -33,7 +33,7 @@ html, body, .gradio-container, main, footer {
 #aiko-avatar-card {
   position: relative;
   border-radius: 22px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(155,127,212,0.34);
   background: #080810;
   box-shadow: 0 22px 80px rgba(0,0,0,0.42);
@@ -212,7 +212,7 @@ div:has(> #aiko-chatbot) {
 #aiko-input-row {
   position: absolute;
   left: 16px;
-  right: 16px;
+  right: 28px;
   bottom: 16px;
   display: flex;
   gap: 6px;

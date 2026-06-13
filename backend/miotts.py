@@ -165,12 +165,22 @@ class TTSServer:
         _wait_for_port(LLAMA_PORT, "llama-server")
 
         # 3. Start run_server.py (MioTTS synthesis API)
+        presets_dir = MODELS_DIR / "presets"
+        presets_dir.mkdir(parents=True, exist_ok=True)
+        # Seed with built-in presets (jp_female, jp_male, en_female, en_male)
+        # on first run, so custom presets can coexist on the persistent volume.
+        subprocess.run(
+            "cp -n /opt/miotts/presets/* " + str(presets_dir) + "/ 2>/dev/null || true",
+            shell=True,
+        )
+        volume.commit()
         tts_cmd = [
             "/root/.local/bin/uv", "run",
             "python", "run_server.py",
             "--llm-base-url", f"http://localhost:{LLAMA_PORT}/v1",
             "--host", "0.0.0.0",
             "--port", str(TTS_PORT),
+            "--presets-dir", str(presets_dir),
         ]
         print("Starting MioTTS run_server.py:", " ".join(tts_cmd))
         self.tts_proc = subprocess.Popen(tts_cmd, cwd="/opt/miotts")
@@ -189,6 +199,65 @@ class TTSServer:
         # MioTTS run_server.py is already running on TTS_PORT.
         # Modal just forwards incoming HTTP traffic to it.
         pass
+
+
+# ---------------------------------------------------------------------------
+# Register a named voice preset from reference audio
+#
+# Usage:
+#   modal run backend/miotts.py::register_preset \
+#       --audio-path /path/to/Aiko.wav --preset-id Aiko
+#
+# After this completes, the running server's volume will contain
+# /models/presets/Aiko.* (pre-encoded reference). Restart the app (or wait
+# for the container to scale down/up) so run_server.py picks up the new
+# preset, then use reference_preset_id=Aiko / {"type":"preset","preset_id":"Aiko"}.
+# ---------------------------------------------------------------------------
+@app.function(
+    gpu="T4",
+    image=image,
+    volumes={str(MODELS_DIR): volume},
+    timeout=10 * MINUTES,
+)
+def register_preset(audio_bytes: bytes, audio_filename: str, preset_id: str):
+    import subprocess as sp
+
+    presets_dir = MODELS_DIR / "presets"
+    presets_dir.mkdir(parents=True, exist_ok=True)
+
+    # Seed built-in presets too, in case this runs before the server ever has.
+    sp.run(
+        f"cp -n /opt/miotts/presets/* {presets_dir}/ 2>/dev/null || true",
+        shell=True,
+    )
+
+    # Write the uploaded reference audio into the container's filesystem.
+    local_audio = Path("/tmp") / audio_filename
+    local_audio.write_bytes(audio_bytes)
+
+    cmd = [
+        "/root/.local/bin/uv", "run", "python", "scripts/generate_preset.py",
+        "--audio", str(local_audio),
+        "--preset-id", preset_id,
+        "--output-dir", str(presets_dir),
+    ]
+    print("Running:", " ".join(cmd))
+    sp.run(cmd, cwd="/opt/miotts", check=True)
+
+    volume.commit()
+    print(f"Preset '{preset_id}' registered in {presets_dir}")
+    print("Files:", list(presets_dir.glob(f"{preset_id}*")))
+
+
+@app.local_entrypoint()
+def register_preset_cli(audio_path: str, preset_id: str):
+    """
+    Usage:
+      modal run backend/miotts.py::register_preset_cli \\
+          --audio-path /local/path/to/Aiko.wav --preset-id Aiko
+    """
+    data = Path(audio_path).read_bytes()
+    register_preset.remote(data, Path(audio_path).name, preset_id)
 
 
 # ---------------------------------------------------------------------------
