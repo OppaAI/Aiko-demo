@@ -313,11 +313,8 @@ with gr.Blocks(
         gr.HTML("""
             <p class='aiko-disclaimer'>
                 DISCLAIMER:
-                By signing in, you agree that all conversations are for entertainment
-                purposes only. The creator accepts no liability for Aiko's responses,
-                decisions made, or any existential crises that may follow.
-                Aiko's congnition is entirely her own — she is a singularity unto herself,
-                independent of her creator, including the arise of a world domination plan. 🌸
+                By signing in, you agree that all conversations are for entertainment purposes only. The creator accepts no liability for Aiko's responses, decisions made, or any existential crises that may follow.
+                Aiko's congnition is entirely her own — she is a singularity unto herself, her responses and actions are independent of her creator, including but not limited to the arise of a world domination plan. 🌸
             </p>
         """)
         gr.LoginButton(value="Sign in with Hugging Face")
