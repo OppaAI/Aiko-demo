@@ -285,6 +285,10 @@ HEIGHT_LOCK_JS = """
             gc.style.setProperty('overflow', 'hidden', 'important');
         }
         const shell = document.querySelector('#aiko-shell');
+        if (shell) {
+            shell.style.setProperty('flex-grow', '0', 'important');
+            shell.style.setProperty('min-width', 'unset', 'important');
+        }
         if (shell && !shell.classList.contains('locked')) {
             shell.style.setProperty('height', '100vh', 'important');
             shell.style.setProperty('max-height', '100vh', 'important');
