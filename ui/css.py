@@ -384,25 +384,15 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 .hide { display: none !important; }
 
 /* ── Login overlay ─────────────────────────────────────────────────── */
-/* ── Login overlay ─────────────────────────────────────────────────── */
-/* ── Login overlay ─────────────────────────────────────────────────── */
 #aiko-login-overlay {
-  position: fixed !important;
-  inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  flex: none !important;
-  flex-grow: 0 !important;
-  min-width: 0 !important;
-  max-height: 100vh !important;
-  contain: strict !important;
-  z-index: 99999;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 22px;
-  background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%);
+    position: fixed !important;
+    inset: 0;
+    z-index: 9999;
+    background: /* your bg */;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 #aiko-login-overlay.hidden {
   display: none !important;
