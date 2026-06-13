@@ -300,12 +300,13 @@ HEIGHT_LOCK_JS = """
 
         // Walk every ancestor of shell and clamp it
         let el = shell;
+        let el = shell;
         while (el && el !== document.documentElement) {
             el.style.setProperty('height', '100vh', 'important');
             el.style.setProperty('max-height', '100vh', 'important');
             el.style.setProperty('min-height', 'unset', 'important');
-            el.style.setProperty('overflow', 'hidden', 'important');
             el.style.setProperty('flex-grow', '0', 'important');
+            // don't force overflow:hidden on every ancestor
             el = el.parentElement;
         }
         // Clamp shell internals
