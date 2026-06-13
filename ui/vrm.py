@@ -1,3 +1,4 @@
+from _typeshed import xml
 from __future__ import annotations
 
 import html
@@ -230,10 +231,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let speechStartedAt = 0;
     let speechDuration = 0;
     const REST = window._REST = {{
-      leftUpperArm:  {{ x:  0.02, y: 0.0, z: -1.28 }},
-      rightUpperArm: {{ x:  0.02, y: 0.0, z:  1.28 }},
-      leftLowerArm:  {{ x: -0.12, y: 0.0, z: -0.08 }},
-      rightLowerArm: {{ x: -0.12, y: 0.0, z:  0.08 }},
+      leftUpperArm:  {{ x:  0.02, y: 0.0, z:  1.28 }},   // z flipped
+      rightUpperArm: {{ x:  0.02, y: 0.0, z: -1.28 }},   // z flipped
+      leftLowerArm:  {{ x: -0.12, y: 0.0, z:  0.08 }},   // z flipped
+      rightLowerArm: {{ x: -0.12, y: 0.0, z: -0.08 }},   // z flipped
       leftHand:      {{ x:  0.0,  y: 0.08, z:  0.0 }},
       rightHand:     {{ x:  0.0,  y:-0.08, z:  0.0 }},
     }};
@@ -690,7 +691,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         window._aikoVrm = vrm;
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
-        vrm.scene.rotation.y = 0;
+        vrm.scene.rotation.y = Math.PI;
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
         console.log('Available expressions:', expressionNames());
