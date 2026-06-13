@@ -272,25 +272,30 @@ AUDIO_PLAYER_JS = """
 HEIGHT_LOCK_JS = """
 () => {
     const clamp = () => {
-        document.documentElement.style.setProperty('height', '100vh', 'important');
-        document.documentElement.style.setProperty('overflow', 'hidden', 'important');
-        document.body.style.setProperty('height', '100vh', 'important');
-        document.body.style.setProperty('overflow', 'hidden', 'important');
-        document.body.style.setProperty('max-height', '100vh', 'important');
-        const gc = document.querySelector('.gradio-container');
-        if (gc) {
-            gc.style.setProperty('height', '100vh', 'important');
-            gc.style.setProperty('max-height', '100vh', 'important');
-            gc.style.setProperty('min-height', 'unset', 'important');
-            gc.style.setProperty('overflow', 'hidden', 'important');
+        // Kill the iFrameResizer inline height
+        const iframe = document.getElementById('iFrameResizer0');
+        if (iframe) {
+            iframe.style.setProperty('height', '100vh', 'important');
+            iframe.style.setProperty('max-height', '100vh', 'important');
+            iframe.style.setProperty('min-height', '0', 'important');
+            iframe.style.setProperty('overflow', 'hidden', 'important');
+        }
+
+        for (const sel of ['html', 'body', '.gradio-container', '.gradio-container > div']) {
+            const el = document.querySelector(sel);
+            if (!el) continue;
+            el.style.setProperty('height', '100vh', 'important');
+            el.style.setProperty('max-height', '100vh', 'important');
+            el.style.setProperty('min-height', '0', 'important');
+            el.style.setProperty('overflow', 'hidden', 'important');
         }
     };
+
     clamp();
-    new MutationObserver(clamp).observe(document.documentElement, {
-        attributes: true, attributeFilter: ['style']
-    });
+    // Poll because iFrameResizer keeps re-setting the inline style
+    setInterval(clamp, 300);
     new MutationObserver(clamp).observe(document.body, {
-        attributes: true, attributeFilter: ['style']
+        subtree: true, attributeFilter: ['style']
     });
 }
 """
