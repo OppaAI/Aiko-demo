@@ -126,6 +126,13 @@ div[class*="status"] {
   padding: 10px 8px 10px;
   text-align: left;
 }
+/* ── Title row ─────────────────────────────────────────────────────── */
+#aiko-title-row {
+  height: auto !important;
+  min-height: unset !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+}
 /* ── Avatar card ───────────────────────────────────────────────────── */
 #aiko-avatar-card,
 #aiko-avatar-card .html-container,

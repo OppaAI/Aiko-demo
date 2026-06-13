@@ -375,56 +375,54 @@ with gr.Blocks(
         """)
         gr.LoginButton(value="Sign in with Hugging Face")
 
-    with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
+with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
 
-        gr.HTML(
-            "<div id='aiko-title'>🌸 Aiko-chan</div>",
-            padding=False,
-        )
-        with gr.Row(equal_height=True):
+    with gr.Row(elem_id="aiko-title-row"):
+        gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>", padding=False)
 
-            with gr.Column(scale=1, elem_id="aiko-avatar-card"):
+    with gr.Row(equal_height=True):
 
-                gr.HTML(value=avatar_html(VRM_URLS))
+        with gr.Column(scale=1, elem_id="aiko-avatar-card"):
 
-                tts_text = gr.Textbox(
-                    visible=False,
-                    elem_id="aiko-tts-text",
+            gr.HTML(value=avatar_html(VRM_URLS), padding=False)
+
+            tts_text = gr.Textbox(
+                visible=False,
+                elem_id="aiko-tts-text",
+            )
+
+            with gr.Column(elem_id="aiko-chat-overlay"):
+                chatbot = gr.Chatbot(
+                    elem_id="aiko-chatbot",
+                    height=600,
+                    show_label=False,
+                    container=False,
                 )
 
-                with gr.Column(elem_id="aiko-chat-overlay"):
-                    chatbot = gr.Chatbot(
-                        elem_id="aiko-chatbot",
-                        height=600,
-                        show_label=False,
-                        container=False,
-                    )
+            with gr.Row(elem_id="aiko-input-row"):
 
-                with gr.Row(elem_id="aiko-input-row"):
+                mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
 
-                    mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
+                msg = gr.Textbox(
+                    placeholder="Type a message…",
+                    elem_id="aiko-msg",
+                    scale=12,
+                    show_label=False,
+                    container=False,
+                )
 
-                    msg = gr.Textbox(
-                        placeholder="Type a message…",
-                        elem_id="aiko-msg",
-                        scale=12,
-                        show_label=False,
-                        container=False,
-                    )
+                send = gr.Button(
+                    "➤",
+                    variant="primary",
+                    elem_id="aiko-send",
+                )
 
-                    send = gr.Button(
-                        "➤",
-                        variant="primary",
-                        elem_id="aiko-send",
-                    )
-
-                    mic_audio = gr.Audio(
-                        sources=["microphone"],
-                        type="filepath",
-                        visible=False,
-                        elem_id="aiko-mic-audio",
-                    )
-
+                mic_audio = gr.Audio(
+                    sources=["microphone"],
+                    type="filepath",
+                    visible=False,
+                    elem_id="aiko-mic-audio",
+                )
     # ─────────────────────────────────────────────
     # EVENTS
     # ─────────────────────────────────────────────
