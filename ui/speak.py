@@ -26,7 +26,7 @@ MIOTTS_URL = os.getenv("MIOTTS_URL", "").rstrip("/")
 
 # Preset ID registered in MioTTS via register_preset_cli.
 # e.g. "Aiko" or "jp_female"
-MIOTTS_PRESET_ID = os.getenv("MIOTTS_PRESET_ID", "jp_female")
+MIOTTS_PRESET_ID = os.getenv("MIOTTS_PRESET_ID", "Asuka")
 
 # ── Emoji → VRM expression name ───────────────────────────────────────────────
 _EMOJI_EMOTION: dict[str, str] = {
