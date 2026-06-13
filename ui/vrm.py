@@ -230,10 +230,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let speechStartedAt = 0;
     let speechDuration = 0;
     const REST = window._REST = {{
-      leftUpperArm:  {{ x:  0.02, y: 0.0, z:  1.28 }},   // z flipped
-      rightUpperArm: {{ x:  0.02, y: 0.0, z: -1.28 }},   // z flipped
-      leftLowerArm:  {{ x: -0.12, y: 0.0, z:  0.08 }},   // z flipped
-      rightLowerArm: {{ x: -0.12, y: 0.0, z: -0.08 }},   // z flipped
+      leftUpperArm:  {{ x:  0.02, y: 0.0, z: -1.28 }},
+      rightUpperArm: {{ x:  0.02, y: 0.0, z:  1.28 }},
+      leftLowerArm:  {{ x: -0.12, y: 0.0, z: -0.08 }},
+      rightLowerArm: {{ x: -0.12, y: 0.0, z:  0.08 }},
       leftHand:      {{ x:  0.0,  y: 0.08, z:  0.0 }},
       rightHand:     {{ x:  0.0,  y:-0.08, z:  0.0 }},
     }};
@@ -690,11 +690,15 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         window._aikoVrm = vrm;
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
-        vrm.scene.rotation.y = Math.PI;
-        const forward = new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(vrm.scene.quaternion);
-        console.log('[aiko-vrm] model forward vector:', forward);
+        vrm.scene.rotation.y = 0;
         scene.add(vrm.scene);
+        // Add this after scene.add:
+        setTimeout(() => {{
+          const lUA = vrm.humanoid?.getRawBoneNode('leftUpperArm');
+          const rUA = vrm.humanoid?.getRawBoneNode('rightUpperArm');
+          console.log('[aiko-vrm] leftUpperArm rotation:', lUA?.rotation);
+          console.log('[aiko-vrm] rightUpperArm rotation:', rUA?.rotation);
+        }}, 500);
         setExpression('relaxed', 0.25);
         console.log('Available expressions:', expressionNames());
         document.getElementById('loader').classList.add('fade');
