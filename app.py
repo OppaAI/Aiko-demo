@@ -284,32 +284,70 @@ HEIGHT_LOCK_JS = """
             gc.style.setProperty('min-height', 'unset', 'important');
             gc.style.setProperty('overflow', 'hidden', 'important');
         }
-        // Tell iFrameResizer in the HF parent page to lock to 100vh
         try {
-            window.parentIFrame?.size(window.screen.height);
+            window.parentIFrame?.size(window.innerHeight);
             window.parentIFrame?.autoResize(false);
         } catch(_) {}
-        // Also send a raw postMessage in case parentIFrame API is available
+    };
+
+    const clampShell = () => {
+        const shell = document.querySelector('#aiko-shell:not(.locked)');
+        if (!shell) return;
+        // Walk every ancestor of shell and clamp it
+        let el = shell;
+        while (el && el !== document.documentElement) {
+            el.style.setProperty('height', '100vh', 'important');
+            el.style.setProperty('max-height', '100vh', 'important');
+            el.style.setProperty('min-height', 'unset', 'important');
+            el.style.setProperty('overflow', 'hidden', 'important');
+            el.style.setProperty('flex-grow', '0', 'important');
+            el = el.parentElement;
+        }
+        // Clamp shell internals
+        const card = shell.querySelector('#aiko-avatar-card');
+        if (card) {
+            card.style.setProperty('height', 'calc(100vh - 70px)', 'important');
+            card.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
+            card.style.setProperty('min-height', 'unset', 'important');
+            card.style.setProperty('overflow', 'hidden', 'important');
+        }
+        const frame = shell.querySelector('#aiko-vrm-frame');
+        if (frame) {
+            frame.style.setProperty('height', 'calc(100vh - 70px)', 'important');
+            frame.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
+        }
+        // Tell HF parent iFrameResizer to stop
         try {
-            window.parent.postMessage({
-                type: 'setHeight',
-                height: window.innerHeight
-            }, '*');
+            window.parentIFrame?.size(window.innerHeight);
+            window.parentIFrame?.autoResize(false);
         } catch(_) {}
     };
-    // Disable iFrameResizer's auto-resize entirely if its API is present
-    try {
-        if (window.iFrameResizer) {
-            window.iFrameResizer.autoResize = false;
-        }
-    } catch(_) {}
+
     clamp();
-    new MutationObserver(clamp).observe(document.documentElement, {
-        attributes: true, attributeFilter: ['style']
+
+    // Watch for shell becoming unlocked (class attribute change)
+    new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            if (m.target.id === 'aiko-shell') {
+                clampShell();
+                clamp();
+            }
+        }
+    }).observe(document.body, {
+        subtree: true,
+        attributeFilter: ['class', 'style']
     });
-    new MutationObserver(clamp).observe(document.body, {
-        attributes: true, attributeFilter: ['style']
-    });
+
+    // Also poll as safety net for the OAuth redirect case
+    let pollCount = 0;
+    const poll = setInterval(() => {
+        const shell = document.querySelector('#aiko-shell:not(.locked)');
+        if (shell) {
+            clampShell();
+            clamp();
+        }
+        if (++pollCount > 20) clearInterval(poll);
+    }, 300);
 }
 """
 
