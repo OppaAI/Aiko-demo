@@ -314,7 +314,6 @@ with gr.Blocks(
             <h1>🌸 Aiko-chan</h1>
             <p class='aiko-subtitle'>Please sign in to continue</p>
         """)
-        gr.LoginButton(value="Sign in with Hugging Face")
         gr.HTML("""
             <p class='aiko-disclaimer'>
                 DISCLAIMER:
@@ -325,6 +324,7 @@ with gr.Blocks(
                 independent of her creator, including the arise of a world domination plan. 🌸
             </p>
         """)
+        gr.LoginButton(value="Sign in with Hugging Face")
 
     with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
 
