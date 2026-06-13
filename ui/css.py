@@ -384,15 +384,25 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 .hide { display: none !important; }
 
 /* ── Login overlay ─────────────────────────────────────────────────── */
+/* Lock Gradio's own wrapper from growing */
+.gradio-container {
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+}
+
 #aiko-login-overlay {
     position: fixed !important;
-    inset: 0;
-    z-index: 9999;
-    background: /* your bg */;
-    display: flex;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 9999 !important;
+    display: flex !important;
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    background: /* your bg color */ #0d0d1a;
 }
 #aiko-login-overlay.hidden {
   display: none !important;
