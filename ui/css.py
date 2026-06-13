@@ -14,6 +14,15 @@ html, body, .gradio-container, main, footer {
   margin: 0 !important;
   padding: 0 !important;
 }
+/* Lock Gradio to viewport */
+html,
+body,
+.gradio-container,
+main {
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+}
 .gradio-container *, .gradio-container .prose, .gradio-container label {
   color: var(--aiko-text);
 }
@@ -34,7 +43,16 @@ html, body {
   transform: none !important;
 }
 
-#aiko-shell { max-width: 1180px; margin: 0 auto; padding: 0 12px 12px; }
+#aiko-shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 12px 12px;
+
+    height: 100vh;
+    max-height: 100vh;
+
+    overflow: hidden;
+}
 
 /* ── Title header ──────────────────────────────────────────────────── */
 #aiko-title {
@@ -52,8 +70,8 @@ html, body {
 #aiko-avatar-card,
 #aiko-avatar-card .html-container,
 #aiko-avatar-card .prose {
-  height: min(78vh, 760px) !important;
-  max-height: min(78vh, 760px) !important;
+  height: calc(100vh - 70px) !important;
+  max-height: calc(100vh - 70px) !important;
   overflow: hidden !important;
 }
 #aiko-vrm-frame {
