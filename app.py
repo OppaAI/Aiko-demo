@@ -347,6 +347,7 @@ with gr.Blocks(
                         sources=["microphone"],
                         type="filepath",
                         elem_id="aiko-mic-audio",
+                        visible=False,   # hides it but keeps it in DOM
                     )
 
     # ─────────────────────────────────────────────
@@ -380,17 +381,34 @@ with gr.Blocks(
         None,
         js="""
         () => {
-            try {
-                const container = document.querySelector('#aiko-mic-audio');
-                if (!container) { console.log('NO CONTAINER'); return; }
-                const recordBtn = container.querySelector('button.record-button');
-                if (recordBtn) {
-                    recordBtn.click();
-                } else {
-                    console.log('record-button not found');
-                }
-            } catch (e) {
-                console.log('ERROR:', e.message, e.stack);
+            const micBtn = document.querySelector('#aiko-mic-btn button');
+            const audioContainer = document.querySelector('#aiko-mic-audio');
+            if (!audioContainer) return;
+
+            const isRecording = micBtn.dataset.recording === 'true';
+
+            if (!isRecording) {
+                // Find and click whatever button starts recording
+                const buttons = audioContainer.querySelectorAll('button');
+                buttons.forEach(b => {
+                    if (b.title?.toLowerCase().includes('record') || 
+                        b.getAttribute('aria-label')?.toLowerCase().includes('record')) {
+                        b.click();
+                    }
+                });
+                micBtn.textContent = '⏹️';
+                micBtn.dataset.recording = 'true';
+            } else {
+                // Find and click stop
+                const buttons = audioContainer.querySelectorAll('button');
+                buttons.forEach(b => {
+                    if (b.title?.toLowerCase().includes('stop') || 
+                        b.getAttribute('aria-label')?.toLowerCase().includes('stop')) {
+                        b.click();
+                    }
+                });
+                micBtn.textContent = '🎙️';
+                micBtn.dataset.recording = 'false';
             }
         }
         """
