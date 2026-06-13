@@ -49,48 +49,34 @@ MODELS_DIR = Path("/models")
 # ---------------------------------------------------------------------------
 # Container image
 # ---------------------------------------------------------------------------
-cuda_tag = "12.4.0-devel-ubuntu22.04"
+cuda_tag = "12.4.0-runtime-ubuntu22.04"
 
 image = (
     modal.Image.from_registry(f"nvidia/cuda:{cuda_tag}", add_python="3.11")
     .apt_install(
-        "git", "cmake", "build-essential", "ninja-build", "curl",
-        "libsndfile1", "ffmpeg",
+        "git", "curl", "libsndfile1", "ffmpeg", "unzip",
+        "cmake", "build-essential", "python3-dev",
+    )
+    .run_commands(
+        # Download prebuilt llama.cpp CUDA binaries from ai-dock/llama.cpp-cuda
+        # (official llama.cpp releases don't ship Linux CUDA binaries — only
+        # Windows CUDA and Linux CPU/Vulkan). This repo provides ready-to-use
+        # tarballs (llama-server + all required .so files) tracking upstream.
+        "curl -s https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest"
+        " | grep -oE '\"browser_download_url\": \"[^\"]*cuda-12\\.[0-9]+-amd64\\.tar\\.gz\"'"
+        " | head -1 | cut -d'\"' -f4 > /tmp/llama_url.txt",
+        "cat /tmp/llama_url.txt",
+        "curl -L -o /tmp/llama.tar.gz $(cat /tmp/llama_url.txt)",
+        "mkdir -p /opt/llama && tar -xzf /tmp/llama.tar.gz -C /opt/llama",
+        "find /opt/llama -name 'llama-server' -exec chmod +x {} \\;",
+        "find /opt/llama -name '*.so*' -exec dirname {} \\; | sort -u > /etc/ld.so.conf.d/llama.conf",
+        "cat /etc/ld.so.conf.d/llama.conf",
+        "ldconfig",
+        "find /opt/llama -name 'llama-server'",
     )
     # Install uv
     .run_commands("curl -Ls https://astral.sh/uv/install.sh | sh")
-    # Build llama.cpp with CUDA so we get llama-server.
-    #
-    # The llama.cpp build's `llama-ui` target tries to fetch a `build.json`
-    # asset manifest from the HuggingFace CDN during configure/build. When
-    # that fetch fails (as it does in sandboxed/offline build environments),
-    # the provisioning step falls back to "stale assets" that don't actually
-    # exist, producing a zero-size array (`asset_60_data[]`) that fails to
-    # compile in ui.cpp. LLAMA_BUILD_SERVER_WEBUI=OFF does not prevent this
-    # because llama-server still depends on the llama-ui target in the
-    # CMake graph. The fix: patch out the llama-ui subdirectory/dependency
-    # entirely before configuring, so llama-server builds without it.
-    .run_commands(
-        "git clone --depth 1 https://github.com/ggml-org/llama.cpp /opt/llama.cpp",
-        # Symlink libcuda.so.1 stub — devel image ships .so but not .so.1
-        "ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1",
-        # Neutralize the broken UI asset-provisioning step without touching
-        # tools/CMakeLists.txt (removing add_subdirectory(tools/ui) there
-        # breaks include-path propagation needed by common.h). Instead,
-        # truncate tools/ui/CMakeLists.txt to a no-op so add_subdirectory
-        # succeeds but defines no targets, and strip any llama-ui
-        # dependency from the server target.
-        "echo '' > /opt/llama.cpp/tools/ui/CMakeLists.txt",
-        "sed -i '/llama-ui/d' /opt/llama.cpp/tools/server/CMakeLists.txt || true",
-        "cmake /opt/llama.cpp -B /opt/llama.cpp/build"
-        " -DGGML_CUDA=ON"
-        " -DCMAKE_BUILD_TYPE=Release"
-        " -DLLAMA_BUILD_SERVER_WEBUI=OFF"
-        " -DCMAKE_EXE_LINKER_FLAGS='-L/usr/local/cuda/lib64/stubs -Wl,-rpath,/usr/local/cuda/lib64'",
-        "cmake --build /opt/llama.cpp/build --config Release -j$(nproc) --target common llama-server"
-        " || cmake --build /opt/llama.cpp/build --config Release -j$(nproc)",
-        "test -f /opt/llama.cpp/build/bin/llama-server",
-    )
+    # llama-server binary is already present in this image at /app/llama-server
     # Clone MioTTS-Inference and install its Python deps
     .run_commands(
         "git clone https://github.com/Aratako/MioTTS-Inference.git /opt/miotts",
@@ -153,8 +139,19 @@ class TTSServer:
         volume.commit()
 
         # 2. Start llama-server
+        import os
+        env = os.environ.copy()
+        env["LD_LIBRARY_PATH"] = "/app:" + env.get("LD_LIBRARY_PATH", "")
+
+        llama_bin = subprocess.check_output(
+            "find /opt/llama -name llama-server -type f | head -1",
+            shell=True, text=True
+        ).strip()
+        if not llama_bin:
+            raise RuntimeError("llama-server binary not found under /opt/llama")
+
         llama_cmd = [
-            "/opt/llama.cpp/build/bin/llama-server",
+            llama_bin,
             "-m", str(MODELS_DIR / GGUF_FILE),
             "-c", "8192",
             "--cont-batching",
@@ -164,7 +161,7 @@ class TTSServer:
             "--port", str(LLAMA_PORT),
         ]
         print("Starting llama-server:", " ".join(llama_cmd))
-        self.llama_proc = subprocess.Popen(llama_cmd)
+        self.llama_proc = subprocess.Popen(llama_cmd, env=env)
         _wait_for_port(LLAMA_PORT, "llama-server")
 
         # 3. Start run_server.py (MioTTS synthesis API)

@@ -330,7 +330,14 @@ with gr.Blocks(
                 const buttons = container.querySelectorAll('button');
                 console.log('BUTTON COUNT:', buttons.length);
                 buttons.forEach((b, i) => console.log(i, b.outerHTML));
-                if (buttons[0]) buttons[0].click();
+
+                // Find by class instead of index — more robust
+                const recordBtn = container.querySelector('button.record-button');
+                if (recordBtn) {
+                    recordBtn.click();
+                } else {
+                    console.log('record-button not found');
+                }
             } catch (e) {
                 console.log('ERROR:', e.message, e.stack);
             }
