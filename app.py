@@ -217,7 +217,7 @@ def _check_login(profile: OAuthProfile | None):
 # ─────────────────────────────────────────────
 with gr.Blocks(
     title="Aiko-chan 🌸",
-    fill_height=True,
+    #fill_height=True,
     css=AIKO_CSS
 ) as demo:
 
