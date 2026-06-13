@@ -284,7 +284,25 @@ HEIGHT_LOCK_JS = """
             gc.style.setProperty('min-height', 'unset', 'important');
             gc.style.setProperty('overflow', 'hidden', 'important');
         }
+        // Tell iFrameResizer in the HF parent page to lock to 100vh
+        try {
+            window.parentIFrame?.size(window.screen.height);
+            window.parentIFrame?.autoResize(false);
+        } catch(_) {}
+        // Also send a raw postMessage in case parentIFrame API is available
+        try {
+            window.parent.postMessage({
+                type: 'setHeight',
+                height: window.innerHeight
+            }, '*');
+        } catch(_) {}
     };
+    // Disable iFrameResizer's auto-resize entirely if its API is present
+    try {
+        if (window.iFrameResizer) {
+            window.iFrameResizer.autoResize = false;
+        }
+    } catch(_) {}
     clamp();
     new MutationObserver(clamp).observe(document.documentElement, {
         attributes: true, attributeFilter: ['style']
