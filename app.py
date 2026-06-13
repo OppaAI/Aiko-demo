@@ -305,8 +305,21 @@ with gr.Blocks(
 ) as demo:
 
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
-        gr.HTML("<h1>🌸 Aiko-chan</h1><p>Please sign in to continue</p>")
+        gr.HTML("""
+            <h1>🌸 Aiko-chan</h1>
+            <p class='aiko-subtitle'>Please sign in to continue</p>
+        """)
         gr.LoginButton(value="Sign in with Hugging Face")
+        gr.HTML("""
+            <p class='aiko-disclaimer'>
+                DISCLAIMER:
+                By signing in, you agree that all conversations are for entertainment
+                purposes only. The creator accepts no liability for Aiko's responses,
+                decisions made, or any existential crises that may follow.
+                Aiko's congnition is entirely her own — she is a singularity unto herself,
+                independent of her creator, including the arise of a world domination plan. 🌸
+            </p>
+        """)
 
     with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
 
