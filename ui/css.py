@@ -388,7 +388,9 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 .gradio-container {
     height: 100vh !important;
     max-height: 100vh !important;
+    min-height: unset !important;   /* ← kill this */
     overflow: hidden !important;
+    transform: none !important;
 }
 
 #aiko-login-overlay {
