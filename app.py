@@ -365,16 +365,6 @@ with gr.Blocks(
     # Inject audio player JS on load
     demo.load(fn=None, js=AUDIO_PLAYER_JS)
 
-    # Move login overlay to body so position:fixed is relative to viewport
-    demo.load(fn=None, js="""
-    () => {
-        const overlay = document.getElementById('aiko-login-overlay');
-        if (overlay && overlay.parentElement !== document.body) {
-            document.body.insertBefore(overlay, document.body.firstChild);
-        }
-    }
-    """)
-
     # Pin page height so HF's iframe-resizer doesn't grow the iframe
     demo.load(fn=None, js="""
     () => {
@@ -382,6 +372,14 @@ with gr.Blocks(
         document.body.style.height = '100vh';
         document.body.style.overflow = 'hidden';
         document.body.style.maxHeight = '100vh';
+    
+        // Also lock Gradio's root container
+        const root = document.getElementById('root');
+        if (root) {
+            root.style.height = '100vh';
+            root.style.overflow = 'hidden';
+            root.style.maxHeight = '100vh';
+        }
     }
     """)
 
