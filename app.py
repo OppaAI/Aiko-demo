@@ -265,7 +265,7 @@ AUDIO_PLAYER_JS = """
         if (!raw.startsWith('AUDIO:')) return;
 
         // Parse: AUDIO:<b64>|EMOTION:<emotion>|TEXT:<text>
-        const audioMatch = raw.match(/^AUDIO:(.*?)\|EMOTION:(.*?)\|TEXT:([\s\S]*)$/);
+        const audioMatch = raw.match(/^AUDIO:(.*?)\\|EMOTION:(.*?)\\|TEXT:([\\s\\S]*)$/);
         if (!audioMatch) return;
 
         queue.push({ b64: audioMatch[1], emotion: audioMatch[2], text: audioMatch[3] });
@@ -297,11 +297,11 @@ with gr.Blocks(
 ) as demo:
 
     # ── LOGIN OVERLAY ───────────────────────────────────────────────
-    #with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
-    #    gr.HTML("<h1>🌸 Aiko-chan</h1><p>Please sign in to continue</p>")
-    #    gr.LoginButton(value="Sign in with Hugging Face")
+    with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
+        gr.HTML("<h1>🌸 Aiko-chan</h1><p>Please sign in to continue</p>")
+        gr.LoginButton(value="Sign in with Hugging Face")
 
-    with gr.Column(elem_id="aiko-shell") as main_shell:
+    with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
 
         gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
 
@@ -309,7 +309,9 @@ with gr.Blocks(
 
             with gr.Column(scale=1, elem_id="aiko-avatar-card"):
 
-                gr.HTML(value=avatar_html(VRM_URLS))
+                # ── TEMP: VRM avatar replaced with placeholder for isolation test ──
+                # gr.HTML(value=avatar_html(VRM_URLS))
+                gr.HTML(value="<div style='height:100%;display:flex;align-items:center;justify-content:center;color:#b68cff;font-size:1rem;letter-spacing:.1em;'>🌸 Avatar placeholder</div>")
 
                 # tts_text carries the base64 audio payload to JS
                 # audio_out gr.Audio is removed — JS handles playback directly
@@ -321,10 +323,11 @@ with gr.Blocks(
                 with gr.Column(elem_id="aiko-chat-overlay"):
                     chatbot = gr.Chatbot(
                         elem_id="aiko-chatbot",
+                        height=600,
                         show_label=False,
                         container=False,
                     )
-                    
+
                 with gr.Row(elem_id="aiko-input-row"):
 
                     mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
@@ -353,30 +356,26 @@ with gr.Blocks(
     # ─────────────────────────────────────────────
     # EVENTS
     # ─────────────────────────────────────────────
-    #demo.load(
-    #    _check_auth,
-    #    inputs=None,
-    #    outputs=[login_overlay, main_shell],
-    #)
+    demo.load(
+        _check_auth,
+        inputs=None,
+        outputs=[login_overlay, main_shell],
+    )
 
     # Inject audio player JS on load
     demo.load(fn=None, js=AUDIO_PLAYER_JS)
 
-    msg.submit(
-        _submit,
-        inputs=[msg, chatbot],
-        outputs=[chatbot, tts_text, msg],
-    )
-    
-    #demo.load(fn=None, js="""
-    #() => {
-    #    const overlay = document.getElementById('aiko-login-overlay');
-    #    if (overlay && overlay.parentElement !== document.body) {
-    #        document.body.insertBefore(overlay, document.body.firstChild);
-    #    }
-    #}
-    #""")
+    # Move login overlay to body so position:fixed is relative to viewport
+    demo.load(fn=None, js="""
+    () => {
+        const overlay = document.getElementById('aiko-login-overlay');
+        if (overlay && overlay.parentElement !== document.body) {
+            document.body.insertBefore(overlay, document.body.firstChild);
+        }
+    }
+    """)
 
+    # Pin page height so HF's iframe-resizer doesn't grow the iframe
     demo.load(fn=None, js="""
     () => {
         document.documentElement.style.height = '100vh';
@@ -385,7 +384,13 @@ with gr.Blocks(
         document.body.style.maxHeight = '100vh';
     }
     """)
-   
+
+    msg.submit(
+        _submit,
+        inputs=[msg, chatbot],
+        outputs=[chatbot, tts_text, msg],
+    )
+
     send.click(
         _submit,
         inputs=[msg, chatbot],
