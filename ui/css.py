@@ -54,7 +54,9 @@ div[class*="status"] {
   visibility: hidden !important;
 }
 /* ── Shell ─────────────────────────────────────────────────────────── */
-#aiko-shell {
+Claude responded: Right — removing .Right — removing .locked/:not(.locked) won't fix the visibility, but it confirms those rules were dead weight either way. Here's the cleaner fix:
+Replace:
+css#aiko-shell {
   max-width: 1180px;
   margin: 0 auto;
   padding: 0 12px 12px;
@@ -64,15 +66,35 @@ div[class*="status"] {
   flex-grow: 0 !important;
   min-width: unset !important;
 }
-#aiko-shell {
-  display: flex !important;
-  flex-direction: column;
+#aiko-shell.locked {
+  display: none !important;
 }
 /* ── Shell unlocked state ───────────────────────────────────────────── */
 #aiko-shell:not(.locked),
 #aiko-shell:not(.locked) > div,
 #aiko-shell:not(.locked) > .block,
 #aiko-shell:not(.locked) > div > div {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  min-height: unset !important;
+  overflow: hidden !important;
+}
+with:
+css#aiko-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 12px 12px;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  flex-grow: 0 !important;
+  min-width: unset !important;
+  display: flex !important;
+  flex-direction: column;
+}
+#aiko-shell > div,
+#aiko-shell > .block,
+#aiko-shell > div > div {
   height: 100vh !important;
   max-height: 100vh !important;
   min-height: unset !important;
