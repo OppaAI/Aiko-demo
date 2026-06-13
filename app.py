@@ -316,7 +316,7 @@ with gr.Blocks(
 
             with gr.Column(scale=1, elem_id="aiko-avatar-card"):
 
-                gr.HTML(value="<div style='height:100%;display:flex;align-items:center;justify-content:center;color:#b68cff;font-size:1rem;letter-spacing:.1em;'>🌸 Avatar placeholder</div>")
+                gr.HTML(value=avatar_html(VRM_URLS))
 
                 tts_text = gr.Textbox(
                     visible=False,
