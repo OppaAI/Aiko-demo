@@ -1,231 +1,155 @@
 """
-Fish Speech S2-Pro on Modal
-============================
-Architecture:
-  tools/api_server.py (fish-speech) — TTS API on :8080
-
-Model: fishaudio/s2-pro (~8GB on disk, needs A100 40GB)
-
-Deploy:
-  modal deploy backend/fish_tts.py
-
-One-off test:
-  modal run backend/fish_tts.py
-
-API:
-  POST /v1/tts
-    - multipart/form-data with fields: text, reference_id (optional),
-      reference_audio (optional file), reference_text (optional)
-    - returns: audio/wav stream
-
-Health:
-  GET /v1/health
+core/wakeup.py
+Aiko's boot orchestrator — owns parallel subsystem startup and warmup sequencing.
+main.py calls AikoWakeup().boot(...) and receives a BootResult with all live
+subsystem references; it never needs to know the startup choreography.
+Progress is reported through three injected callbacks so wakeup.py stays
+completely TUI-ignorant:
+    on_loading(key)  — subsystem is starting
+    on_done(key)     — subsystem finished successfully
+    on_skip(key)     — subsystem skipped
+Each module owns its BOOT_LABELS dict; wakeup collects them and exposes
+ALL_BOOT_LABELS so the UI can register display text before boot begins.
+Usage:
+    result = AikoWakeup().boot(
+        on_loading = ...,
+        on_done    = ...,
+        on_skip    = ...,
+    )
+    think    = result.think
+    memorize = result.memorize
+Note: TTS, ASR, and dream scheduler are not used in this Gradio/HF Space demo.
+      speak and listen are always None.
 """
 
-import subprocess
-import time
-from pathlib import Path
+import os
+import threading
+from dataclasses import dataclass
+from typing import Callable
+from core.log import get_logger
+log = get_logger(__name__)
 
-import modal
+from core.think    import BOOT_LABELS as _THINK_LABELS
+from core.memorize import BOOT_LABELS as _MEM_LABELS
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-HF_REPO       = "fishaudio/s2-pro"
-CHECKPOINTS   = Path("/models/checkpoints/s2-pro")
-TTS_PORT      = 8080
-MINUTES       = 60
+# ── result container ──────────────────────────────────────────────────────────
 
-# ---------------------------------------------------------------------------
-# Shared volume — model weights downloaded once, reused on warm containers
-# ---------------------------------------------------------------------------
-volume = modal.Volume.from_name("fish-tts-models", create_if_missing=True)
-MODELS_DIR = Path("/models")
-
-# ---------------------------------------------------------------------------
-# Container image
-# ---------------------------------------------------------------------------
-image = (
-    modal.Image.from_registry("nvidia/cuda:12.4.0-runtime-ubuntu22.04", add_python="3.11")
-    .apt_install(
-        "git", "curl", "libsndfile1", "ffmpeg", "build-essential",
-        "portaudio19-dev", "clang",
-    )
-    .run_commands(
-        # Clone fish-speech at v1.5.1 (last stable before S2-Pro refactor)
-        # but use main for S2-Pro since v1.5.1 predates it.
-        "git clone --depth 1 https://github.com/fishaudio/fish-speech.git /opt/fish-speech",
-    )
-    .pip_install(
-        "torch==2.4.1", "torchvision", "torchaudio",
-        extra_index_url="https://download.pytorch.org/whl/cu124",
-    )
-    .run_commands(
-        # Install fish-speech dependencies
-        "pip install -e /opt/fish-speech",
-    )
-    .run_commands(
-        # Force-reinstall modal 1.4.3 to override the legacy /pkg/modal
-        # injected by Modal's old image builder, which conflicts with the
-        # current client protobuf schema.
-        "pip install --force-reinstall --target /pkg modal==1.4.3",
-    )
-    .pip_install("huggingface_hub")
-)
-
-app = modal.App("fish-tts", image=image)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-def _download_model():
-    from huggingface_hub import snapshot_download
-    if not CHECKPOINTS.exists() or not any(CHECKPOINTS.iterdir()):
-        CHECKPOINTS.mkdir(parents=True, exist_ok=True)
-        print(f"Downloading {HF_REPO} ...")
-        snapshot_download(repo_id=HF_REPO, local_dir=str(CHECKPOINTS))
-        print("Download complete.")
-    else:
-        print(f"Model already cached: {CHECKPOINTS}")
+@dataclass
+class BootResult:
+    """Holds all live subsystem references produced during boot."""
+    think:    object        # AikoThink
+    memorize: object        # AikoMemorize
+    speak:    None = None   # Not used in Gradio deployment
+    listen:   None = None   # Not used in Gradio deployment
 
 
-def _wait_for_port(port: int, label: str, timeout: int = 180):
-    import httpx
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            r = httpx.get(f"http://localhost:{port}/v1/health", timeout=2)
-            if r.status_code == 200:
-                print(f"{label} is ready on :{port}")
-                return
-        except Exception:
-            pass
-        time.sleep(2)
-    raise RuntimeError(f"{label} did not become ready within {timeout}s")
+# ── TTS warmup ───────────────────────────────────────────────────────────────
 
-
-# ---------------------------------------------------------------------------
-# Modal class — A100 40GB for S2-Pro (4B model, ~8GB weights + activations)
-# ---------------------------------------------------------------------------
-@app.cls(
-    gpu="T4",
-    timeout=10 * MINUTES,
-    scaledown_window=5 * MINUTES,
-    min_containers=0,
-    volumes={str(MODELS_DIR): volume},
-)
-@modal.concurrent(max_inputs=4)
-class FishTTSServer:
-
-    @modal.enter()
-    def startup(self):
-        # 1. Download model weights (no-op if already cached)
-        _download_model()
-        volume.commit()
-
-        # 2. Start api_server.py
-        cmd = [
-            "python", "/opt/fish-speech/tools/api_server.py",
-            "--llama-checkpoint-path", str(CHECKPOINTS),
-            "--decoder-checkpoint-path", str(CHECKPOINTS / "codec.pth"),
-            "--listen", f"0.0.0.0:{TTS_PORT}",
-            "--half",   # fp16 to save VRAM
-        ]
-        print("Starting Fish Speech API server:", " ".join(cmd))
-        self.proc = subprocess.Popen(cmd)
-        _wait_for_port(TTS_PORT, "Fish Speech API server")
-
-    @modal.exit()
-    def teardown(self):
-        try:
-            self.proc.terminate()
-        except Exception:
-            pass
-
-    @modal.web_server(port=TTS_PORT, startup_timeout=5 * MINUTES)
-    def serve(self):
-        # api_server.py is already running on TTS_PORT.
-        # Modal forwards incoming HTTP traffic to it.
-        pass
-
-
-# ---------------------------------------------------------------------------
-# Register a named voice reference (for --reference_id in TTS requests)
-#
-# Usage:
-#   modal run backend/fish_tts.py::register_voice_cli \
-#       --audio-path ./Aiko.wav --reference-id Aiko --reference-text "こんにちは"
-#
-# After this, use reference_id=Aiko in requests (no re-upload needed).
-# ---------------------------------------------------------------------------
-@app.function(
-    gpu="T4",
-    image=image,
-    volumes={str(MODELS_DIR): volume},
-    timeout=10 * MINUTES,
-)
-def register_voice(audio_bytes: bytes, audio_filename: str, reference_id: str, reference_text: str = ""):
-    import subprocess as sp
-
-    voices_dir = MODELS_DIR / "voices" / reference_id
-    voices_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write audio file
-    audio_path = voices_dir / audio_filename
-    audio_path.write_bytes(audio_bytes)
-
-    # Write reference text if provided
-    if reference_text:
-        (voices_dir / "text.txt").write_text(reference_text)
-
-    # Encode reference audio to VQ tokens using the VQ encoder
-    encoded_path = voices_dir / "encoded.npy"
-    encode_cmd = [
-        "python", "/opt/fish-speech/tools/vqgan/encode_audio.py",
-        "--input", str(audio_path),
-        "--output", str(encoded_path),
-        "--checkpoint", str(CHECKPOINTS / "codec.pth"),
-    ]
-    print("Encoding reference audio:", " ".join(encode_cmd))
-    result = sp.run(encode_cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        # Fallback: just store the wav — api_server supports raw audio too
-        print("VQ encode failed (may not be needed), storing raw wav.")
-        print(result.stderr)
-    else:
-        print("Encoded successfully.")
-
-    volume.commit()
-    print(f"Voice '{reference_id}' registered at {voices_dir}")
-    print("Files:", list(voices_dir.iterdir()))
-
-
-@app.local_entrypoint()
-def register_voice_cli(audio_path: str, reference_id: str, reference_text: str = ""):
+def _warmup_miotts() -> None:
     """
-    Usage:
-      modal run backend/fish_tts.py::register_voice_cli \\
-          --audio-path ./Aiko.wav --reference-id Aiko --reference-text "こんにちは"
+    Ping the MioTTS Modal endpoint to wake the container early.
+    Fires in a background daemon thread during boot so it overlaps with
+    think/memorize init. By the time the first user message arrives the
+    container is warm and synthesis latency is ~2-3s instead of ~30s.
     """
-    data = Path(audio_path).read_bytes()
-    register_voice.remote(data, Path(audio_path).name, reference_id, reference_text)
+    url = os.getenv("MIOTTS_URL", "").rstrip("/")
+    if not url:
+        log.debug("MIOTTS_URL not set — skipping TTS warmup")
+        return
+    try:
+        import httpx
+        log.info("TTS warmup: pinging %s/health", url)
+        r = httpx.get(f"{url}/health", timeout=60)
+        log.info("TTS warmup: %s", r.json())
+    except Exception as e:
+        log.warning("TTS warmup failed (non-fatal): %s", e)
 
 
-# ---------------------------------------------------------------------------
-# Quick smoke test: modal run backend/fish_tts.py
-# ---------------------------------------------------------------------------
-@app.local_entrypoint()
-def main():
-    import httpx, base64
-    from pathlib import Path
+# ── wakeup ────────────────────────────────────────────────────────────────────
 
-    url = "https://oppa-ai-org--fish-tts-fishttserver-serve.modal.run/v1/tts"
-    resp = httpx.post(
-        url,
-        data={"text": "こんにちは、魚の音声です。"},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    out = Path("/tmp/fish_tts_test.wav")
-    out.write_bytes(resp.content)
-    print(f"✓ {len(resp.content)} bytes → {out}")
+class AikoWakeup:
+    """
+    Parallel boot orchestrator for Aiko cognitive subsystems.
+    Boots AikoThink and AikoMemorize concurrently with granular progress
+    reporting per step.
+    TTS, ASR, and dream scheduler are excluded from this demo deployment.
+    A background MioTTS warmup ping fires immediately so the Modal container
+    is ready by the time the first synthesis request arrives.
+    """
+
+    ALL_BOOT_LABELS: dict[str, str] = {
+        **_THINK_LABELS,
+        **_MEM_LABELS,
+    }
+
+    def boot(
+        self,
+        on_loading: Callable[[str], None],
+        on_done:    Callable[[str], None],
+        on_skip:    Callable[[str], None],
+    ) -> BootResult:
+        """
+        Execute boot sequence and return live subsystem references.
+        Parallel phase: AikoThink + AikoMemorize boot concurrently.
+        Memory backend is injected into think once both are ready.
+        A daemon thread pings MioTTS immediately to pre-warm the Modal
+        container, overlapping with the rest of boot.
+        Args:
+            on_loading: Called with a progress key when a subsystem starts.
+            on_done:    Called with a progress key when a subsystem finishes.
+            on_skip:    Called with a progress key when a subsystem is skipped.
+        Returns:
+            BootResult with think and memorize references; speak and listen
+            are always None.
+        """
+        from core.memorize import AikoMemorize
+        from core.think    import AikoThink
+
+        memorize  = [None]
+        think_ref = [None]
+        mem_ready = threading.Event()
+
+        # ── fire TTS warmup immediately in background ─────────────────────────
+        threading.Thread(target=_warmup_miotts, daemon=True, name="tts-warmup").start()
+
+        # ── parallel boot ─────────────────────────────────────────────────────
+
+        def init_think():
+            on_loading('think_start')
+            think_ref[0] = AikoThink(None, speak=None)
+            on_done('think_start')
+            on_loading('think_warmup')
+            think_ref[0].join_warmup()
+            on_done('think_warmup')
+            mem_ready.wait()                       # hold until memorize is ready
+            think_ref[0]._memorize = memorize[0]   # inject memory backend
+
+        def init_memorize():
+            try:
+                on_loading('mem_sqlite_vec')
+                memorize[0] = AikoMemorize(silent=True)
+                on_done('mem_sqlite_vec')
+                on_loading('mem_embed')
+                on_done('mem_embed')
+                on_loading('mem_cleanup')
+                memorize[0].cleanup()
+                on_done('mem_cleanup')
+                on_loading('mem_ready')
+                on_done('mem_ready')
+            except Exception as e:
+                log.error("Memory boot failed: %s", e)
+            finally:
+                mem_ready.set()  # always unblock init_think, even on failure
+
+        t1 = threading.Thread(target=init_think,    daemon=True)
+        t2 = threading.Thread(target=init_memorize, daemon=True)
+        t1.start(); t2.start()
+        t1.join();  t2.join()
+
+        on_skip('speak_skip')
+        on_skip('listen_skip')
+
+        return BootResult(
+            think    = think_ref[0],
+            memorize = memorize[0],
+        )
