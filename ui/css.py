@@ -383,7 +383,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 }
 #aiko-login-overlay .aiko-subtitle {
   margin: 0;
-  font-size: 1.0rem;
+  font-size: 0.85rem;
   letter-spacing: .12em;
   color: var(--aiko-muted);
   text-transform: uppercase;
@@ -391,7 +391,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 }
 #aiko-login-overlay .aiko-disclaimer {
   margin: 0 auto;
-  max-width: 720px;
+  max-width: 480px;
   font-size: 0.80rem;
   line-height: 1.6;
   color: var(--aiko-accent);
@@ -402,13 +402,26 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   border-top: 1px solid rgba(182, 140, 255, 0.12);
 }
 /* Constrain the LoginButton and all its Gradio wrappers */
+/* Constrain ONLY the login button wrapper */
+#aiko-login-overlay .block:has(button),
+#aiko-login-overlay .wrap:has(button) {
+  width: auto !important;
+  min-width: unset !important;
+  max-width: 280px !important;
+  flex-shrink: 0;
+  min-height: unset !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+/* Let all other wrappers be full width */
 #aiko-login-overlay > div,
 #aiko-login-overlay > div > div,
 #aiko-login-overlay .block,
 #aiko-login-overlay .wrap {
   width: auto !important;
   min-width: unset !important;
-  max-width: 280px !important;
+  max-width: 100% !important;
   flex-shrink: 0;
   min-height: unset !important;
   height: auto !important;
