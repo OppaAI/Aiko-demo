@@ -391,7 +391,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 }
 #aiko-login-overlay .aiko-disclaimer {
   margin: 0 auto;
-  max-width: 480px;
+  max-width: 540px;
   font-size: 0.80rem;
   line-height: 1.6;
   color: var(--aiko-accent);
