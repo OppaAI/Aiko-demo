@@ -74,17 +74,22 @@ image = (
         "git clone --depth 1 https://github.com/ggml-org/llama.cpp /opt/llama.cpp",
         # Symlink libcuda.so.1 stub — devel image ships .so but not .so.1
         "ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1",
-        # Remove the UI subdirectory from the build graph and strip any
-        # llama-ui dependency from the server target so configure/build
-        # never touches the broken asset-provisioning step.
-        "sed -i '/add_subdirectory(tools\\/ui)/d' /opt/llama.cpp/tools/CMakeLists.txt || true",
+        # Neutralize the broken UI asset-provisioning step without touching
+        # tools/CMakeLists.txt (removing add_subdirectory(tools/ui) there
+        # breaks include-path propagation needed by common.h). Instead,
+        # truncate tools/ui/CMakeLists.txt to a no-op so add_subdirectory
+        # succeeds but defines no targets, and strip any llama-ui
+        # dependency from the server target.
+        "echo '' > /opt/llama.cpp/tools/ui/CMakeLists.txt",
         "sed -i '/llama-ui/d' /opt/llama.cpp/tools/server/CMakeLists.txt || true",
         "cmake /opt/llama.cpp -B /opt/llama.cpp/build"
         " -DGGML_CUDA=ON"
         " -DCMAKE_BUILD_TYPE=Release"
         " -DLLAMA_BUILD_SERVER_WEBUI=OFF"
         " -DCMAKE_EXE_LINKER_FLAGS='-L/usr/local/cuda/lib64/stubs -Wl,-rpath,/usr/local/cuda/lib64'",
-        "cmake --build /opt/llama.cpp/build --config Release -j$(nproc) --target llama-server",
+        "cmake --build /opt/llama.cpp/build --config Release -j$(nproc) --target common llama-server"
+        " || cmake --build /opt/llama.cpp/build --config Release -j$(nproc)",
+        "test -f /opt/llama.cpp/build/bin/llama-server",
     )
     # Clone MioTTS-Inference and install its Python deps
     .run_commands(

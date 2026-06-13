@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from datetime import date
 import gradio as gr
+from gradio import OAuthProfile
 import time
 import inspect
 import threading
@@ -194,10 +195,13 @@ def voice_chat(audio_path, history):
 
 
 # ─────────────────────────────────────────────
-# LOGIN HANDLER
+# LOGIN HANDLER (HF OAuth)
 # ─────────────────────────────────────────────
-def _login(user_id: str):
-    user_id = (user_id or "").strip() or "Guest"
+def _check_login(profile: OAuthProfile | None):
+    if profile is None:
+        return "Guest", gr.update(visible=True)
+
+    user_id = profile.username or "Guest"
     soul = build_soul_prompt(user_id)
 
     if hasattr(think, "set_system_prompt"):
@@ -205,7 +209,7 @@ def _login(user_id: str):
     elif hasattr(think, "system_prompt"):
         think.system_prompt = soul
 
-    return user_id, gr.update(elem_classes=["hide"])
+    return user_id, gr.update(visible=False)
 
 
 # ─────────────────────────────────────────────
@@ -213,22 +217,17 @@ def _login(user_id: str):
 # ─────────────────────────────────────────────
 with gr.Blocks(
     title="Aiko-chan 🌸",
-    #fill_height=True,
+    fill_height=True,
     css=AIKO_CSS
 ) as demo:
 
     user_id_state = gr.State(value="Guest")
 
-    # ── Login popup (overlay, sits on top of everything) ────────────
+    # ── Login popup overlay ──────────────────────────────────────
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
         with gr.Column(elem_id="aiko-login-card"):
             gr.HTML("<h2>🌸 Who's there?</h2>")
-            login_input = gr.Textbox(
-                placeholder="Enter your name...",
-                show_label=False,
-                container=False,
-            )
-            login_btn = gr.Button("Enter", variant="primary")
+            login_btn = gr.LoginButton(elem_id="aiko-login-btn")
 
     with gr.Column(elem_id="aiko-shell"):
 
@@ -287,15 +286,9 @@ with gr.Blocks(
     # ─────────────────────────────────────────────
     # EVENTS (CLEAN + STABLE)
     # ─────────────────────────────────────────────
-    login_btn.click(
-        _login,
-        inputs=[login_input],
-        outputs=[user_id_state, login_overlay],
-    )
-
-    login_input.submit(
-        _login,
-        inputs=[login_input],
+    demo.load(
+        _check_login,
+        inputs=None,
         outputs=[user_id_state, login_overlay],
     )
 
