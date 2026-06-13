@@ -212,7 +212,7 @@ div:has(> #aiko-chatbot) {
 #aiko-input-row {
   position: absolute;
   left: 16px;
-  right: 3600px;
+  right: calc(42% + 24px); 
   bottom: 16px;
   display: flex;
   gap: 6px;
