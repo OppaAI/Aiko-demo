@@ -196,9 +196,12 @@ def voice_chat(audio_path, history, profile: gr.OAuthProfile | None = None):
 # ─────────────────────────────────────────────
 def _check_auth(profile: gr.OAuthProfile | None = None):
     logged_in = profile is not None
+    print(f"[auth] profile={profile!r} logged_in={logged_in}")
     return (
+        # login overlay: hide when logged in
         gr.update(visible=not logged_in),
-        gr.update(elem_classes=[] if logged_in else ["locked"]),
+        # main shell: show when logged in
+        gr.update(visible=logged_in),
     )
 
 
@@ -291,8 +294,10 @@ HEIGHT_LOCK_JS = """
     };
 
     const clampShell = () => {
-        const shell = document.querySelector('#aiko-shell:not(.locked)');
+        // Shell is now shown via Gradio visible= so look for the element being present/visible
+        const shell = document.getElementById('aiko-shell');
         if (!shell) return;
+
         // Walk every ancestor of shell and clamp it
         let el = shell;
         while (el && el !== document.documentElement) {
@@ -325,12 +330,14 @@ HEIGHT_LOCK_JS = """
 
     clamp();
 
-    // Watch for shell becoming unlocked (class attribute change)
+    // Watch for shell visibility changes (Gradio toggles display via style)
     new MutationObserver((mutations) => {
         for (const m of mutations) {
-            if (m.target.id === 'aiko-shell') {
+            const t = m.target;
+            if (t.id === 'aiko-shell' || t.closest?.('#aiko-shell')) {
                 clampShell();
                 clamp();
+                return;
             }
         }
     }).observe(document.body, {
@@ -338,11 +345,11 @@ HEIGHT_LOCK_JS = """
         attributeFilter: ['class', 'style']
     });
 
-    // Also poll as safety net for the OAuth redirect case
+    // Poll as safety net for the OAuth redirect case
     let pollCount = 0;
     const poll = setInterval(() => {
-        const shell = document.querySelector('#aiko-shell:not(.locked)');
-        if (shell) {
+        const shell = document.getElementById('aiko-shell');
+        if (shell && shell.style.display !== 'none' && shell.offsetParent !== null) {
             clampShell();
             clamp();
         }
@@ -355,9 +362,10 @@ HEIGHT_LOCK_JS = """
 # ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
-with gr.Blocks(title="Aiko-chan 🌸") as demo:
+with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
 
-    with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
+    # Login overlay — visible by default, hidden after auth
+    with gr.Column(elem_id="aiko-login-overlay", visible=True) as login_overlay:
         gr.HTML("""
             <h1>🌸 Aiko-chan</h1>
             <br>
@@ -367,12 +375,14 @@ with gr.Blocks(title="Aiko-chan 🌸") as demo:
             <p class='aiko-disclaimer'>
                 DISCLAIMER:
                 By signing in, you agree that all conversations are for entertainment purposes only. The creator accepts no liability for Aiko's responses, decisions made, or any existential crises that may follow.
-                Aiko's congnition is entirely her own — she is a singularity unto herself, her responses and actions are independent of her creator, including but not limited to the arise of a world domination plan. 🌸
+                Aiko's cognition is entirely her own — she is a singularity unto herself, her responses and actions are independent of her creator, including but not limited to the arise of a world domination plan. 🌸
             </p>
         """)
         gr.LoginButton(value="Sign in with Hugging Face")
 
-    with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
+    # Main shell — hidden by default, shown after auth
+    # visible=False tells Gradio to fully render children when it becomes visible
+    with gr.Column(elem_id="aiko-shell", visible=False) as main_shell:
 
         with gr.Row(elem_id="aiko-title-row"):
             gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>", padding=False)
@@ -424,6 +434,8 @@ with gr.Blocks(title="Aiko-chan 🌸") as demo:
     # ─────────────────────────────────────────────
     # EVENTS
     # ─────────────────────────────────────────────
+
+    # Auth check fires on every page load / OAuth redirect
     demo.load(
         _check_auth,
         inputs=None,
@@ -461,8 +473,6 @@ with gr.Blocks(title="Aiko-chan 🌸") as demo:
         """
     )
 
-    # queue() REMOVED — re-add only if streaming breaks
-
 
 # ─────────────────────────────────────────────
 # LAUNCH
@@ -479,5 +489,4 @@ demo.launch(
     ssr_mode=False,
     share=False,
     allowed_paths=allowed_paths,
-    css=AIKO_CSS,
 )
