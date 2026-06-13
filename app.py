@@ -272,29 +272,26 @@ AUDIO_PLAYER_JS = """
 HEIGHT_LOCK_JS = """
 () => {
     const clamp = () => {
-        const shell = document.querySelector('#aiko-shell');
-        if (!shell) return;
-        const parent = shell.parentElement;
-        const grandparent = parent?.parentElement;
-        if (parent) {
-            parent.style.setProperty('flex-grow', '0', 'important');
-            parent.style.setProperty('min-width', 'unset', 'important');
-            parent.style.setProperty('height', '100vh', 'important');
-            parent.style.setProperty('max-height', '100vh', 'important');
-            parent.style.setProperty('min-height', 'unset', 'important');
-            parent.style.setProperty('overflow', 'hidden', 'important');
-        }
-        if (grandparent) {
-            grandparent.style.setProperty('flex-grow', '0', 'important');
-            grandparent.style.setProperty('min-width', 'unset', 'important');
-            grandparent.style.setProperty('height', '100vh', 'important');
-            grandparent.style.setProperty('max-height', '100vh', 'important');
-            grandparent.style.setProperty('min-height', 'unset', 'important');
-            grandparent.style.setProperty('overflow', 'hidden', 'important');
+        document.documentElement.style.setProperty('height', '100vh', 'important');
+        document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+        document.body.style.setProperty('height', '100vh', 'important');
+        document.body.style.setProperty('overflow', 'hidden', 'important');
+        document.body.style.setProperty('max-height', '100vh', 'important');
+        const gc = document.querySelector('.gradio-container');
+        if (gc) {
+            gc.style.setProperty('height', '100vh', 'important');
+            gc.style.setProperty('max-height', '100vh', 'important');
+            gc.style.setProperty('min-height', 'unset', 'important');
+            gc.style.setProperty('overflow', 'hidden', 'important');
         }
     };
     clamp();
-    setInterval(clamp, 300);
+    new MutationObserver(clamp).observe(document.documentElement, {
+        attributes: true, attributeFilter: ['style']
+    });
+    new MutationObserver(clamp).observe(document.body, {
+        attributes: true, attributeFilter: ['style']
+    });
 }
 """
 
