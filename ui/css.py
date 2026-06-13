@@ -383,7 +383,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 }
 #aiko-login-overlay .aiko-subtitle {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.0rem;
   letter-spacing: .12em;
   color: var(--aiko-muted);
   text-transform: uppercase;
@@ -391,7 +391,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 }
 #aiko-login-overlay .aiko-disclaimer {
   margin: 0 auto;
-  max-width: 520px;
+  max-width: 720px;
   font-size: 0.80rem;
   line-height: 1.6;
   color: var(--aiko-accent);
