@@ -64,8 +64,9 @@ div[class*="status"] {
   flex-grow: 0 !important;
   min-width: unset !important;
 }
-#aiko-shell.locked {
-  display: none !important;
+#aiko-shell {
+  display: flex !important;
+  flex-direction: column;
 }
 /* ── Shell unlocked state ───────────────────────────────────────────── */
 #aiko-shell:not(.locked),
