@@ -368,18 +368,17 @@ with gr.Blocks(
     # Pin page height so HF's iframe-resizer doesn't grow the iframe
     demo.load(fn=None, js="""
     () => {
-        document.documentElement.style.height = '100vh';
-        document.body.style.height = '100vh';
-        document.body.style.overflow = 'hidden';
-        document.body.style.maxHeight = '100vh';
+        // Freeze the iframe from resizing by clamping the body
+        const stop = () => {
+            document.documentElement.style.cssText = 'height:100vh!important;overflow:hidden!important;';
+            document.body.style.cssText = 'height:100vh!important;overflow:hidden!important;max-height:100vh!important;';
+        };
+        stop();
     
-        // Also lock Gradio's root container
-        const root = document.getElementById('root');
-        if (root) {
-            root.style.height = '100vh';
-            root.style.overflow = 'hidden';
-            root.style.maxHeight = '100vh';
-        }
+        // Keep clamping — HF's resizer re-applies styles after load events
+        const observer = new MutationObserver(stop);
+        observer.observe(document.body, { attributes: true, attributeFilter: ['style'] });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
     }
     """)
 
