@@ -80,12 +80,13 @@ def _get_response(message: str, history: list):
     4. Yield: chatbot with empty assistant bubble + TYPEWRITE signal + audio.
        The iframe JS will typewrite the text into the chatbot bubble in sync
        with the audio duration.
+
+    History format: list of (user_str, assistant_str) tuples — Gradio 6.x
+    tuple format (type= arg removed in 6.x).
     """
-    history = list(history) + [
-        {"role": "user",      "content": message},
-        {"role": "assistant", "content": "▋"},
-    ]
-    # Show user message + thinking cursor right away
+    # Tuple format: (user_msg, assistant_msg)
+    # ▋ as thinking cursor in the assistant slot
+    history = list(history) + [(message, "▋")]
     yield history, None, None
 
     # ── Stage 1: full LLM completion ─────────────────────────────────────────
@@ -116,12 +117,9 @@ def _get_response(message: str, history: list):
         audio_path, emotion = None, "neutral"
 
     # ── Stage 3: signal the iframe to typewrite text in sync with audio ───────
-    # Chatbot bubble starts empty — JS will fill it character by character.
-    # Format packed into the hidden tts_text field:
-    #   TYPEWRITE:<emotion>|<display_text>
-    # The iframe reads audio.duration once metadata loads, then paces chars
-    # so the typewriter finishes exactly when the audio ends.
-    history[-1]["content"] = ""  # blank; JS owns this from here
+    # Assistant bubble starts empty — JS typewriter fills it in sync with audio.
+    # Format: TYPEWRITE:<emotion>|<display_text>
+    history[-1] = (message, "")  # blank assistant side; JS owns it from here
 
     signal = f"TYPEWRITE:{emotion}|{display_text}"
     yield history, signal, audio_path

@@ -201,9 +201,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     const scene  = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(22, 1, 0.1, 100);
-    camera.position.set(0.00, 1.18, 2.5);
+    camera.position.set(0.50, 1.18, 2.5);
     const controls = new OrbitControls(camera, canvas);
-    controls.target.set(0.00, 1.15, 0);
+    controls.target.set(0.50, 1.15, 0);
     controls.enableDamping = true;
     controls.enablePan     = false;
     controls.minDistance   = 1.0;
