@@ -198,164 +198,162 @@ def _check_auth(profile: gr.OAuthProfile | None = None):
     logged_in = profile is not None
     print(f"[auth] profile={profile!r} logged_in={logged_in}")
     return (
-        # login overlay: hide when logged in
         gr.update(visible=not logged_in),
-        # main shell: show when logged in
         gr.update(visible=logged_in),
     )
 
 
 # ─────────────────────────────────────────────
-# AUDIO PLAYER JS
+# INLINE SCRIPTS (injected via gr.HTML — bypasses HF Space CSP on js= kwargs)
 # ─────────────────────────────────────────────
-AUDIO_PLAYER_JS = """
-() => {
-    let _aikoAudio = document.getElementById('_aiko_audio_player');
-    if (!_aikoAudio) {
-        _aikoAudio = document.createElement('audio');
-        _aikoAudio.id = '_aiko_audio_player';
-        _aikoAudio.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
-        document.body.appendChild(_aikoAudio);
+BOOT_SCRIPTS_HTML = """
+<script>
+(function() {
+  // ── Audio player queue ──────────────────────────────────────────────
+  function initAudioPlayer() {
+    var audio = document.getElementById('_aiko_audio_player');
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = '_aiko_audio_player';
+      audio.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+      document.body.appendChild(audio);
     }
 
-    const queue = [];
-    let playing = false;
+    var queue = [];
+    var playing = false;
 
     function playNext() {
-        if (!queue.length) { playing = false; return; }
-        playing = true;
-        const { b64, emotion, text } = queue.shift();
-        if (!b64) { playNext(); return; }
+      if (!queue.length) { playing = false; return; }
+      playing = true;
+      var item = queue.shift();
+      if (!item.b64) { playNext(); return; }
 
-        const label = document.getElementById('aiko-emotion-label');
-        if (label && emotion) label.textContent = emotion;
+      var label = document.getElementById('aiko-emotion-label');
+      if (label && item.emotion) label.textContent = item.emotion;
 
-        const ttsBox = document.querySelector('#aiko-tts-text textarea');
-        if (ttsBox) {
-            ttsBox.value = text;
-            ttsBox.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+      var ttsBox = document.querySelector('#aiko-tts-text textarea');
+      if (ttsBox) {
+        ttsBox.value = item.text;
+        ttsBox.dispatchEvent(new Event('input', { bubbles: true }));
+      }
 
-        _aikoAudio.src = 'data:audio/mpeg;base64,' + b64;
-        _aikoAudio.onended = playNext;
-        _aikoAudio.onerror = playNext;
-        _aikoAudio.play().catch(() => {
-            document.addEventListener('click', () => _aikoAudio.play(), { once: true });
-        });
+      audio.src = 'data:audio/mpeg;base64,' + item.b64;
+      audio.onended = playNext;
+      audio.onerror = playNext;
+      audio.play().catch(function() {
+        document.addEventListener('click', function() { audio.play(); }, { once: true });
+      });
     }
 
-    const observer = new MutationObserver(() => {
-        const box = document.querySelector('#aiko-tts-text textarea');
-        if (!box || !box.value) return;
-
-        const raw = box.value;
-        box.value = '';
-
-        if (!raw.startsWith('AUDIO:')) return;
-
-        const audioMatch = raw.match(/^AUDIO:(.*?)\\|EMOTION:(.*?)\\|TEXT:([\\s\\S]*)$/);
-        if (!audioMatch) return;
-
-        queue.push({ b64: audioMatch[1], emotion: audioMatch[2], text: audioMatch[3] });
-        if (!playing) playNext();
+    var observer = new MutationObserver(function() {
+      var box = document.querySelector('#aiko-tts-text textarea');
+      if (!box || !box.value) return;
+      var raw = box.value;
+      box.value = '';
+      if (!raw.startsWith('AUDIO:')) return;
+      var m = raw.match(/^AUDIO:(.*?)\|EMOTION:(.*?)\|TEXT:([\s\S]*)$/);
+      if (!m) return;
+      queue.push({ b64: m[1], emotion: m[2], text: m[3] });
+      if (!playing) playNext();
     });
 
     function attachObserver() {
-        const ttsContainer = document.querySelector('#aiko-tts-text');
-        if (ttsContainer) {
-            observer.observe(ttsContainer, { subtree: true, characterData: true, childList: true });
-        } else {
-            setTimeout(attachObserver, 500);
-        }
+      var c = document.querySelector('#aiko-tts-text');
+      if (c) {
+        observer.observe(c, { subtree: true, characterData: true, childList: true });
+      } else {
+        setTimeout(attachObserver, 500);
+      }
     }
     attachObserver();
-}
-"""
+  }
 
-HEIGHT_LOCK_JS = """
-() => {
-    const clamp = () => {
-        document.documentElement.style.setProperty('height', '100vh', 'important');
-        document.documentElement.style.setProperty('overflow', 'hidden', 'important');
-        document.body.style.setProperty('height', '100vh', 'important');
-        document.body.style.setProperty('overflow', 'hidden', 'important');
-        document.body.style.setProperty('max-height', '100vh', 'important');
-        const gc = document.querySelector('.gradio-container');
-        if (gc) {
-            gc.style.setProperty('height', '100vh', 'important');
-            gc.style.setProperty('max-height', '100vh', 'important');
-            gc.style.setProperty('min-height', 'unset', 'important');
-            gc.style.setProperty('overflow', 'hidden', 'important');
-        }
-        try {
-            window.parentIFrame?.size(window.innerHeight);
-            window.parentIFrame?.autoResize(false);
-        } catch(_) {}
-    };
+  // ── Height lock ─────────────────────────────────────────────────────
+  function clampRoot() {
+    document.documentElement.style.setProperty('height', '100vh', 'important');
+    document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+    document.body.style.setProperty('height', '100vh', 'important');
+    document.body.style.setProperty('overflow', 'hidden', 'important');
+    document.body.style.setProperty('max-height', '100vh', 'important');
+    var gc = document.querySelector('.gradio-container');
+    if (gc) {
+      gc.style.setProperty('height', '100vh', 'important');
+      gc.style.setProperty('max-height', '100vh', 'important');
+      gc.style.setProperty('min-height', 'unset', 'important');
+      gc.style.setProperty('overflow', 'hidden', 'important');
+    }
+    try { window.parentIFrame && window.parentIFrame.size(window.innerHeight); } catch(_) {}
+    try { window.parentIFrame && window.parentIFrame.autoResize(false); } catch(_) {}
+  }
 
-    const clampShell = () => {
-        // Shell is now shown via Gradio visible= so look for the element being present/visible
-        const shell = document.getElementById('aiko-shell');
-        if (!shell) return;
+  function clampShell() {
+    var shell = document.getElementById('aiko-shell');
+    if (!shell || shell.offsetParent === null) return;
+    var el = shell;
+    while (el && el !== document.documentElement) {
+      el.style.setProperty('height', '100vh', 'important');
+      el.style.setProperty('max-height', '100vh', 'important');
+      el.style.setProperty('min-height', 'unset', 'important');
+      el.style.setProperty('overflow', 'hidden', 'important');
+      el.style.setProperty('flex-grow', '0', 'important');
+      el = el.parentElement;
+    }
+    var card = shell.querySelector('#aiko-avatar-card');
+    if (card) {
+      card.style.setProperty('height', 'calc(100vh - 70px)', 'important');
+      card.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
+      card.style.setProperty('min-height', 'unset', 'important');
+      card.style.setProperty('overflow', 'hidden', 'important');
+    }
+    var frame = shell.querySelector('#aiko-vrm-frame');
+    if (frame) {
+      frame.style.setProperty('height', 'calc(100vh - 70px)', 'important');
+      frame.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
+    }
+    try { window.parentIFrame && window.parentIFrame.size(window.innerHeight); } catch(_) {}
+    try { window.parentIFrame && window.parentIFrame.autoResize(false); } catch(_) {}
+  }
 
-        // Walk every ancestor of shell and clamp it
-        let el = shell;
-        while (el && el !== document.documentElement) {
-            el.style.setProperty('height', '100vh', 'important');
-            el.style.setProperty('max-height', '100vh', 'important');
-            el.style.setProperty('min-height', 'unset', 'important');
-            el.style.setProperty('overflow', 'hidden', 'important');
-            el.style.setProperty('flex-grow', '0', 'important');
-            el = el.parentElement;
-        }
-        // Clamp shell internals
-        const card = shell.querySelector('#aiko-avatar-card');
-        if (card) {
-            card.style.setProperty('height', 'calc(100vh - 70px)', 'important');
-            card.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
-            card.style.setProperty('min-height', 'unset', 'important');
-            card.style.setProperty('overflow', 'hidden', 'important');
-        }
-        const frame = shell.querySelector('#aiko-vrm-frame');
-        if (frame) {
-            frame.style.setProperty('height', 'calc(100vh - 70px)', 'important');
-            frame.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
-        }
-        // Tell HF parent iFrameResizer to stop
-        try {
-            window.parentIFrame?.size(window.innerHeight);
-            window.parentIFrame?.autoResize(false);
-        } catch(_) {}
-    };
+  function initHeightLock() {
+    clampRoot();
 
-    clamp();
-
-    // Watch for shell visibility changes (Gradio toggles display via style)
-    new MutationObserver((mutations) => {
-        for (const m of mutations) {
-            const t = m.target;
-            if (t.id === 'aiko-shell' || t.closest?.('#aiko-shell')) {
-                clampShell();
-                clamp();
-                return;
-            }
+    // Watch for shell becoming visible (Gradio toggles display style)
+    new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var t = mutations[i].target;
+        if (t.id === 'aiko-shell' || (t.closest && t.closest('#aiko-shell'))) {
+          clampShell();
+          clampRoot();
+          return;
         }
-    }).observe(document.body, {
-        subtree: true,
-        attributeFilter: ['class', 'style']
-    });
+      }
+    }).observe(document.body, { subtree: true, attributeFilter: ['class', 'style'] });
 
-    // Poll as safety net for the OAuth redirect case
-    let pollCount = 0;
-    const poll = setInterval(() => {
-        const shell = document.getElementById('aiko-shell');
-        if (shell && shell.style.display !== 'none' && shell.offsetParent !== null) {
-            clampShell();
-            clamp();
-        }
-        if (++pollCount > 20) clearInterval(poll);
+    // Poll as safety net for OAuth redirect
+    var count = 0;
+    var poll = setInterval(function() {
+      var shell = document.getElementById('aiko-shell');
+      if (shell && shell.offsetParent !== null) {
+        clampShell();
+        clampRoot();
+      }
+      if (++count > 40) clearInterval(poll);
     }, 300);
-}
+  }
+
+  // ── Init ────────────────────────────────────────────────────────────
+  function init() {
+    initAudioPlayer();
+    initHeightLock();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
 """
 
 
@@ -363,6 +361,9 @@ HEIGHT_LOCK_JS = """
 # UI
 # ─────────────────────────────────────────────
 with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
+
+    # Inject JS via gr.HTML — this path is NOT blocked by HF Space CSP
+    gr.HTML(BOOT_SCRIPTS_HTML)
 
     # Login overlay — visible by default, hidden after auth
     with gr.Column(elem_id="aiko-login-overlay", visible=True) as login_overlay:
@@ -380,8 +381,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
         """)
         gr.LoginButton(value="Sign in with Hugging Face")
 
-    # Main shell — hidden by default, shown after auth
-    # visible=False tells Gradio to fully render children when it becomes visible
+    # Main shell — hidden until auth, visible= lets Gradio fully render children
     with gr.Column(elem_id="aiko-shell", visible=False) as main_shell:
 
         with gr.Row(elem_id="aiko-title-row"):
@@ -434,16 +434,11 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
     # ─────────────────────────────────────────────
     # EVENTS
     # ─────────────────────────────────────────────
-
-    # Auth check fires on every page load / OAuth redirect
     demo.load(
         _check_auth,
         inputs=None,
         outputs=[login_overlay, main_shell],
     )
-
-    demo.load(fn=None, js=HEIGHT_LOCK_JS)
-    demo.load(fn=None, js=AUDIO_PLAYER_JS)
 
     msg.submit(
         _submit,
