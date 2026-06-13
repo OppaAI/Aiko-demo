@@ -264,9 +264,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     function safeSetExpression(name, weight) {{
       try {{ vrm?.expressionManager?.setValue(name, weight); }} catch (_) {{}}
     }}
+    let lastW = 0, lastH = 0;
     function resize() {{
       const w = Math.max(1, canvas.clientWidth);
       const h = Math.max(1, canvas.clientHeight);
+      if (w === lastW && h === lastH) return;
+      lastW = w; lastH = h;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
