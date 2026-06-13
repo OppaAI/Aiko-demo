@@ -118,17 +118,10 @@ async def _edge_tts_to_file(text: str, out_path: Path) -> None:
     )
     await communicate.save(str(out_path))
 
-
 def _miotts_to_file(text: str, out_path: Path) -> None:
-    """Call MioTTS /v1/tts/file (multipart/form-data) → write WAV then convert to MP3."""
+    """Call MioTTS /v1/tts/file (multipart/form-data) → write WAV."""
     import httpx
-    from pydub import AudioSegment
-    import io
 
-    # /v1/tts/file accepts multipart form fields:
-    #   text                — required
-    #   reference_preset_id — preset name registered via register_preset_cli
-    #   output_format       — "wav" returns raw audio/wav bytes directly
     data = {
         "text": text,
         "reference_preset_id": MIOTTS_PRESET_ID,
@@ -142,17 +135,14 @@ def _miotts_to_file(text: str, out_path: Path) -> None:
     )
     resp.raise_for_status()
 
-    # Response is raw WAV bytes (audio/wav) — convert to MP3 for Gradio browser playback
-    wav_bytes = io.BytesIO(resp.content)
-    audio = AudioSegment.from_wav(wav_bytes)
-    audio.export(str(out_path), format="mp3")
-
+    # Write WAV bytes directly — no conversion needed
+    out_path.write_bytes(resp.content)
 
 def _synth_to_file(clean: str) -> str | None:
-    """Synthesize cleaned text, return MP3 path or None on failure."""
+    """Synthesize cleaned text, return WAV path or None on failure."""
     TTS_DIR.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha1(f"{time.time_ns()}:{clean}".encode()).hexdigest()[:16]
-    out_path = TTS_DIR / f"aiko_{digest}.mp3"
+    out_path = TTS_DIR / f"aiko_{digest}.wav"
     try:
         if MIOTTS_URL:
             _miotts_to_file(clean[:4000], out_path)

@@ -94,10 +94,13 @@ class AikoThink:
                 "/",
                 json={
                     "model":      LLAMA_MODEL,
-                    "max_tokens": 1,
-                    "messages":   [{"role": "user", "content": "hi"}],
+                    "max_tokens": 50,           # enough to force real inference
+                    "messages":   [{"role": "user", "content": "Say hello briefly."}],
+                    "temperature": 0.1,
                 },
+                timeout=120,
             )
+            log.info("LLM warmup complete")
         except Exception as e:
             log.warning("LLM warmup failed: %s", e)
 

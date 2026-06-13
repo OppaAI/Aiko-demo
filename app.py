@@ -61,162 +61,72 @@ def build_soul_prompt(user_id: str) -> str:
 # HELPERS
 # ─────────────────────────────────────────────
 def _strip_for_speech(text: str) -> str:
+    """Remove search notes, tool tags, and think blocks before passing to TTS."""
     text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
     text = re.sub(r"\n?🔧 .*?\n?", "", text)
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     return text.strip()
 
 
-_SENTENCE_END = re.compile(r'(?<=[.!?。！？\n])\s*')
-
-
-def _split_ready_sentences(buffer: str):
-    parts = _SENTENCE_END.split(buffer)
-    if len(parts) <= 1:
-        return [], buffer
-    *complete, remainder = parts
-    return [p for p in complete if p.strip()], remainder
-
-
 # ─────────────────────────────────────────────
-# STREAM CORE
+# CORE RESPONSE  (full text → TTS → typewriter)
 # ─────────────────────────────────────────────
-_DONE = object()  # sentinel
 
-
-def _stream_response(message: str, history: list):
+def _get_response(message: str, history: list):
     """
-    Pipeline:
-      1. LLM streams tokens in background thread → sentence queue
-      2. Per sentence: TTS synthesis fires in background thread → audio queue
-      3. Gradio yields text+audio sentence by sentence as TTS completes
-      4. Chatbot shows text in sync with audio playback (sentence revealed
-         only when its audio is ready), input unlocks after all TTS done.
+    1. Show user message + thinking cursor immediately.
+    2. Run LLM to full completion (no streaming to UI).
+    3. Synthesize the complete response as one TTS pass.
+    4. Yield: chatbot with empty assistant bubble + TYPEWRITE signal + audio.
+       The iframe JS will typewrite the text into the chatbot bubble in sync
+       with the audio duration.
     """
     history = list(history) + [
-        {"role": "user", "content": message},
+        {"role": "user",      "content": message},
         {"role": "assistant", "content": "▋"},
     ]
+    # Show user message + thinking cursor right away
     yield history, None, None
 
-    # ── Stage 1: LLM → sentence queue ────────────────────────────────────────
-    sentence_q: queue.Queue = queue.Queue()
-    llm_error = {}
+    # ── Stage 1: full LLM completion ─────────────────────────────────────────
+    full_text = ""
+    search_notes: list[str] = []
 
-    def _llm_thread():
-        buffer = ""
-        full_text = ""
-
-        def _cb(token):
-            nonlocal buffer, full_text
-            if token.startswith("__SEARCHING__:"):
-                q = token.split(":", 1)[1]
-                note = f"\n🔍 Searching: *{q}*\n"
-                buffer += note
-                full_text += note
-            elif token.startswith("__TOOL__:"):
-                note = token.split(":", 1)[1]
-                display = f"\n🔧 {note}\n"
-                buffer += display
-                full_text += display
-            else:
-                buffer += token
-                full_text += token
-
-            # Push complete sentences into queue as they arrive
-            sentences, new_buf = _split_ready_sentences(buffer)
-            buffer = new_buf
-            for s in sentences:
-                sentence_q.put(("sentence", s, full_text))
-
-        try:
-            think.chat(message, token_callback=_cb)
-        except Exception as e:
-            llm_error["e"] = e
-        finally:
-            # Flush remaining buffer
-            if buffer.strip():
-                sentence_q.put(("sentence", buffer.strip(), full_text))
-            sentence_q.put(("done", full_text, full_text))
-
-    threading.Thread(target=_llm_thread, daemon=True).start()
-
-    # ── Stage 2: sentence → TTS queue (parallel synthesis) ───────────────────
-    # Each sentence slot: (sentence_text, full_text_so_far, audio_queue)
-    # Audio synthesis fires immediately when sentence is ready; we drain
-    # in order so playback is sequential.
-    slots: list[tuple[str, str, queue.Queue]] = []
-    llm_done = threading.Event()
-    final_text = [""]
-
-    def _tts_worker(sentence: str, full_text: str, slot: queue.Queue):
-        clean = _strip_for_speech(sentence)
-        if not clean:
-            slot.put((None, "neutral", sentence, full_text))
-            return
-        audio, emotion = speak_to_file(clean)
-        slot.put((audio, emotion, sentence, full_text))
-
-    # Collect sentences and fire TTS threads
-    def _dispatch_thread():
-        while True:
-            kind, sentence, full_text = sentence_q.get()
-            if kind == "done":
-                final_text[0] = full_text
-                llm_done.set()
-                break
-            slot: queue.Queue = queue.Queue(maxsize=1)
-            slots.append(slot)
-            threading.Thread(
-                target=_tts_worker,
-                args=(sentence, full_text, slot),
-                daemon=True,
-            ).start()
-
-    threading.Thread(target=_dispatch_thread, daemon=True).start()
-
-    # ── Stage 3: drain slots in order, yield text+audio together ─────────────
-    # Show a "thinking" indicator while waiting for first sentence
-    displayed_text = ""
-    slot_idx = 0
-
-    while True:
-        # Check if new slots have appeared
-        if slot_idx < len(slots):
-            slot = slots[slot_idx]
-            audio, emotion, sentence, full_text_snapshot = slot.get()  # blocks until TTS done
-
-            # Reveal this sentence's text in sync with its audio
-            displayed_text += sentence + " "
-            history[-1]["content"] = displayed_text.strip()
-
-            yield (
-                history,
-                f"EMOTION:{emotion}|{_strip_for_speech(sentence)}",
-                audio,
-            )
-            slot_idx += 1
-
-        elif llm_done.is_set() and slot_idx >= len(slots):
-            # All sentences dispatched and drained
-            break
+    def _cb(token: str):
+        nonlocal full_text
+        if token.startswith("__SEARCHING__:"):
+            q = token.split(":", 1)[1]
+            search_notes.append(f"🔍 Searching: *{q}*")
+        elif token.startswith("__TOOL__:"):
+            search_notes.append(f"🔧 {token.split(':', 1)[1]}")
         else:
-            # Still waiting for more sentences or TTS
-            time.sleep(0.05)
+            full_text += token
 
-    # Final cleanup — ensure full text is shown (covers edge case of no sentences)
-    if final_text[0] and history[-1]["content"] != final_text[0]:
-        history[-1]["content"] = final_text[0]
+    think.chat(message, token_callback=_cb)
 
-    yield history, None, None
+    # Build the display text shown in the chatbot bubble (notes + answer)
+    notes_prefix = "\n".join(search_notes) + "\n\n" if search_notes else ""
+    display_text = notes_prefix + full_text
 
-    if llm_error:
-        raise llm_error["e"]
+    # ── Stage 2: TTS on clean speech text ────────────────────────────────────
+    speech_text = _strip_for_speech(full_text)
+    if speech_text:
+        audio_path, emotion = speak_to_file(speech_text)
+    else:
+        audio_path, emotion = None, "neutral"
+
+    # ── Stage 3: signal the iframe to typewrite text in sync with audio ───────
+    # Chatbot bubble starts empty — JS will fill it character by character.
+    # Format packed into the hidden tts_text field:
+    #   TYPEWRITE:<emotion>|<display_text>
+    # The iframe reads audio.duration once metadata loads, then paces chars
+    # so the typewriter finishes exactly when the audio ends.
+    history[-1]["content"] = ""  # blank; JS owns this from here
+
+    signal = f"TYPEWRITE:{emotion}|{display_text}"
+    yield history, signal, audio_path
 
 
-# ─────────────────────────────────────────────
-# WRAPPERS
-# ─────────────────────────────────────────────
 def _submit(message, history):
     history = history or []
     message = (message or "").strip()
@@ -226,9 +136,9 @@ def _submit(message, history):
         return
 
     first = True
-    for h, tts, audio in _stream_response(message, history):
+    for h, tts, audio in _get_response(message, history):
         if first:
-            yield h, tts, audio, ""
+            yield h, tts, audio, ""   # clear input on first yield
             first = False
         else:
             yield h, tts, audio, gr.update()
@@ -241,11 +151,10 @@ def voice_chat(audio_path, history):
         return history, None, None
 
     transcript = transcribe_file(audio_path)
-
     if not transcript:
         return history, None, None
 
-    for h, tts, audio in _stream_response(transcript, history):
+    for h, tts, audio in _get_response(transcript, history):
         if h and len(h) >= 2:
             h[-2]["content"] = f"🎙️ {transcript}"
         yield h, tts, audio
@@ -391,7 +300,7 @@ with gr.Blocks(
                 // Find and click whatever button starts recording
                 const buttons = audioContainer.querySelectorAll('button');
                 buttons.forEach(b => {
-                    if (b.title?.toLowerCase().includes('record') || 
+                    if (b.title?.toLowerCase().includes('record') ||
                         b.getAttribute('aria-label')?.toLowerCase().includes('record')) {
                         b.click();
                     }
@@ -402,7 +311,7 @@ with gr.Blocks(
                 // Find and click stop
                 const buttons = audioContainer.querySelectorAll('button');
                 buttons.forEach(b => {
-                    if (b.title?.toLowerCase().includes('stop') || 
+                    if (b.title?.toLowerCase().includes('stop') ||
                         b.getAttribute('aria-label')?.toLowerCase().includes('stop')) {
                         b.click();
                     }
@@ -410,6 +319,127 @@ with gr.Blocks(
                 micBtn.textContent = '🎙️';
                 micBtn.dataset.recording = 'false';
             }
+        }
+        """
+    )
+
+    # ── Typewriter bridge ────────────────────────────────────────────────────
+    # When tts_text changes to a TYPEWRITE: signal, inject JS that:
+    #   1. Stores the full display text on window for the iframe to also use
+    #      (caption bar, lip-sync text source).
+    #   2. Waits for the <audio> element's metadata to know its duration.
+    #   3. Types characters into the last chatbot assistant bubble at a pace
+    #      that finishes exactly when audio ends (min 18ms/char so it's readable).
+    tts_text.change(
+        None,
+        inputs=[tts_text],
+        js="""
+        (rawSignal) => {
+            if (!rawSignal || !rawSignal.startsWith('TYPEWRITE:')) return;
+
+            const rest     = rawSignal.slice('TYPEWRITE:'.length);
+            const pipeIdx  = rest.indexOf('|');
+            const emotion  = rest.slice(0, pipeIdx);
+            const fullText = rest.slice(pipeIdx + 1);
+
+            // ── 1. Pass text + emotion to the VRM iframe ──────────────────
+            const iframe = document.querySelector('#aiko-vrm-frame');
+            if (iframe?.contentWindow) {
+                iframe.contentWindow.postMessage(
+                    JSON.stringify({ expression: emotion, ttsText: fullText }),
+                    '*'
+                );
+            }
+            // Also stash on window so the iframe's poll can find it
+            window._aikoLatestTtsText = fullText;
+
+            // ── 2. Find the last assistant bubble in the chatbot ──────────
+            // Gradio 4/5 uses .message.bot; Gradio 3 uses .bot.
+            // We look for the last rendered bot bubble's inner paragraph.
+            function getLastBubble() {
+                // Try Gradio 4/5 messages format first
+                const bubbles = document.querySelectorAll(
+                    '#aiko-chatbot .message.bot p, ' +
+                    '#aiko-chatbot [data-testid="bot"] p, ' +
+                    '#aiko-chatbot .bot p'
+                );
+                return bubbles.length ? bubbles[bubbles.length - 1] : null;
+            }
+
+            // ── 3. Typewriter function, paced to audio duration ───────────
+            let twTimer = null;
+
+            function runTypewriter(duration) {
+                const bubble = getLastBubble();
+                if (!bubble) {
+                    // Bubble not rendered yet — retry briefly
+                    setTimeout(() => runTypewriter(duration), 80);
+                    return;
+                }
+
+                const chars   = fullText.length;
+                // Aim to finish slightly before audio ends (×0.92 buffer)
+                const msPerChar = Math.max(18, (duration * 1000 * 0.92) / chars);
+
+                bubble.textContent = '';
+                let i = 0;
+
+                clearInterval(twTimer);
+                twTimer = setInterval(() => {
+                    if (i < chars) {
+                        bubble.textContent = fullText.slice(0, ++i);
+                        // Auto-scroll the chatbot to bottom
+                        const chatScroll = document.querySelector('#aiko-chatbot > div');
+                        if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
+                    } else {
+                        clearInterval(twTimer);
+                    }
+                }, msPerChar);
+            }
+
+            // ── 4. Wait for audio element + its duration metadata ─────────
+            function waitForAudioAndType() {
+                const audioEl = document.querySelector('#aiko-audio audio');
+
+                if (!audioEl) {
+                    // Audio element not in DOM yet — poll briefly
+                    setTimeout(waitForAudioAndType, 100);
+                    return;
+                }
+
+                function start() {
+                    const dur = audioEl.duration;
+                    if (Number.isFinite(dur) && dur > 0) {
+                        runTypewriter(dur);
+                    } else {
+                        // Fallback: estimate ~0.075s per character
+                        const estimated = Math.max(2, fullText.length * 0.075);
+                        runTypewriter(estimated);
+                    }
+                }
+
+                if (audioEl.readyState >= 1 && Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
+                    start();
+                } else {
+                    // Wait for metadata, but also set a fallback timeout
+                    const onMeta = () => {
+                        audioEl.removeEventListener('loadedmetadata', onMeta);
+                        start();
+                    };
+                    audioEl.addEventListener('loadedmetadata', onMeta);
+                    // Safety net: if metadata never fires (e.g. no audio), start anyway
+                    setTimeout(() => {
+                        audioEl.removeEventListener('loadedmetadata', onMeta);
+                        if (audioEl.duration > 0) {
+                            start();
+                        } else {
+                            runTypewriter(Math.max(2, fullText.length * 0.075));
+                        }
+                    }, 600);
+                }
+            }
+
+            waitForAudioAndType();
         }
         """
     )
