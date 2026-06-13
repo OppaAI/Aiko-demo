@@ -8,32 +8,32 @@ AIKO_CSS = r"""
   --aiko-user: #9be8ff;
   --aiko-bot: #d8c8ff;
 }
-html, body, .gradio-container, main, footer {
-  background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%) !important;
-  color: var(--aiko-text) !important;
-  margin: 0 !important;
-  padding: 0 !important;
+/* html, body, .gradio-container, main, footer {
+/*   background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%) !important;
+/*   color: var(--aiko-text) !important;
+/*   margin: 0 !important;
+/*   padding: 0 !important;
 }
 /* Lock everything to viewport — no min-height, no growth */
-html,
-body,
-.gradio-container,
-.gradio-container > .flex-1,
-body > .gradio-container,
-main {
-  height: 100vh !important;
-  max-height: 100vh !important;
-  min-height: unset !important;
-  overflow: hidden !important;
-  transform: none !important;
-}
+/* html,
+/* body,
+/* /* .gradio-container,
+/* .gradio-container > .flex-1,
+/* body > .gradio-container,
+/* main {
+/*   height: 100vh !important;
+/*   max-height: 100vh !important;
+/*   min-height: unset !important;
+/*   overflow: hidden !important;
+/*   transform: none !important;
+/* }
 /* Kill Gradio inner flex growth */
-.gradio-container .flex-col,
-.gradio-container > div,
-.gradio-container .overflow-y-auto {
-  min-height: unset !important;
-  overflow: hidden !important;
-}
+/* .gradio-container .flex-col,
+/* .gradio-container > div,
+/* .gradio-container .overflow-y-auto {
+/*   min-height: unset !important;
+/*   overflow: hidden !important;
+/* } */
 .gradio-container *, .gradio-container .prose, .gradio-container label {
   color: var(--aiko-text);
 }
