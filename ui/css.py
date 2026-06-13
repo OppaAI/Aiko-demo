@@ -64,6 +64,30 @@ div[class*="status"] {
 #aiko-shell.locked {
   display: none !important;
 }
+/* ── Constrain Gradio column wrappers around the shell ─────────────── */
+#aiko-shell > div,
+#aiko-shell > .block,
+div:has(> #aiko-shell),
+div:has(> div > #aiko-shell) {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  flex: 1 1 0 !important;
+}
+
+/* ── Gradio wraps gr.Row/gr.Column in gap divs — kill their growth ─── */
+#aiko-shell .gap,
+#aiko-shell [class*="gap"],
+#aiko-shell > .flex,
+#aiko-shell > [class*="flex"],
+#aiko-shell > div > .block {
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  flex: 1 1 0 !important;
+}
 
 /* ── Title header ──────────────────────────────────────────────────── */
 #aiko-title {
