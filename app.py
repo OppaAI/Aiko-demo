@@ -297,11 +297,11 @@ with gr.Blocks(
 ) as demo:
 
     # ── LOGIN OVERLAY ───────────────────────────────────────────────
-    with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
-        gr.HTML("<h1>🌸 Aiko-chan</h1><p>Please sign in to continue</p>")
-        gr.LoginButton(value="Sign in with Hugging Face")
+    #with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
+    #    gr.HTML("<h1>🌸 Aiko-chan</h1><p>Please sign in to continue</p>")
+    #    gr.LoginButton(value="Sign in with Hugging Face")
 
-    with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
+    with gr.Column(elem_id="aiko-shell") as main_shell:
 
         gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
 
@@ -353,11 +353,11 @@ with gr.Blocks(
     # ─────────────────────────────────────────────
     # EVENTS
     # ─────────────────────────────────────────────
-    demo.load(
-        _check_auth,
-        inputs=None,
-        outputs=[login_overlay, main_shell],
-    )
+    #demo.load(
+    #    _check_auth,
+    #    inputs=None,
+    #    outputs=[login_overlay, main_shell],
+    #)
 
     # Inject audio player JS on load
     demo.load(fn=None, js=AUDIO_PLAYER_JS)
