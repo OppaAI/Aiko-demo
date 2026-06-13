@@ -83,6 +83,12 @@ def _get_response(message: str, history: list):
 
     History format: list of {"role": ..., "content": ...} dicts — Gradio 6.x
     messages format (tuple format removed in 6.x).
+
+    NOTE: The text shown in the typewriter (and stored for the VRM iframe)
+    is the SAME text that was sent to TTS (`speech_text`), so the on-screen
+    text always matches what Aiko says out loud. Search notes / tool tags
+    are stripped from the spoken+typed text; if you want them visible, they
+    are written instantly (not typed) ahead of the typewriter text.
     """
     # Messages format: append user turn + a placeholder assistant turn
     # ▋ as thinking cursor in the assistant slot
@@ -108,10 +114,6 @@ def _get_response(message: str, history: list):
 
     think.chat(message, token_callback=_cb)
 
-    # Build the display text shown in the chatbot bubble (notes + answer)
-    notes_prefix = "\n".join(search_notes) + "\n\n" if search_notes else ""
-    display_text = notes_prefix + full_text
-
     # ── Stage 2: TTS on clean speech text ────────────────────────────────────
     speech_text = _strip_for_speech(full_text)
     if speech_text:
@@ -119,12 +121,17 @@ def _get_response(message: str, history: list):
     else:
         audio_path, emotion = None, "neutral"
 
-    # ── Stage 3: signal the iframe to typewrite text in sync with audio ───────
-    # Assistant bubble starts empty — JS typewriter fills it in sync with audio.
-    # Format: TYPEWRITE:<emotion>|<display_text>
-    history[-1] = {"role": "assistant", "content": ""}  # JS owns it from here
+    # Build the display text shown in the chatbot bubble (notes + answer).
+    # Search notes are shown instantly (not typewritten); the typewriter
+    # only animates `speech_text`, which is exactly what TTS spoke.
+    notes_prefix = "\n".join(search_notes) + "\n\n" if search_notes else ""
 
-    signal = f"TYPEWRITE:{emotion}|{display_text}"
+    # ── Stage 3: signal the iframe to typewrite text in sync with audio ───────
+    # Assistant bubble starts with any instant notes prefix — JS owns the
+    # rest (the typewritten speech_text) from here.
+    history[-1] = {"role": "assistant", "content": notes_prefix}
+
+    signal = f"TYPEWRITE:{emotion}|{notes_prefix}|{speech_text}"
     yield history, signal, audio_path
 
 
@@ -329,7 +336,12 @@ with gr.Blocks(
     #      (caption bar, lip-sync text source).
     #   2. Waits for the <audio> element's metadata to know its duration.
     #   3. Types characters into the last chatbot assistant bubble at a pace
-    #      that finishes exactly when audio ends (min 18ms/char so it's readable).
+    #      that finishes exactly when audio ends (min 18ms/char so it's
+    #      readable). Only `speech_text` (same text sent to TTS) is typed —
+    #      any instant "notes" prefix (search/tool notes) is written
+    #      immediately, un-animated, before the typewriter starts.
+    #
+    # Signal format: TYPEWRITE:<emotion>|<notes_prefix>|<speech_text>
     tts_text.change(
         None,
         inputs=[tts_text],
@@ -337,21 +349,28 @@ with gr.Blocks(
         (rawSignal) => {
             if (!rawSignal || !rawSignal.startsWith('TYPEWRITE:')) return;
 
-            const rest     = rawSignal.slice('TYPEWRITE:'.length);
-            const pipeIdx  = rest.indexOf('|');
-            const emotion  = rest.slice(0, pipeIdx);
-            const fullText = rest.slice(pipeIdx + 1);
+            const rest = rawSignal.slice('TYPEWRITE:'.length);
+
+            const firstPipe  = rest.indexOf('|');
+            const secondPipe = rest.indexOf('|', firstPipe + 1);
+
+            const emotion     = rest.slice(0, firstPipe);
+            const notesPrefix = rest.slice(firstPipe + 1, secondPipe);
+            const speechText  = rest.slice(secondPipe + 1);
+
+            // Full text used for the VRM iframe / lip-sync = notes + speech
+            const fullText = notesPrefix + speechText;
 
             // ── 1. Pass text + emotion to the VRM iframe ──────────────────
             const iframe = document.querySelector('#aiko-vrm-frame');
             if (iframe?.contentWindow) {
                 iframe.contentWindow.postMessage(
-                    JSON.stringify({ expression: emotion, ttsText: fullText }),
+                    JSON.stringify({ expression: emotion, ttsText: speechText }),
                     '*'
                 );
             }
             // Also stash on window so the iframe's poll can find it
-            window._aikoLatestTtsText = fullText;
+            window._aikoLatestTtsText = speechText;
 
             // ── 2. Find the last assistant bubble in the chatbot ──────────
             // Gradio 6 "messages" format markup. We look for the last
@@ -373,27 +392,31 @@ with gr.Blocks(
             }
 
             // ── 3. Typewriter function, paced to audio duration ───────────
+            // Types ONLY `speechText` (matches what TTS spoke). If a
+            // `notesPrefix` exists, it is written once, immediately,
+            // ahead of the typed speech text.
             let twTimer = null;
 
             function runTypewriter(duration) {
-                const bubble = getLastBubble();
-                if (!bubble) {
-                    // Bubble not rendered yet — retry briefly
-                    setTimeout(() => runTypewriter(duration), 80);
-                    return;
-                }
+                const chars = speechText.length;
 
-                const chars   = fullText.length;
+                if (chars === 0) return;
+
                 // Aim to finish slightly before audio ends (×0.92 buffer)
                 const msPerChar = Math.max(18, (duration * 1000 * 0.92) / chars);
 
-                bubble.textContent = '';
                 let i = 0;
 
                 clearInterval(twTimer);
                 twTimer = setInterval(() => {
+                    // Re-grab the live bubble every tick — Gradio may
+                    // re-render the chatbot DOM mid-animation, which would
+                    // otherwise leave us writing into a detached node.
+                    const liveBubble = getLastBubble();
+                    if (!liveBubble) return;
+
                     if (i < chars) {
-                        bubble.textContent = fullText.slice(0, ++i);
+                        liveBubble.textContent = notesPrefix + speechText.slice(0, ++i);
                         // Auto-scroll the chatbot to bottom
                         const chatScroll = document.querySelector('#aiko-chatbot > div');
                         if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
@@ -413,18 +436,25 @@ with gr.Blocks(
                     return;
                 }
 
+                // Sanity-checked duration: must be finite, positive, and
+                // under 10 minutes — guards against Infinity/NaN from
+                // certain streamed/short audio files.
+                function isUsableDuration(d) {
+                    return Number.isFinite(d) && d > 0 && d < 600;
+                }
+
                 function start() {
                     const dur = audioEl.duration;
-                    if (Number.isFinite(dur) && dur > 0) {
+                    if (isUsableDuration(dur)) {
                         runTypewriter(dur);
                     } else {
-                        // Fallback: estimate ~0.075s per character
-                        const estimated = Math.max(2, fullText.length * 0.075);
+                        // Fallback: estimate ~0.06s per character
+                        const estimated = Math.max(2, speechText.length * 0.06);
                         runTypewriter(estimated);
                     }
                 }
 
-                if (audioEl.readyState >= 1 && Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
+                if (audioEl.readyState >= 1 && isUsableDuration(audioEl.duration)) {
                     start();
                 } else {
                     // Wait for metadata, but also set a fallback timeout
@@ -436,10 +466,10 @@ with gr.Blocks(
                     // Safety net: if metadata never fires (e.g. no audio), start anyway
                     setTimeout(() => {
                         audioEl.removeEventListener('loadedmetadata', onMeta);
-                        if (audioEl.duration > 0) {
+                        if (isUsableDuration(audioEl.duration)) {
                             start();
                         } else {
-                            runTypewriter(Math.max(2, fullText.length * 0.075));
+                            runTypewriter(Math.max(2, speechText.length * 0.06));
                         }
                     }, 600);
                 }
