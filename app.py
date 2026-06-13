@@ -368,17 +368,28 @@ with gr.Blocks(
     # Pin page height so HF's iframe-resizer doesn't grow the iframe
     demo.load(fn=None, js="""
     () => {
-        // Freeze the iframe from resizing by clamping the body
-        const stop = () => {
-            document.documentElement.style.cssText = 'height:100vh!important;overflow:hidden!important;';
-            document.body.style.cssText = 'height:100vh!important;overflow:hidden!important;max-height:100vh!important;';
+        const clamp = () => {
+            document.documentElement.style.setProperty('height', '100vh', 'important');
+            document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+            document.body.style.setProperty('height', '100vh', 'important');
+            document.body.style.setProperty('overflow', 'hidden', 'important');
+            document.body.style.setProperty('max-height', '100vh', 'important');
+            const gc = document.querySelector('.gradio-container');
+            if (gc) {
+                gc.style.setProperty('height', '100vh', 'important');
+                gc.style.setProperty('max-height', '100vh', 'important');
+                gc.style.setProperty('min-height', 'unset', 'important');
+                gc.style.setProperty('overflow', 'hidden', 'important');
+            }
         };
-        stop();
-    
-        // Keep clamping — HF's resizer re-applies styles after load events
-        const observer = new MutationObserver(stop);
-        observer.observe(document.body, { attributes: true, attributeFilter: ['style'] });
-        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+        clamp();
+        // Re-clamp whenever HF's resizer script mutates styles
+        new MutationObserver(clamp).observe(document.documentElement, {
+            attributes: true, attributeFilter: ['style'], subtree: false
+        });
+        new MutationObserver(clamp).observe(document.body, {
+            attributes: true, attributeFilter: ['style'], subtree: false
+        });
     }
     """)
 
