@@ -324,15 +324,16 @@ AIKO_CSS += r"""
 
 #aiko-login-card {
   width: min(380px, 90vw);
-  max-height: 80vh;
+  max-height: 70vh;
   overflow-y: auto;
-  padding: 28px 24px;
+  padding: 20px 24px;
   border-radius: 18px;
   background: radial-gradient(circle at top, #1b1432 0, #080810 70%);
   border: 1px solid rgba(155,127,212,0.4);
   box-shadow: 0 22px 80px rgba(0,0,0,0.55);
   text-align: center;
 }
+
 #aiko-login-card h1 {
   color: #ecdeff;
   text-shadow: 0 0 18px rgba(155, 124, 255, .55);
@@ -347,7 +348,7 @@ AIKO_CSS += r"""
 }
 .aiko-disclaimer {
   color: var(--aiko-muted);
-  font-size: 0.66rem;
+  font-size: 0.85rem;
   line-height: 1.4;
   text-align: left;
   margin: 0 0 16px;
