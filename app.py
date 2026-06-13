@@ -290,9 +290,10 @@ AUDIO_PLAYER_JS = """
 # UI
 # ─────────────────────────────────────────────
 with gr.Blocks(
-    title="Aiko-chan 🌸",
     fill_height=True,
-    css=AIKO_CSS
+    fill_width=True,
+    css=AIKO_CSS,
+    title="Aiko-chan 🌸"
 ) as demo:
 
     # ── LOGIN OVERLAY ───────────────────────────────────────────────
@@ -383,13 +384,6 @@ with gr.Blocks(
         document.body.style.height = '100vh';
         document.body.style.overflow = 'hidden';
         document.body.style.maxHeight = '100vh';
-    }
-    """)
-
-    demo.load(fn=None, js="""
-    () => {
-        const gc = document.querySelector('.gradio-container');
-        if (gc) gc.removeAttribute('data-iframe-height');
     }
     """)
     
