@@ -305,3 +305,52 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 .gradio-container footer { display: none !important; }
 .hide { display: none !important; }
 """
+AIKO_CSS += r"""
+/* ── Login modal overlay ──────────────────────────────────────────── */
+#aiko-login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 9, 0.78);
+  backdrop-filter: blur(6px);
+}
+#aiko-login-overlay.hide { display: none !important; }
+
+#aiko-login-card {
+  width: min(360px, 90vw);
+  padding: 28px 24px;
+  border-radius: 18px;
+  background: radial-gradient(circle at top, #1b1432 0, #080810 70%);
+  border: 1px solid rgba(155,127,212,0.4);
+  box-shadow: 0 22px 80px rgba(0,0,0,0.55);
+  text-align: center;
+}
+#aiko-login-card h2 {
+  color: #ecdeff;
+  text-shadow: 0 0 18px rgba(155, 124, 255, .55);
+  margin: 0 0 16px;
+  font-size: 1.2rem;
+  letter-spacing: .06em;
+}
+#aiko-login-card input {
+  background: transparent !important;
+  color: var(--aiko-accent) !important;
+  border: 1px solid rgba(182,140,255,0.55) !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  width: 100% !important;
+  margin-bottom: 14px !important;
+}
+#aiko-login-card button {
+  background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: #fff !important;
+  width: 100% !important;
+  padding: 10px !important;
+  font-weight: 600 !important;
+}
+"""

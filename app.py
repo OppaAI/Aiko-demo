@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import date
 import gradio as gr
 import time
 import inspect
@@ -37,6 +38,21 @@ if hasattr(think, "join_warmup"):
 
 VRM_PATH = resolve_vrm_path()
 VRM_URLS = gradio_file_urls(VRM_PATH)
+
+
+# ─────────────────────────────────────────────
+# SOUL PROMPT INJECTION
+# ─────────────────────────────────────────────
+SOUL_TEMPLATE_PATH = Path("aiko_soul.md")  # adjust path if needed
+
+def build_soul_prompt(user_id: str) -> str:
+    template = SOUL_TEMPLATE_PATH.read_text(encoding="utf-8")
+    today = date.today().strftime("%B %d, %Y")
+    return (
+        template
+        .replace("USER_ID_HERE", user_id)
+        .replace("TODAY_HERE", today)
+    )
 
 
 # ─────────────────────────────────────────────
@@ -178,13 +194,41 @@ def voice_chat(audio_path, history):
 
 
 # ─────────────────────────────────────────────
+# LOGIN HANDLER
+# ─────────────────────────────────────────────
+def _login(user_id: str):
+    user_id = (user_id or "").strip() or "Guest"
+    soul = build_soul_prompt(user_id)
+
+    if hasattr(think, "set_system_prompt"):
+        think.set_system_prompt(soul)
+    elif hasattr(think, "system_prompt"):
+        think.system_prompt = soul
+
+    return user_id, gr.update(elem_classes=["hide"])
+
+
+# ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
 with gr.Blocks(
     title="Aiko-chan 🌸",
-    fill_height=True,
+    #fill_height=True,
     css=AIKO_CSS
 ) as demo:
+
+    user_id_state = gr.State(value="Guest")
+
+    # ── Login popup (overlay, sits on top of everything) ────────────
+    with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
+        with gr.Column(elem_id="aiko-login-card"):
+            gr.HTML("<h2>🌸 Who's there?</h2>")
+            login_input = gr.Textbox(
+                placeholder="Enter your name...",
+                show_label=False,
+                container=False,
+            )
+            login_btn = gr.Button("Enter", variant="primary")
 
     with gr.Column(elem_id="aiko-shell"):
 
@@ -243,6 +287,18 @@ with gr.Blocks(
     # ─────────────────────────────────────────────
     # EVENTS (CLEAN + STABLE)
     # ─────────────────────────────────────────────
+    login_btn.click(
+        _login,
+        inputs=[login_input],
+        outputs=[user_id_state, login_overlay],
+    )
+
+    login_input.submit(
+        _login,
+        inputs=[login_input],
+        outputs=[user_id_state, login_overlay],
+    )
+
     msg.submit(
         _submit,
         inputs=[msg, chatbot],

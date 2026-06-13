@@ -60,13 +60,25 @@ image = (
     # Install uv
     .run_commands("curl -Ls https://astral.sh/uv/install.sh | sh")
     # Build llama.cpp with CUDA so we get llama-server.
-    # LLAMA_BUILD_SERVER_WEBUI=OFF skips the UI asset embedding step that
-    # fails when the HuggingFace CDN returns a partial/empty build.json,
-    # which causes a zero-size array compile error in the generated ui.cpp.
+    #
+    # The llama.cpp build's `llama-ui` target tries to fetch a `build.json`
+    # asset manifest from the HuggingFace CDN during configure/build. When
+    # that fetch fails (as it does in sandboxed/offline build environments),
+    # the provisioning step falls back to "stale assets" that don't actually
+    # exist, producing a zero-size array (`asset_60_data[]`) that fails to
+    # compile in ui.cpp. LLAMA_BUILD_SERVER_WEBUI=OFF does not prevent this
+    # because llama-server still depends on the llama-ui target in the
+    # CMake graph. The fix: patch out the llama-ui subdirectory/dependency
+    # entirely before configuring, so llama-server builds without it.
     .run_commands(
         "git clone --depth 1 https://github.com/ggml-org/llama.cpp /opt/llama.cpp",
         # Symlink libcuda.so.1 stub — devel image ships .so but not .so.1
         "ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1",
+        # Remove the UI subdirectory from the build graph and strip any
+        # llama-ui dependency from the server target so configure/build
+        # never touches the broken asset-provisioning step.
+        "sed -i '/add_subdirectory(tools\\/ui)/d' /opt/llama.cpp/tools/CMakeLists.txt || true",
+        "sed -i '/llama-ui/d' /opt/llama.cpp/tools/server/CMakeLists.txt || true",
         "cmake /opt/llama.cpp -B /opt/llama.cpp/build"
         " -DGGML_CUDA=ON"
         " -DCMAKE_BUILD_TYPE=Release"
