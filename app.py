@@ -443,7 +443,7 @@ with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
     )
 
     #demo.load(fn=None, js=HEIGHT_LOCK_JS)
-    demo.load(fn=None, js=AUDIO_PLAYER_JS)
+    #demo.load(fn=None, js=AUDIO_PLAYER_JS)
 
     msg.submit(
         _submit,
