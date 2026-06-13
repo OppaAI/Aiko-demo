@@ -434,9 +434,9 @@ div:has(> #aiko-login-overlay.hide) {
 #aiko-login-overlay .aiko-disclaimer {
   margin: 0 auto;
   max-width: 360px;
-  font-size: 0.72rem;
+  font-size: 0.85rem;
   line-height: 1.6;
-  color: rgba(140, 122, 182, 0.75);
+  color: #c084fc;
   text-align: center;
   font-style: italic;
   padding: 14px 24px 0;
