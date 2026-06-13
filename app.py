@@ -386,6 +386,25 @@ with gr.Blocks(
         document.body.style.maxHeight = '100vh';
     }
     """)
+
+    demo.load(fn=None, js="""
+() => {
+    setInterval(() => {
+        console.clear();
+
+        console.log("body:", document.body.scrollHeight);
+        console.log("html:", document.documentElement.scrollHeight);
+
+        const shell = document.getElementById("aiko-shell");
+        const card = document.getElementById("aiko-avatar-card");
+        const chat = document.getElementById("aiko-chatbot");
+
+        if (shell) console.log("shell:", shell.offsetHeight);
+        if (card) console.log("card:", card.offsetHeight);
+        if (chat) console.log("chat:", chat.offsetHeight);
+    }, 2000);
+}
+""")
     
     send.click(
         _submit,
