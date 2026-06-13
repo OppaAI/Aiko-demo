@@ -356,7 +356,6 @@ HEIGHT_LOCK_JS = """
 # UI
 # ─────────────────────────────────────────────
 with gr.Blocks(
-    css=AIKO_CSS,
     title="Aiko-chan 🌸"
 ) as demo:
 
@@ -379,6 +378,11 @@ with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
 
     with gr.Row(elem_id="aiko-title-row"):
         gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>", padding=False)
+
+    tts_text = gr.Textbox(
+        visible=False,
+        elem_id="aiko-tts-text",
+    )
 
     with gr.Row(equal_height=True):
 
@@ -481,4 +485,5 @@ demo.launch(
     ssr_mode=False,
     share=False,
     allowed_paths=allowed_paths,
+    css=AIKO_CSS,
 )
