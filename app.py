@@ -283,4 +283,5 @@ demo.launch(
     ssr_mode=False,
     share=False,
     allowed_paths=allowed_paths,
+    css=AIKO_CSS,
 )
