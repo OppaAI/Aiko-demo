@@ -65,6 +65,16 @@ div[class*="status"] {
 #aiko-shell.locked {
   display: none !important;
 }
+/* ── Main row containment ───────────────────────────────────────────── */
+#aiko-shell > .block > div,
+#aiko-shell .gap,
+#aiko-shell > div > div {
+  height: calc(100vh - 70px) !important;
+  max-height: calc(100vh - 70px) !important;
+  min-height: unset !important;
+  overflow: hidden !important;
+  flex-shrink: 0;
+}
 /* ── Title header ──────────────────────────────────────────────────── */
 #aiko-title {
   display: block;
@@ -82,13 +92,24 @@ div[class*="status"] {
 #aiko-avatar-card .prose {
   height: calc(100vh - 70px) !important;
   max-height: calc(100vh - 70px) !important;
+  min-height: unset !important;
+  overflow: hidden !important;
+}
+/* Avatar card Gradio column wrapper */
+#aiko-avatar-card > .wrap,
+#aiko-avatar-card > div,
+div:has(> #aiko-avatar-card) {
+  height: calc(100vh - 70px) !important;
+  max-height: calc(100vh - 70px) !important;
+  min-height: unset !important;
   overflow: hidden !important;
 }
 #aiko-vrm-frame {
   display: block;
   width: 100%;
-  height: 100% !important;
-  max-height: 100% !important;
+  height: calc(100vh - 70px) !important;
+  max-height: calc(100vh - 70px) !important;
+  min-height: unset !important;
   border: 0;
   background: #080810;
 }
