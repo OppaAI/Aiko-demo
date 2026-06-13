@@ -34,6 +34,23 @@ main {
   color: var(--aiko-text);
 }
 
+/* ── Hide Gradio loading/progress bar ──────────────────────────────── */
+#cosmos-spinner,
+.progress-bar,
+.loader,
+[class*="progress"],
+[class*="loading-bar"],
+[id*="cosmos"],
+.toast-wrap,
+.toast-body,
+.svelte-toast,
+div[class*="toast"],
+div[class*="status"] {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
 /* ── Shell ─────────────────────────────────────────────────────────── */
 #aiko-shell {
   max-width: 1180px;
@@ -369,12 +386,24 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   text-shadow: 0 0 18px rgba(155, 124, 255, .55);
 }
 
-#aiko-login-overlay p {
+#aiko-login-overlay .aiko-subtitle {
   margin: 0;
   font-size: 0.78rem;
   letter-spacing: .12em;
   color: var(--aiko-muted);
   text-transform: uppercase;
+}
+
+#aiko-login-overlay .aiko-disclaimer {
+  margin: 0 auto;
+  max-width: 360px;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: rgba(140, 122, 182, 0.75);
+  text-align: center;
+  font-style: italic;
+  padding: 14px 24px 0;
+  border-top: 1px solid rgba(182, 140, 255, 0.12);
 }
 
 /* Constrain the LoginButton and all its Gradio wrappers */
