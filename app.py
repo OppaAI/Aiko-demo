@@ -319,13 +319,11 @@ with gr.Blocks(
                 )
 
                 with gr.Column(elem_id="aiko-chat-overlay"):
-                    chatbot = gr.Chatbot(
-                        elem_id="aiko-chatbot",
-                        height=600,
-                        show_label=False,
-                        container=False,
+                    chatbot = gr.Textbox(
+                        lines=20,
+                        interactive=False,
                     )
-
+                    
                 with gr.Row(elem_id="aiko-input-row"):
 
                     mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
