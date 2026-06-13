@@ -362,7 +362,7 @@ HEIGHT_LOCK_JS = """
 # ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
-with gr.Blocks(title="Aiko-chan 🌸", css=AIKO_CSS) as demo:
+with gr.Blocks(title="Aiko-chan 🌸") as demo:
 
     # Login overlay — visible by default, hidden after auth
     with gr.Column(elem_id="aiko-login-overlay", visible=True) as login_overlay:
@@ -489,4 +489,5 @@ demo.launch(
     ssr_mode=False,
     share=False,
     allowed_paths=allowed_paths,
+    css=AIKO_CSS,
 )
