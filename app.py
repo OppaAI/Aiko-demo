@@ -197,12 +197,7 @@ def voice_chat(audio_path, history, profile: gr.OAuthProfile | None = None):
 def _check_auth(profile: gr.OAuthProfile | None = None):
     logged_in = profile is not None
     print(f"[auth] profile={profile!r} logged_in={logged_in}")
-    return (
-        # login overlay: hide when logged in
-        gr.update(visible=not logged_in),
-        # main shell: show when logged in
-        gr.update(visible=logged_in),
-    )
+    return gr.update(visible=not logged_in), gr.update()
 
 
 # ─────────────────────────────────────────────
@@ -382,7 +377,7 @@ with gr.Blocks(title="Aiko-chan 🌸") as demo:
 
     # Main shell — hidden by default, shown after auth
     # visible=False tells Gradio to fully render children when it becomes visible
-    with gr.Column(elem_id="aiko-shell", visible=False) as main_shell:
+    with gr.Column(elem_id="aiko-shell", visible=True) as main_shell:
 
         with gr.Row(elem_id="aiko-title-row"):
             gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>", padding=False)
