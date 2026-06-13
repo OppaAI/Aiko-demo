@@ -273,13 +273,24 @@ HEIGHT_LOCK_JS = """
 () => {
     const clamp = () => {
         const shell = document.querySelector('#aiko-shell');
-        if (shell) {
-            shell.style.setProperty('flex-grow', '0', 'important');
-            shell.style.setProperty('min-width', 'unset', 'important');
-            shell.style.setProperty('height', '100vh', 'important');
-            shell.style.setProperty('max-height', '100vh', 'important');
-            shell.style.setProperty('min-height', 'unset', 'important');
-            shell.style.setProperty('overflow', 'hidden', 'important');
+        if (!shell) return;
+        const parent = shell.parentElement;
+        const grandparent = parent?.parentElement;
+        if (parent) {
+            parent.style.setProperty('flex-grow', '0', 'important');
+            parent.style.setProperty('min-width', 'unset', 'important');
+            parent.style.setProperty('height', '100vh', 'important');
+            parent.style.setProperty('max-height', '100vh', 'important');
+            parent.style.setProperty('min-height', 'unset', 'important');
+            parent.style.setProperty('overflow', 'hidden', 'important');
+        }
+        if (grandparent) {
+            grandparent.style.setProperty('flex-grow', '0', 'important');
+            grandparent.style.setProperty('min-width', 'unset', 'important');
+            grandparent.style.setProperty('height', '100vh', 'important');
+            grandparent.style.setProperty('max-height', '100vh', 'important');
+            grandparent.style.setProperty('min-height', 'unset', 'important');
+            grandparent.style.setProperty('overflow', 'hidden', 'important');
         }
     };
     clamp();
