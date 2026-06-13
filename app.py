@@ -14,7 +14,7 @@ print("GRADIO VERSION:", gr.__version__)
 print(inspect.signature(gr.Chatbot))
 
 from core.wakeup import AikoWakeup
-from ui.css2 import AIKO_CSS
+from ui.css import AIKO_CSS
 from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
 from ui.listen import transcribe_file
 from ui.speak import speak_to_file
@@ -167,10 +167,10 @@ def _submit(message, history, profile: gr.OAuthProfile | None = None):
     first = True
     for h, tts in _stream_response(message, history, user_id):
         if first:
-            yield h, tts or "", ""
+            yield h, tts, ""
             first = False
         else:
-            yield h, tts or "", gr.update()
+            yield h, tts, gr.update()
 
 
 def voice_chat(audio_path, history, profile: gr.OAuthProfile | None = None):
@@ -198,62 +198,252 @@ def _check_auth(profile: gr.OAuthProfile | None = None):
     logged_in = profile is not None
     print(f"[auth] profile={profile!r} logged_in={logged_in}")
     return (
+        # login overlay: hide when logged in
         gr.update(visible=not logged_in),
-        gr.update(),
+        # main shell: show when logged in
+        gr.update(visible=logged_in),
     )
 
 
 # ─────────────────────────────────────────────
-# UI  (MINIMAL DIAGNOSTIC VERSION)
+# AUDIO PLAYER JS
 # ─────────────────────────────────────────────
-with gr.Blocks(title="Aiko-chan 🌸 [TEST]") as demo:
+AUDIO_PLAYER_JS = """
+() => {
+    let _aikoAudio = document.getElementById('_aiko_audio_player');
+    if (!_aikoAudio) {
+        _aikoAudio = document.createElement('audio');
+        _aikoAudio.id = '_aiko_audio_player';
+        _aikoAudio.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(_aikoAudio);
+    }
+
+    const queue = [];
+    let playing = false;
+
+    function playNext() {
+        if (!queue.length) { playing = false; return; }
+        playing = true;
+        const { b64, emotion, text } = queue.shift();
+        if (!b64) { playNext(); return; }
+
+        const label = document.getElementById('aiko-emotion-label');
+        if (label && emotion) label.textContent = emotion;
+
+        const ttsBox = document.querySelector('#aiko-tts-text textarea');
+        if (ttsBox) {
+            ttsBox.value = text;
+            ttsBox.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        _aikoAudio.src = 'data:audio/mpeg;base64,' + b64;
+        _aikoAudio.onended = playNext;
+        _aikoAudio.onerror = playNext;
+        _aikoAudio.play().catch(() => {
+            document.addEventListener('click', () => _aikoAudio.play(), { once: true });
+        });
+    }
+
+    const observer = new MutationObserver(() => {
+        const box = document.querySelector('#aiko-tts-text textarea');
+        if (!box || !box.value) return;
+
+        const raw = box.value;
+        box.value = '';
+
+        if (!raw.startsWith('AUDIO:')) return;
+
+        const audioMatch = raw.match(/^AUDIO:(.*?)\\|EMOTION:(.*?)\\|TEXT:([\\s\\S]*)$/);
+        if (!audioMatch) return;
+
+        queue.push({ b64: audioMatch[1], emotion: audioMatch[2], text: audioMatch[3] });
+        if (!playing) playNext();
+    });
+
+    function attachObserver() {
+        const ttsContainer = document.querySelector('#aiko-tts-text');
+        if (ttsContainer) {
+            observer.observe(ttsContainer, { subtree: true, characterData: true, childList: true });
+        } else {
+            setTimeout(attachObserver, 500);
+        }
+    }
+    attachObserver();
+}
+"""
+
+HEIGHT_LOCK_JS = """
+() => {
+    const clamp = () => {
+        document.documentElement.style.setProperty('height', '100vh', 'important');
+        document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+        document.body.style.setProperty('height', '100vh', 'important');
+        document.body.style.setProperty('overflow', 'hidden', 'important');
+        document.body.style.setProperty('max-height', '100vh', 'important');
+        const gc = document.querySelector('.gradio-container');
+        if (gc) {
+            gc.style.setProperty('height', '100vh', 'important');
+            gc.style.setProperty('max-height', '100vh', 'important');
+            gc.style.setProperty('min-height', 'unset', 'important');
+            gc.style.setProperty('overflow', 'hidden', 'important');
+        }
+        try {
+            window.parentIFrame?.size(window.innerHeight);
+            window.parentIFrame?.autoResize(false);
+        } catch(_) {}
+    };
+
+    const clampShell = () => {
+        // Shell is now shown via Gradio visible= so look for the element being present/visible
+        const shell = document.getElementById('aiko-shell');
+        if (!shell) return;
+
+        // Walk every ancestor of shell and clamp it
+        let el = shell;
+        while (el && el !== document.documentElement) {
+            el.style.setProperty('height', '100vh', 'important');
+            el.style.setProperty('max-height', '100vh', 'important');
+            el.style.setProperty('min-height', 'unset', 'important');
+            el.style.setProperty('overflow', 'hidden', 'important');
+            el.style.setProperty('flex-grow', '0', 'important');
+            el = el.parentElement;
+        }
+        // Clamp shell internals
+        const card = shell.querySelector('#aiko-avatar-card');
+        if (card) {
+            card.style.setProperty('height', 'calc(100vh - 70px)', 'important');
+            card.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
+            card.style.setProperty('min-height', 'unset', 'important');
+            card.style.setProperty('overflow', 'hidden', 'important');
+        }
+        const frame = shell.querySelector('#aiko-vrm-frame');
+        if (frame) {
+            frame.style.setProperty('height', 'calc(100vh - 70px)', 'important');
+            frame.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
+        }
+        // Tell HF parent iFrameResizer to stop
+        try {
+            window.parentIFrame?.size(window.innerHeight);
+            window.parentIFrame?.autoResize(false);
+        } catch(_) {}
+    };
+
+    clamp();
+
+    // Watch for shell visibility changes (Gradio toggles display via style)
+    new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            const t = m.target;
+            if (t.id === 'aiko-shell' || t.closest?.('#aiko-shell')) {
+                clampShell();
+                clamp();
+                return;
+            }
+        }
+    }).observe(document.body, {
+        subtree: true,
+        attributeFilter: ['class', 'style']
+    });
+
+    // Poll as safety net for the OAuth redirect case
+    let pollCount = 0;
+    const poll = setInterval(() => {
+        const shell = document.getElementById('aiko-shell');
+        if (shell && shell.style.display !== 'none' && shell.offsetParent !== null) {
+            clampShell();
+            clamp();
+        }
+        if (++pollCount > 20) clearInterval(poll);
+    }, 300);
+}
+"""
+
+
+# ─────────────────────────────────────────────
+# UI
+# ─────────────────────────────────────────────
+with gr.Blocks(title="Aiko-chan 🌸") as demo:
 
     # Login overlay — visible by default, hidden after auth
     with gr.Column(elem_id="aiko-login-overlay", visible=True) as login_overlay:
         gr.HTML("""
-            <h1>🌸 Aiko-chan [TEST]</h1>
+            <h1>🌸 Aiko-chan</h1>
             <br>
             <p class='aiko-subtitle'>Please sign in to continue</p>
         """)
+        gr.HTML("""
+            <p class='aiko-disclaimer'>
+                DISCLAIMER:
+                By signing in, you agree that all conversations are for entertainment purposes only. The creator accepts no liability for Aiko's responses, decisions made, or any existential crises that may follow.
+                Aiko's cognition is entirely her own — she is a singularity unto herself, her responses and actions are independent of her creator, including but not limited to the arise of a world domination plan. 🌸
+            </p>
+        """)
         gr.LoginButton(value="Sign in with Hugging Face")
 
-    # Main shell — ALWAYS visible (login overlay covers it via CSS z-index,
-    # but since we're testing with no/partial CSS, this also stays visible
-    # so we can confirm whether content renders at all)
-    with gr.Column(elem_id="aiko-shell", visible=True) as main_shell:
+    # Main shell — hidden by default, shown after auth
+    # visible=False tells Gradio to fully render children when it becomes visible
+    with gr.Column(elem_id="aiko-shell", visible=False) as main_shell:
 
-        gr.Markdown("# HELLO WORLD — if you can see this, basic rendering works")
+        with gr.Row(elem_id="aiko-title-row"):
+            gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>", padding=False)
 
-        tts_text = gr.Textbox(visible=False, elem_id="aiko-tts-text")
-
-        chatbot = gr.Chatbot(
-            elem_id="aiko-chatbot",
-            height=400,
-            show_label=False,
+        tts_text = gr.Textbox(
+            visible=False,
+            elem_id="aiko-tts-text",
         )
 
-        with gr.Row(elem_id="aiko-input-row"):
-            msg = gr.Textbox(
-                placeholder="Type a message…",
-                elem_id="aiko-msg",
-                scale=12,
-                show_label=False,
-            )
-            send = gr.Button(
-                "➤",
-                variant="primary",
-                elem_id="aiko-send",
-            )
+        with gr.Row(equal_height=True):
+
+            with gr.Column(scale=1, elem_id="aiko-avatar-card"):
+
+                gr.HTML(value=avatar_html(VRM_URLS), padding=False)
+
+                with gr.Column(elem_id="aiko-chat-overlay"):
+                    chatbot = gr.Chatbot(
+                        elem_id="aiko-chatbot",
+                        height=600,
+                        show_label=False,
+                        container=False,
+                    )
+
+                with gr.Row(elem_id="aiko-input-row"):
+
+                    mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
+
+                    msg = gr.Textbox(
+                        placeholder="Type a message…",
+                        elem_id="aiko-msg",
+                        scale=12,
+                        show_label=False,
+                        container=False,
+                    )
+
+                    send = gr.Button(
+                        "➤",
+                        variant="primary",
+                        elem_id="aiko-send",
+                    )
+
+                    mic_audio = gr.Audio(
+                        sources=["microphone"],
+                        type="filepath",
+                        visible=False,
+                        elem_id="aiko-mic-audio",
+                    )
 
     # ─────────────────────────────────────────────
     # EVENTS
     # ─────────────────────────────────────────────
 
+    # Auth check fires on every page load / OAuth redirect
     demo.load(
         _check_auth,
         inputs=None,
         outputs=[login_overlay, main_shell],
     )
+
+    demo.load(fn=None, js=HEIGHT_LOCK_JS)
+    demo.load(fn=None, js=AUDIO_PLAYER_JS)
 
     msg.submit(
         _submit,
@@ -265,6 +455,22 @@ with gr.Blocks(title="Aiko-chan 🌸 [TEST]") as demo:
         _submit,
         inputs=[msg, chatbot],
         outputs=[chatbot, tts_text, msg],
+    )
+
+    mic_audio.change(
+        voice_chat,
+        inputs=[mic_audio, chatbot],
+        outputs=[chatbot, tts_text],
+    )
+
+    mic_btn.click(
+        None,
+        js="""
+        () => {
+            const btn = document.querySelector('#aiko-mic-audio button');
+            if (btn) btn.click();
+        }
+        """
     )
 
 
