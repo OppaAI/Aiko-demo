@@ -272,48 +272,18 @@ AUDIO_PLAYER_JS = """
 HEIGHT_LOCK_JS = """
 () => {
     const clamp = () => {
-        document.documentElement.style.setProperty('height', '100vh', 'important');
-        document.documentElement.style.setProperty('overflow', 'hidden', 'important');
-        document.body.style.setProperty('height', '100vh', 'important');
-        document.body.style.setProperty('overflow', 'hidden', 'important');
-        document.body.style.setProperty('max-height', '100vh', 'important');
-        const gc = document.querySelector('.gradio-container');
-        if (gc) {
-            gc.style.setProperty('height', '100vh', 'important');
-            gc.style.setProperty('max-height', '100vh', 'important');
-            gc.style.setProperty('min-height', 'unset', 'important');
-            gc.style.setProperty('overflow', 'hidden', 'important');
-        }
         const shell = document.querySelector('#aiko-shell');
         if (shell) {
             shell.style.setProperty('flex-grow', '0', 'important');
             shell.style.setProperty('min-width', 'unset', 'important');
-        }
-        if (shell && !shell.classList.contains('locked')) {
             shell.style.setProperty('height', '100vh', 'important');
             shell.style.setProperty('max-height', '100vh', 'important');
+            shell.style.setProperty('min-height', 'unset', 'important');
             shell.style.setProperty('overflow', 'hidden', 'important');
-            const card = shell.querySelector('#aiko-avatar-card');
-            if (card) {
-                card.style.setProperty('height', 'calc(100vh - 70px)', 'important');
-                card.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
-                card.style.setProperty('overflow', 'hidden', 'important');
-            }
-            const frame = shell.querySelector('#aiko-vrm-frame');
-            if (frame) {
-                frame.style.setProperty('height', 'calc(100vh - 70px)', 'important');
-                frame.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
-            }
         }
     };
     clamp();
-    setInterval(clamp, 500);
-    new MutationObserver(clamp).observe(document.documentElement, {
-        attributes: true, attributeFilter: ['style']
-    });
-    new MutationObserver(clamp).observe(document.body, {
-        subtree: true, childList: true, attributeFilter: ['style', 'class']
-    });
+    setInterval(clamp, 300);
 }
 """
 
