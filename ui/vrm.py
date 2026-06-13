@@ -268,11 +268,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     function resize() {{
       const w = Math.max(1, canvas.clientWidth);
       const h = Math.max(1, canvas.clientHeight);
-      if (w === lastW && h === lastH) return;
-      lastW = w; lastH = h;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
+      if (w !== lastW || h !== lastH) {{
+        console.log('[aiko-vrm] resize', lastW, lastH, '->', w, h);
+        lastW = w; lastH = h;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }}
     }}
     addEventListener('resize', resize);
     function setExpression(name, weight = 1) {{
