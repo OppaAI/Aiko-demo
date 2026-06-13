@@ -691,6 +691,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
         vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
         vrm.scene.rotation.y = Math.PI;
+        console.log('[aiko-vrm] rotation set to PI', vrm.scene.rotation.y);
         scene.add(vrm.scene);
         setExpression('relaxed', 0.25);
         console.log('Available expressions:', expressionNames());
