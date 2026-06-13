@@ -319,9 +319,10 @@ with gr.Blocks(
                 )
 
                 with gr.Column(elem_id="aiko-chat-overlay"):
-                    chatbot = gr.Textbox(
-                        lines=20,
-                        interactive=False,
+                    chatbot = gr.Chatbot(
+                        elem_id="aiko-chatbot",
+                        show_label=False,
+                        container=False,
                     )
                     
                 with gr.Row(elem_id="aiko-input-row"):
@@ -367,12 +368,23 @@ with gr.Blocks(
         outputs=[chatbot, tts_text, msg],
     )
     
+    #demo.load(fn=None, js="""
+    #() => {
+    #    const overlay = document.getElementById('aiko-login-overlay');
+    #    if (overlay && overlay.parentElement !== document.body) {
+    #        document.body.insertBefore(overlay, document.body.firstChild);
+    #    }
+    #}
+    #""")
+    
     demo.load(fn=None, js="""
     () => {
-        const overlay = document.getElementById('aiko-login-overlay');
-        if (overlay && overlay.parentElement !== document.body) {
-            document.body.insertBefore(overlay, document.body.firstChild);
-        }
+        setInterval(() => {
+            console.log(
+                "overlays:",
+                document.querySelectorAll('#aiko-login-overlay').length
+            );
+        }, 2000);
     }
     """)
 
