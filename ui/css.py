@@ -65,6 +65,16 @@ div[class*="status"] {
 #aiko-shell.locked {
   display: none !important;
 }
+/* ── Shell unlocked state ───────────────────────────────────────────── */
+#aiko-shell:not(.locked),
+#aiko-shell:not(.locked) > div,
+#aiko-shell:not(.locked) > .block,
+#aiko-shell:not(.locked) > div > div {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  min-height: unset !important;
+  overflow: hidden !important;
+}
 /* ── Main row containment ───────────────────────────────────────────── */
 #aiko-shell > .block > div,
 #aiko-shell .gap,

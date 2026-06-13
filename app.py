@@ -284,13 +284,31 @@ HEIGHT_LOCK_JS = """
             gc.style.setProperty('min-height', 'unset', 'important');
             gc.style.setProperty('overflow', 'hidden', 'important');
         }
+        const shell = document.querySelector('#aiko-shell');
+        if (shell && !shell.classList.contains('locked')) {
+            shell.style.setProperty('height', '100vh', 'important');
+            shell.style.setProperty('max-height', '100vh', 'important');
+            shell.style.setProperty('overflow', 'hidden', 'important');
+            const card = shell.querySelector('#aiko-avatar-card');
+            if (card) {
+                card.style.setProperty('height', 'calc(100vh - 70px)', 'important');
+                card.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
+                card.style.setProperty('overflow', 'hidden', 'important');
+            }
+            const frame = shell.querySelector('#aiko-vrm-frame');
+            if (frame) {
+                frame.style.setProperty('height', 'calc(100vh - 70px)', 'important');
+                frame.style.setProperty('max-height', 'calc(100vh - 70px)', 'important');
+            }
+        }
     };
     clamp();
+    setInterval(clamp, 500);
     new MutationObserver(clamp).observe(document.documentElement, {
         attributes: true, attributeFilter: ['style']
     });
     new MutationObserver(clamp).observe(document.body, {
-        attributes: true, attributeFilter: ['style']
+        subtree: true, childList: true, attributeFilter: ['style', 'class']
     });
 }
 """
