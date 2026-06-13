@@ -383,15 +383,16 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 }
 #aiko-login-overlay .aiko-subtitle {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 1.2rem;
   letter-spacing: .12em;
   color: var(--aiko-muted);
   text-transform: uppercase;
+  font-weight: 600;
 }
 #aiko-login-overlay .aiko-disclaimer {
   margin: 0 auto;
-  max-width: 360px;
-  font-size: 0.88rem;
+  max-width: 520px;
+  font-size: 0.80rem;
   line-height: 1.6;
   color: var(--aiko-accent);
   opacity: 0.85;
