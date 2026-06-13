@@ -44,7 +44,7 @@ VRM_URLS = gradio_file_urls(VRM_PATH)
 # ─────────────────────────────────────────────
 # SOUL PROMPT INJECTION
 # ─────────────────────────────────────────────
-SOUL_TEMPLATE_PATH = Path("aiko_soul.md")  # adjust path if needed
+SOUL_TEMPLATE_PATH = Path("persona/soul.md")  # adjust path if needed
 
 def build_soul_prompt(user_id: str) -> str:
     template = SOUL_TEMPLATE_PATH.read_text(encoding="utf-8")
