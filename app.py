@@ -272,11 +272,16 @@ AUDIO_PLAYER_JS = """
 HEIGHT_LOCK_JS = """
 () => {
     const clamp = () => {
-        for (const sel of [
-            'html', 'body',
-            '.gradio-container',
-            '.gradio-container > div',
-        ]) {
+        // Kill the iFrameResizer inline height
+        const iframe = document.getElementById('iFrameResizer0');
+        if (iframe) {
+            iframe.style.setProperty('height', '100vh', 'important');
+            iframe.style.setProperty('max-height', '100vh', 'important');
+            iframe.style.setProperty('min-height', '0', 'important');
+            iframe.style.setProperty('overflow', 'hidden', 'important');
+        }
+
+        for (const sel of ['html', 'body', '.gradio-container', '.gradio-container > div']) {
             const el = document.querySelector(sel);
             if (!el) continue;
             el.style.setProperty('height', '100vh', 'important');
@@ -284,20 +289,13 @@ HEIGHT_LOCK_JS = """
             el.style.setProperty('min-height', '0', 'important');
             el.style.setProperty('overflow', 'hidden', 'important');
         }
-
-        const shell = document.getElementById('aiko-shell');
-        if (shell && shell.parentElement) {
-            shell.parentElement.style.setProperty('height', '100vh', 'important');
-            shell.parentElement.style.setProperty('max-height', '100vh', 'important');
-            shell.parentElement.style.setProperty('min-height', '0', 'important');
-            shell.parentElement.style.setProperty('overflow', 'hidden', 'important');
-        }
     };
 
     clamp();
-    new ResizeObserver(clamp).observe(document.body);
-    new MutationObserver(() => clamp()).observe(document.body, {
-        childList: true, subtree: true, attributeFilter: ['style', 'class']
+    // Poll because iFrameResizer keeps re-setting the inline style
+    setInterval(clamp, 300);
+    new MutationObserver(clamp).observe(document.body, {
+        subtree: true, attributeFilter: ['style']
     });
 }
 """
