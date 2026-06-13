@@ -1,3 +1,4 @@
+from asyncio import constants
 from __future__ import annotations
 
 import html
@@ -55,8 +56,21 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       color: #c8b8e8;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }}
-    #wrap {{ position: fixed; inset: 0; }}
-    canvas {{ display: block; width: 100% !important; height: 100% !important; }}
+    #wrap {{
+        position: fixed;
+        inset: 0;
+        width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        overflow: hidden !important;
+    }}
+    canvas {{
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+        max-width: 100vw !important;
+        max-height: 100vh !important;
+    }}
     /* HUD: minimal top status only */
     #hud {{
       position: fixed;
@@ -136,6 +150,14 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     import {{ OrbitControls }} from 'three/addons/controls/OrbitControls.js';
     import {{ GLTFLoader }} from 'three/addons/loaders/GLTFLoader.js';
     import {{ VRMLoaderPlugin, VRMUtils }} from '@pixiv/three-vrm';
+
+    // ── Hard-lock this iframe's document height ──
+    document.documentElement.style.setProperty('height', '100vh', 'important');
+    document.documentElement.style.setProperty('overflow', 'hidden', 'important');
+    document.body.style.setProperty('height', '100vh', 'important');
+    document.body.style.setProperty('overflow', 'hidden', 'important');
+    document.body.style.setProperty('max-height', '100vh', 'important');
+    
     const RAW_VRM_URLS = {vrm_urls!r};
     const VISEME_MAP = {{ A: 'aa', I: 'ih', U: 'ou', E: 'ee', O: 'oh' }};
     const VISEME_PRESETS = ['aa', 'ih', 'ou', 'ee', 'oh'];
@@ -266,8 +288,8 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
     let lastW = 0, lastH = 0;
     function resize() {{
-        const w = Math.max(1, canvas.parentElement?.clientWidth || window.innerWidth);
-        const h = Math.max(1, canvas.parentElement?.clientHeight || window.innerHeight);
+        const w = Math.max(1, Math.min(window.screen.width, canvas.clientWidth || window.innerWidth));
+        const h = Math.max(1, Math.min(window.screen.height, canvas.clientHeight || window.innerHeight));
         if (w === lastW && h === lastH) return;
         lastW = w; lastH = h;
         renderer.setSize(w, h, false);
