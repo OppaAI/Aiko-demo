@@ -8,6 +8,7 @@ from gradio import OAuthProfile
 import time
 import inspect
 import threading
+import queue
 import re
 
 load_dotenv()
@@ -44,7 +45,7 @@ VRM_URLS = gradio_file_urls(VRM_PATH)
 # ─────────────────────────────────────────────
 # SOUL PROMPT INJECTION
 # ─────────────────────────────────────────────
-SOUL_TEMPLATE_PATH = Path("persona/soul.md")  # adjust path if needed
+SOUL_TEMPLATE_PATH = Path("persona/soul.md")
 
 def build_soul_prompt(user_id: str) -> str:
     template = SOUL_TEMPLATE_PATH.read_text(encoding="utf-8")
@@ -80,81 +81,137 @@ def _split_ready_sentences(buffer: str):
 # ─────────────────────────────────────────────
 # STREAM CORE
 # ─────────────────────────────────────────────
+_DONE = object()  # sentinel
+
+
 def _stream_response(message: str, history: list):
+    """
+    Pipeline:
+      1. LLM streams tokens in background thread → sentence queue
+      2. Per sentence: TTS synthesis fires in background thread → audio queue
+      3. Gradio yields text+audio sentence by sentence as TTS completes
+      4. Chatbot shows text in sync with audio playback (sentence revealed
+         only when its audio is ready), input unlocks after all TTS done.
+    """
     history = list(history) + [
         {"role": "user", "content": message},
         {"role": "assistant", "content": "▋"},
     ]
-
     yield history, None, None
 
-    buffer = ""
-    full_text = ""
-    last_emitted = ""
+    # ── Stage 1: LLM → sentence queue ────────────────────────────────────────
+    sentence_q: queue.Queue = queue.Queue()
+    llm_error = {}
 
-    done = threading.Event()
-    error = {}
+    def _llm_thread():
+        buffer = ""
+        full_text = ""
 
-    def _cb(token):
-        nonlocal buffer, full_text
+        def _cb(token):
+            nonlocal buffer, full_text
+            if token.startswith("__SEARCHING__:"):
+                q = token.split(":", 1)[1]
+                note = f"\n🔍 Searching: *{q}*\n"
+                buffer += note
+                full_text += note
+            elif token.startswith("__TOOL__:"):
+                note = token.split(":", 1)[1]
+                display = f"\n🔧 {note}\n"
+                buffer += display
+                full_text += display
+            else:
+                buffer += token
+                full_text += token
 
-        if token.startswith("__SEARCHING__:"):
-            q = token.split(":", 1)[1]
-            note = f"\n🔍 Searching: *{q}*\n"
-            buffer += note
-            full_text += note
-        elif token.startswith("__TOOL__:"):
-            note = token.split(":", 1)[1]
-            display = f"\n🔧 {note}\n"
-            buffer += display
-            full_text += display
-        else:
-            buffer += token
-            full_text += token
+            # Push complete sentences into queue as they arrive
+            sentences, new_buf = _split_ready_sentences(buffer)
+            buffer = new_buf
+            for s in sentences:
+                sentence_q.put(("sentence", s, full_text))
 
-    def _run():
         try:
             think.chat(message, token_callback=_cb)
         except Exception as e:
-            error["e"] = e
+            llm_error["e"] = e
         finally:
-            done.set()
+            # Flush remaining buffer
+            if buffer.strip():
+                sentence_q.put(("sentence", buffer.strip(), full_text))
+            sentence_q.put(("done", full_text, full_text))
 
-    threading.Thread(target=_run, daemon=True).start()
+    threading.Thread(target=_llm_thread, daemon=True).start()
 
-    while not done.is_set() or full_text != last_emitted:
+    # ── Stage 2: sentence → TTS queue (parallel synthesis) ───────────────────
+    # Each sentence slot: (sentence_text, full_text_so_far, audio_queue)
+    # Audio synthesis fires immediately when sentence is ready; we drain
+    # in order so playback is sequential.
+    slots: list[tuple[str, str, queue.Queue]] = []
+    llm_done = threading.Event()
+    final_text = [""]
 
-        # STREAM TEXT (ONLY CHATBOT UPDATED)
-        if full_text != last_emitted:
-            history[-1]["content"] = full_text + ("▋" if not done.is_set() else "")
-            last_emitted = full_text
-            yield history, None, None
+    def _tts_worker(sentence: str, full_text: str, slot: queue.Queue):
+        clean = _strip_for_speech(sentence)
+        if not clean:
+            slot.put((None, "neutral", sentence, full_text))
+            return
+        audio, emotion = speak_to_file(clean)
+        slot.put((audio, emotion, sentence, full_text))
 
-        # TTS PER SENTENCE
-        sentences, buffer = _split_ready_sentences(buffer)
+    # Collect sentences and fire TTS threads
+    def _dispatch_thread():
+        while True:
+            kind, sentence, full_text = sentence_q.get()
+            if kind == "done":
+                final_text[0] = full_text
+                llm_done.set()
+                break
+            slot: queue.Queue = queue.Queue(maxsize=1)
+            slots.append(slot)
+            threading.Thread(
+                target=_tts_worker,
+                args=(sentence, full_text, slot),
+                daemon=True,
+            ).start()
 
-        for s in sentences:
-            clean = _strip_for_speech(s)
-            if not clean:
-                continue
+    threading.Thread(target=_dispatch_thread, daemon=True).start()
 
-            audio, emotion = speak_to_file(clean)
-            yield history, f"EMOTION:{emotion}|{clean}", audio
+    # ── Stage 3: drain slots in order, yield text+audio together ─────────────
+    # Show a "thinking" indicator while waiting for first sentence
+    displayed_text = ""
+    slot_idx = 0
 
-        time.sleep(0.03)
+    while True:
+        # Check if new slots have appeared
+        if slot_idx < len(slots):
+            slot = slots[slot_idx]
+            audio, emotion, sentence, full_text_snapshot = slot.get()  # blocks until TTS done
 
-    # FINAL FLUSH
-    if buffer.strip():
-        clean = _strip_for_speech(buffer)
-        if clean:
-            audio, emotion = speak_to_file(clean)
-            yield history, f"EMOTION:{emotion}|{clean}", audio
+            # Reveal this sentence's text in sync with its audio
+            displayed_text += sentence + " "
+            history[-1]["content"] = displayed_text.strip()
 
-    if error:
-        raise error["e"]
+            yield (
+                history,
+                f"EMOTION:{emotion}|{_strip_for_speech(sentence)}",
+                audio,
+            )
+            slot_idx += 1
 
-    history[-1]["content"] = full_text
+        elif llm_done.is_set() and slot_idx >= len(slots):
+            # All sentences dispatched and drained
+            break
+        else:
+            # Still waiting for more sentences or TTS
+            time.sleep(0.05)
+
+    # Final cleanup — ensure full text is shown (covers edge case of no sentences)
+    if final_text[0] and history[-1]["content"] != final_text[0]:
+        history[-1]["content"] = final_text[0]
+
     yield history, None, None
+
+    if llm_error:
+        raise llm_error["e"]
 
 
 # ─────────────────────────────────────────────
@@ -217,7 +274,6 @@ def _check_login(profile: OAuthProfile | None):
 # ─────────────────────────────────────────────
 with gr.Blocks(
     title="Aiko-chan 🌸",
-    #fill_height=True,
     css=AIKO_CSS
 ) as demo:
 
@@ -266,6 +322,7 @@ with gr.Blocks(
                         height=600,
                         show_label=False,
                         container=False,
+                        type="messages",
                     )
 
                 with gr.Row(elem_id="aiko-input-row"):
@@ -289,12 +346,11 @@ with gr.Blocks(
                     mic_audio = gr.Audio(
                         sources=["microphone"],
                         type="filepath",
-                        #visible=False,
                         elem_id="aiko-mic-audio",
                     )
 
     # ─────────────────────────────────────────────
-    # EVENTS (CLEAN + STABLE)
+    # EVENTS
     # ─────────────────────────────────────────────
     demo.load(
         _check_login,
@@ -327,11 +383,6 @@ with gr.Blocks(
             try {
                 const container = document.querySelector('#aiko-mic-audio');
                 if (!container) { console.log('NO CONTAINER'); return; }
-                const buttons = container.querySelectorAll('button');
-                console.log('BUTTON COUNT:', buttons.length);
-                buttons.forEach((b, i) => console.log(i, b.outerHTML));
-
-                // Find by class instead of index — more robust
                 const recordBtn = container.querySelector('button.record-button');
                 if (recordBtn) {
                     recordBtn.click();
