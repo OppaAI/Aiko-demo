@@ -376,17 +376,6 @@ with gr.Blocks(
     #    }
     #}
     #""")
-    
-    demo.load(fn=None, js="""
-    () => {
-        setInterval(() => {
-            console.log(
-                "overlays:",
-                document.querySelectorAll('#aiko-login-overlay').length
-            );
-        }, 2000);
-    }
-    """)
 
     demo.load(fn=None, js="""
     () => {
