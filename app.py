@@ -322,7 +322,7 @@ with gr.Blocks(
                         height=600,
                         show_label=False,
                         container=False,
-                        type="messages",
+                        #type="messages",
                     )
 
                 with gr.Row(elem_id="aiko-input-row"):
