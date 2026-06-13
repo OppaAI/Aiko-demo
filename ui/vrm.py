@@ -1,4 +1,3 @@
-from _typeshed import xml
 from __future__ import annotations
 
 import html
