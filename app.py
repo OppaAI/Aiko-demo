@@ -377,8 +377,10 @@ with gr.Blocks(
 
     with gr.Column(elem_id="aiko-shell", elem_classes=["locked"]) as main_shell:
 
-        gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
-
+        gr.HTML(
+            "<div id='aiko-title'>🌸 Aiko-chan</div>",
+            padding=False,
+        )
         with gr.Row(equal_height=True):
 
             with gr.Column(scale=1, elem_id="aiko-avatar-card"):

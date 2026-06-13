@@ -77,6 +77,34 @@ div[class*="status"] {
   min-height: unset !important;
   overflow: hidden !important;
 }
+/* ── Kill Gradio 6.x padding on shell direct children ──────────────── */
+#aiko-shell > .block,
+#aiko-shell > .block.padded,
+#aiko-shell > div > .block,
+#aiko-shell > div > .block.padded {
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: unset !important;
+  height: auto !important;
+}
+#aiko-shell .html-container {
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: unset !important;
+}
+#aiko-shell .auto-margin {
+  margin: 0 !important;
+}
+/* ── Shell unlocked state ───────────────────────────────────────────── */
+#aiko-shell:not(.locked),
+#aiko-shell:not(.locked) > div,
+#aiko-shell:not(.locked) > .block,
+#aiko-shell:not(.locked) > div > div {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  min-height: unset !important;
+  overflow: hidden !important;
+}
 /* ── Main row containment ───────────────────────────────────────────── */
 #aiko-shell > .block > div,
 #aiko-shell .gap,
