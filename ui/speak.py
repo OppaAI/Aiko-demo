@@ -21,10 +21,12 @@ EDGE_TTS_PITCH = os.getenv("EDGE_TTS_PITCH", "+0Hz")
 # URL of your deployed Modal MioTTS endpoint.
 # Set MIOTTS_URL in your environment / Gradio Space secrets to enable MioTTS.
 # Leave it unset (or empty) to fall back to edge-tts.
+# Example: https://oppa-ai-org--miotts-ttsserver-serve.modal.run
 MIOTTS_URL = os.getenv("MIOTTS_URL", "").rstrip("/")
 
-# Optional: preset_id registered in run_server.py via /presets
-MIOTTS_PRESET_ID = os.getenv("MIOTTS_PRESET_ID", "")
+# Preset ID registered in MioTTS via register_preset_cli.
+# e.g. "Aiko" or "jp_female"
+MIOTTS_PRESET_ID = os.getenv("MIOTTS_PRESET_ID", "jp_female")
 
 # ── Emoji → VRM expression name ───────────────────────────────────────────────
 _EMOJI_EMOTION: dict[str, str] = {
@@ -118,17 +120,29 @@ async def _edge_tts_to_file(text: str, out_path: Path) -> None:
 
 
 def _miotts_to_file(text: str, out_path: Path) -> None:
+    """Call MioTTS /v1/tts/file (multipart/form-data) → write WAV then convert to MP3."""
     import httpx
     from pydub import AudioSegment
     import io
 
-    payload: dict = {"text": text}
-    if MIOTTS_PRESET_ID:
-        payload["preset_id"] = MIOTTS_PRESET_ID
+    # /v1/tts/file accepts multipart form fields:
+    #   text                — required
+    #   reference_preset_id — preset name registered via register_preset_cli
+    #   output_format       — "wav" returns raw audio/wav bytes directly
+    data = {
+        "text": text,
+        "reference_preset_id": MIOTTS_PRESET_ID,
+        "output_format": "wav",
+    }
 
-    resp = httpx.post(f"{MIOTTS_URL}/synthesize", json=payload, timeout=60)
+    resp = httpx.post(
+        f"{MIOTTS_URL}/v1/tts/file",
+        data=data,
+        timeout=120,
+    )
     resp.raise_for_status()
 
+    # Response is raw WAV bytes (audio/wav) — convert to MP3 for Gradio browser playback
     wav_bytes = io.BytesIO(resp.content)
     audio = AudioSegment.from_wav(wav_bytes)
     audio.export(str(out_path), format="mp3")
@@ -143,6 +157,7 @@ def _synth_to_file(clean: str) -> str | None:
         if MIOTTS_URL:
             _miotts_to_file(clean[:4000], out_path)
         else:
+            # Fallback: edge-tts (English only, strips non-ASCII)
             clean_ascii = re.sub(r'[^\x00-\x7F]+', ' ', clean).strip()
             if not clean_ascii:
                 return None
