@@ -324,7 +324,7 @@ AIKO_CSS += r"""
 
 #aiko-login-card {
   width: min(380px, 90vw);
-  max-height: 70vh;
+  max-height: 50vh;
   overflow-y: auto;
   padding: 20px 24px;
   border-radius: 18px;
