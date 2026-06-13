@@ -56,9 +56,10 @@ div[class*="status"] {
   max-width: 1180px;
   margin: 0 auto;
   padding: 0 12px 12px;
-  height: 100vh;
-  max-height: 100vh;
-  overflow: hidden;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
 }
 
 #aiko-shell.locked {
@@ -103,18 +104,22 @@ div:has(> div > #aiko-shell) {
 
 /* ── Avatar card ───────────────────────────────────────────────────── */
 #aiko-avatar-card,
+#aiko-avatar-card > div,
 #aiko-avatar-card .html-container,
 #aiko-avatar-card .prose {
+  position: relative;
   height: calc(100vh - 70px) !important;
   max-height: calc(100vh - 70px) !important;
+  min-height: 0 !important;
   overflow: hidden !important;
 }
 
 #aiko-vrm-frame {
   display: block;
   width: 100%;
-  height: 100% !important;
-  max-height: 100% !important;
+  height: calc(100vh - 70px) !important;
+  max-height: calc(100vh - 70px) !important;
+  min-height: 0 !important;
   border: 0;
   background: #080810;
 }
@@ -388,7 +393,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   width: 100vw !important;
   height: 100vh !important;
   z-index: 9999 !important;
-  display: flex !important;
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -397,6 +402,14 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 }
 
 #aiko-login-overlay.hidden {
+  display: none !important;
+}
+
+#aiko-login-overlay.hide,
+#aiko-login-overlay[hidden],
+#aiko-login-overlay[style*="display: none"],
+div:has(> #aiko-login-overlay[hidden]),
+div:has(> #aiko-login-overlay.hide) {
   display: none !important;
 }
 

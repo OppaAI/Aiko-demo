@@ -302,9 +302,11 @@ HEIGHT_LOCK_JS = """
 
 
 # ─────────────────────────────────────────────
-# UI — fill_height/fill_width REMOVED
+# UI
 # ─────────────────────────────────────────────
 with gr.Blocks(
+    fill_height=True,
+    fill_width=True,
     css=AIKO_CSS,
     title="Aiko-chan 🌸"
 ) as demo:
