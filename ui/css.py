@@ -61,6 +61,8 @@ div[class*="status"] {
   height: 100vh;
   max-height: 100vh;
   overflow: hidden;
+  flex-grow: 0 !important;
+  min-width: unset !important;
 }
 #aiko-shell.locked {
   display: none !important;
