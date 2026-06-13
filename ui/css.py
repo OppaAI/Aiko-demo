@@ -8,14 +8,12 @@ AIKO_CSS = r"""
   --aiko-user: #9be8ff;
   --aiko-bot: #d8c8ff;
 }
-
 html, body, .gradio-container, main, footer {
   background: radial-gradient(circle at top, #1b1432 0, var(--aiko-bg) 44%, #050509 100%) !important;
   color: var(--aiko-text) !important;
   margin: 0 !important;
   padding: 0 !important;
 }
-
 /* Lock everything to viewport — no min-height, no growth */
 html,
 body,
@@ -29,11 +27,16 @@ main {
   overflow: hidden !important;
   transform: none !important;
 }
-
+/* Kill Gradio inner flex growth */
+.gradio-container .flex-col,
+.gradio-container > div,
+.gradio-container .overflow-y-auto {
+  min-height: unset !important;
+  overflow: hidden !important;
+}
 .gradio-container *, .gradio-container .prose, .gradio-container label {
   color: var(--aiko-text);
 }
-
 /* ── Hide Gradio loading/progress bar ──────────────────────────────── */
 #cosmos-spinner,
 .progress-bar,
@@ -50,46 +53,18 @@ div[class*="status"] {
   opacity: 0 !important;
   visibility: hidden !important;
 }
-
 /* ── Shell ─────────────────────────────────────────────────────────── */
 #aiko-shell {
   max-width: 1180px;
   margin: 0 auto;
   padding: 0 12px 12px;
-  height: 100vh !important;
-  max-height: 100vh !important;
-  min-height: 0 !important;
-  overflow: hidden !important;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
 }
-
 #aiko-shell.locked {
   display: none !important;
 }
-/* ── Constrain Gradio column wrappers around the shell ─────────────── */
-#aiko-shell > div,
-#aiko-shell > .block,
-div:has(> #aiko-shell),
-div:has(> div > #aiko-shell) {
-  height: 100vh !important;
-  max-height: 100vh !important;
-  min-height: 0 !important;
-  overflow: hidden !important;
-  flex: 1 1 0 !important;
-}
-
-/* ── Gradio wraps gr.Row/gr.Column in gap divs — kill their growth ─── */
-#aiko-shell .gap,
-#aiko-shell [class*="gap"],
-#aiko-shell > .flex,
-#aiko-shell > [class*="flex"],
-#aiko-shell > div > .block {
-  height: 100% !important;
-  max-height: 100% !important;
-  min-height: 0 !important;
-  overflow: hidden !important;
-  flex: 1 1 0 !important;
-}
-
 /* ── Title header ──────────────────────────────────────────────────── */
 #aiko-title {
   display: block;
@@ -101,29 +76,22 @@ div:has(> div > #aiko-shell) {
   padding: 10px 8px 10px;
   text-align: left;
 }
-
 /* ── Avatar card ───────────────────────────────────────────────────── */
 #aiko-avatar-card,
-#aiko-avatar-card > div,
 #aiko-avatar-card .html-container,
 #aiko-avatar-card .prose {
-  position: relative;
   height: calc(100vh - 70px) !important;
   max-height: calc(100vh - 70px) !important;
-  min-height: 0 !important;
   overflow: hidden !important;
 }
-
 #aiko-vrm-frame {
   display: block;
   width: 100%;
-  height: calc(100vh - 70px) !important;
-  max-height: calc(100vh - 70px) !important;
-  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
   border: 0;
   background: #080810;
 }
-
 /* ── TTS textbox: hidden from layout entirely ──────────────────────── */
 #aiko-tts-text,
 #aiko-tts-text.block,
@@ -135,7 +103,6 @@ div:has(> div > #aiko-tts-text) {
   margin: 0 !important;
   padding: 0 !important;
 }
-
 /* ── Audio: collapsed from layout flow ─────────────────────────────── */
 #aiko-audio,
 #aiko-audio > *,
@@ -156,7 +123,6 @@ div:has(> div > #aiko-audio) {
   pointer-events: none !important;
   visibility: hidden !important;
 }
-
 /* ── Emotion label ─────────────────────────────────────────────────── */
 #aiko-emotion-label {
   position: absolute;
@@ -172,13 +138,11 @@ div:has(> div > #aiko-audio) {
   pointer-events: none;
   transition: opacity 0.4s ease;
 }
-
 #aiko-emotion-label ~ #aiko-emotion-label,
 body > #aiko-emotion-label,
 .gradio-container > #aiko-emotion-label {
   display: none !important;
 }
-
 /* ── Hide Gradio chatbot action buttons ────────────────────────────── */
 #aiko-chatbot .message-buttons,
 #aiko-chatbot .icon-button,
@@ -194,7 +158,6 @@ body > #aiko-emotion-label,
 #aiko-chatbot [class*="buttons"] {
   display: none !important;
 }
-
 /* ── Chat overlay ──────────────────────────────────────────────────── */
 #aiko-chat-overlay {
   position: absolute;
@@ -210,12 +173,10 @@ body > #aiko-emotion-label,
   z-index: 5;
   overflow: hidden;
 }
-
 #aiko-chatbot,
 #aiko-chatbot * {
   pointer-events: auto !important;
 }
-
 /* Kill Gradio backgrounds/borders on chatbot */
 #aiko-chatbot,
 #aiko-chatbot > div,
@@ -243,7 +204,6 @@ body > #aiko-emotion-label,
   border: none !important;
   box-shadow: none !important;
 }
-
 #aiko-chatbot.block,
 #aiko-chatbot .block,
 div:has(> #aiko-chatbot) {
@@ -253,7 +213,6 @@ div:has(> #aiko-chatbot) {
   box-shadow: none !important;
   padding: 0 !important;
 }
-
 #aiko-chatbot {
   overflow-y: auto !important;
   scrollbar-width: thin;
@@ -268,7 +227,6 @@ div:has(> #aiko-chatbot) {
   background: rgba(182,140,255,0.35);
   border-radius: 4px;
 }
-
 #aiko-chatbot .message,
 #aiko-chatbot .bubble,
 #aiko-chatbot [data-testid="bot"],
@@ -280,18 +238,15 @@ div:has(> #aiko-chatbot) {
   text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 16px rgba(100,60,180,0.45);
   max-width: 100% !important;
 }
-
 #aiko-chatbot p,
 #aiko-chatbot .md p {
   margin: 0 0 2px 0 !important;
 }
-
 #aiko-chatbot .message-row,
 #aiko-chatbot [class*="message-row"] {
   margin-bottom: 2px !important;
   padding: 0 !important;
 }
-
 #aiko-chatbot [data-testid="user"],
 #aiko-chatbot [data-testid="user"] * {
   color: var(--aiko-user) !important;
@@ -301,7 +256,6 @@ div:has(> #aiko-chatbot) {
 #aiko-chatbot [data-testid="bot"] * {
   color: var(--aiko-bot) !important;
 }
-
 /* ── Input row ─────────────────────────────────────────────────────── */
 #aiko-input-row {
   position: absolute;
@@ -314,12 +268,10 @@ div:has(> #aiko-chatbot) {
   z-index: 6;
   flex-wrap: nowrap;
 }
-
 #aiko-msg {
   flex: 1 1 auto;
   min-width: 0;
 }
-
 #aiko-msg,
 #aiko-msg > div,
 #aiko-msg .wrap,
@@ -330,7 +282,6 @@ div:has(> #aiko-chatbot) {
   box-shadow: none !important;
   padding: 0 !important;
 }
-
 #aiko-msg textarea,
 #aiko-msg input {
   background: transparent !important;
@@ -342,7 +293,6 @@ div:has(> #aiko-chatbot) {
   min-height: 42px !important;
 }
 textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important; }
-
 #aiko-send,
 #aiko-send button {
   background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
@@ -359,7 +309,6 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   justify-content: center !important;
   flex-shrink: 0;
 }
-
 #aiko-mic-btn,
 #aiko-mic-btn button {
   background: rgba(118, 82, 214, 0.25) !important;
@@ -378,13 +327,10 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   align-items: center !important;
   justify-content: center !important;
 }
-
 #aiko-mic-audio { display: none !important; }
-
 #aiko-note { display: none; }
 .gradio-container footer { display: none !important; }
 .hide { display: none !important; }
-
 /* ── Login overlay ─────────────────────────────────────────────────── */
 #aiko-login-overlay {
   position: fixed !important;
@@ -393,26 +339,18 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   width: 100vw !important;
   height: 100vh !important;
   z-index: 9999 !important;
-  display: flex;
+  display: flex !important;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 16px;
   background: #0d0d1a;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
-
 #aiko-login-overlay.hidden {
   display: none !important;
 }
-
-#aiko-login-overlay.hide,
-#aiko-login-overlay[hidden],
-#aiko-login-overlay[style*="display: none"],
-div:has(> #aiko-login-overlay[hidden]),
-div:has(> #aiko-login-overlay.hide) {
-  display: none !important;
-}
-
 #aiko-login-overlay h1 {
   margin: 0;
   font-size: 1.6rem;
@@ -422,7 +360,6 @@ div:has(> #aiko-login-overlay.hide) {
   color: #ecdeff;
   text-shadow: 0 0 18px rgba(155, 124, 255, .55);
 }
-
 #aiko-login-overlay .aiko-subtitle {
   margin: 0;
   font-size: 0.78rem;
@@ -430,19 +367,18 @@ div:has(> #aiko-login-overlay.hide) {
   color: var(--aiko-muted);
   text-transform: uppercase;
 }
-
 #aiko-login-overlay .aiko-disclaimer {
   margin: 0 auto;
   max-width: 360px;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   line-height: 1.6;
-  color: #c084fc;
+  color: var(--aiko-accent);
+  opacity: 0.85;
   text-align: center;
   font-style: italic;
   padding: 14px 24px 0;
   border-top: 1px solid rgba(182, 140, 255, 0.12);
 }
-
 /* Constrain the LoginButton and all its Gradio wrappers */
 #aiko-login-overlay > div,
 #aiko-login-overlay > div > div,
@@ -452,8 +388,10 @@ div:has(> #aiko-login-overlay.hide) {
   min-width: unset !important;
   max-width: 280px !important;
   flex-shrink: 0;
+  min-height: unset !important;
+  height: auto !important;
+  overflow: visible !important;
 }
-
 #aiko-login-overlay button {
   background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
   border: 0 !important;
