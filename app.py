@@ -81,12 +81,15 @@ def _get_response(message: str, history: list):
        The iframe JS will typewrite the text into the chatbot bubble in sync
        with the audio duration.
 
-    History format: list of (user_str, assistant_str) tuples — Gradio 6.x
-    tuple format (type= arg removed in 6.x).
+    History format: list of {"role": ..., "content": ...} dicts — Gradio 6.x
+    messages format (tuple format removed in 6.x).
     """
-    # Tuple format: (user_msg, assistant_msg)
+    # Messages format: append user turn + a placeholder assistant turn
     # ▋ as thinking cursor in the assistant slot
-    history = list(history) + [(message, "▋")]
+    history = list(history) + [
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": "▋"},
+    ]
     yield history, None, None
 
     # ── Stage 1: full LLM completion ─────────────────────────────────────────
@@ -119,7 +122,7 @@ def _get_response(message: str, history: list):
     # ── Stage 3: signal the iframe to typewrite text in sync with audio ───────
     # Assistant bubble starts empty — JS typewriter fills it in sync with audio.
     # Format: TYPEWRITE:<emotion>|<display_text>
-    history[-1] = (message, "")  # blank assistant side; JS owns it from here
+    history[-1] = {"role": "assistant", "content": ""}  # JS owns it from here
 
     signal = f"TYPEWRITE:{emotion}|{display_text}"
     yield history, signal, audio_path
@@ -181,7 +184,6 @@ def _check_login(profile: OAuthProfile | None):
 # ─────────────────────────────────────────────
 with gr.Blocks(
     title="Aiko-chan 🌸",
-    css=AIKO_CSS
 ) as demo:
 
     user_id_state = gr.State(value="Guest")
@@ -229,7 +231,7 @@ with gr.Blocks(
                         height=600,
                         show_label=False,
                         container=False,
-                        #type="messages",
+                        type="messages",
                     )
 
                 with gr.Row(elem_id="aiko-input-row"):
@@ -352,11 +354,17 @@ with gr.Blocks(
             window._aikoLatestTtsText = fullText;
 
             // ── 2. Find the last assistant bubble in the chatbot ──────────
-            // Gradio 4/5 uses .message.bot; Gradio 3 uses .bot.
-            // We look for the last rendered bot bubble's inner paragraph.
+            // Gradio 6 "messages" format markup. We look for the last
+            // rendered bot bubble's inner paragraph, trying several
+            // selector variants since exact class names can shift
+            // between Gradio 5.x and 6.x.
             function getLastBubble() {
-                // Try Gradio 4/5 messages format first
                 const bubbles = document.querySelectorAll(
+                    '#aiko-chatbot [data-testid="bot"] .message-content p, ' +
+                    '#aiko-chatbot [data-testid="bot"] .prose p, ' +
+                    '#aiko-chatbot .message.bot .message-content p, ' +
+                    '#aiko-chatbot .message.bot .prose p, ' +
+                    '#aiko-chatbot .bot .prose p, ' +
                     '#aiko-chatbot .message.bot p, ' +
                     '#aiko-chatbot [data-testid="bot"] p, ' +
                     '#aiko-chatbot .bot p'
@@ -458,4 +466,5 @@ demo.launch(
     ssr_mode=False,
     share=False,
     allowed_paths=allowed_paths,
+    css=AIKO_CSS,
 )
