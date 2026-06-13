@@ -324,15 +324,16 @@ with gr.Blocks(
         None,
         js="""
         () => {
-            const container = document.querySelector('#aiko-mic-audio');
-            if (!container) { console.log('no container'); return; }
-            const buttons = container.querySelectorAll('button');
-            console.log('found buttons:', buttons.length, [...buttons].map(b => b.outerHTML));
-            // try the mic/source-select button specifically
-            const micBtn = container.querySelector('button[aria-label*="microphone" i]')
-                        || container.querySelector('button[aria-label*="Record" i]')
-                        || buttons[0];
-            if (micBtn) micBtn.click();
+            try {
+                const container = document.querySelector('#aiko-mic-audio');
+                if (!container) { console.log('NO CONTAINER'); return; }
+                const buttons = container.querySelectorAll('button');
+                console.log('BUTTON COUNT:', buttons.length);
+                buttons.forEach((b, i) => console.log(i, b.outerHTML));
+                if (buttons[0]) buttons[0].click();
+            } catch (e) {
+                console.log('ERROR:', e.message, e.stack);
+            }
         }
         """
     )
