@@ -266,13 +266,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
     let lastW = 0, lastH = 0;
     function resize() {{
-      const w = Math.max(1, window.innerWidth);
-      const h = Math.max(1, window.innerHeight);
-      if (w === lastW && h === lastH) return;
-      lastW = w; lastH = h;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
+        const w = Math.max(1, canvas.parentElement?.clientWidth || window.innerWidth);
+        const h = Math.max(1, canvas.parentElement?.clientHeight || window.innerHeight);
+        if (w === lastW && h === lastH) return;
+        lastW = w; lastH = h;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
     }}
     addEventListener('resize', resize);
     function setExpression(name, weight = 1) {{
