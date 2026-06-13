@@ -300,7 +300,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   justify-content: center !important;
 }
 /* Hide the hidden recorder entirely from layout */
-#aiko-mic-audio { display: none !important; }
+#aiko-mic-audio { display: none; }
 #aiko-note { display: none; }
 .gradio-container footer { display: none !important; }
 .hide { display: none !important; }

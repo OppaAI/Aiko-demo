@@ -289,7 +289,7 @@ with gr.Blocks(
                     mic_audio = gr.Audio(
                         sources=["microphone"],
                         type="filepath",
-                        visible=False,
+                        #visible=False,
                         elem_id="aiko-mic-audio",
                     )
 
