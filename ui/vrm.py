@@ -135,10 +135,10 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     document.body.style.setProperty('max-height', '100vh', 'important');
 
     const RAW_VRM_URLS  = {vrm_urls!r};
-    const VISEME_MAP    = {{ A: 'aa', I: 'ih', U: 'ou', E: 'ee', O: 'oh' }};
-    const VISEME_PRESETS = ['aa', 'ih', 'ou', 'ee', 'oh'];
+    const VISEME_MAP    = {{ A: 'ih', I: 'ih', U: 'ou', E: 'ee', O: 'oh' }};
+    const VISEME_PRESETS = ['ih', 'ou', 'ee', 'oh'];
     const TEXT_VISEME_MAP = {{
-      a: 'aa', á: 'aa', à: 'aa', â: 'aa', ä: 'aa', あ: 'aa', ア: 'aa', か: 'aa', カ: 'aa', さ: 'aa', サ: 'aa', た: 'aa', タ: 'aa', な: 'aa', ナ: 'aa', は: 'aa', ハ: 'aa', ま: 'aa', マ: 'aa', や: 'aa', ヤ: 'aa', ら: 'aa', ラ: 'aa', わ: 'aa', ワ: 'aa',
+      a: 'ih', á: 'ih', à: 'ih', â: 'ih', ä: 'ih', あ: 'ih', ア: 'ih', か: 'ih', カ: 'ih', さ: 'ih', サ: 'ih', た: 'ih', タ: 'ih', な: 'ih', ナ: 'ih', は: 'ih', ハ: 'ih', ま: 'ih', マ: 'ih', や: 'ih', ヤ: 'ih', ら: 'ih', ラ: 'ih', わ: 'ih', ワ: 'ih',
       i: 'ih', í: 'ih', ì: 'ih', î: 'ih', ï: 'ih', y: 'ih', い: 'ih', イ: 'ih', き: 'ih', キ: 'ih', し: 'ih', シ: 'ih', ち: 'ih', チ: 'ih', に: 'ih', ニ: 'ih', ひ: 'ih', ヒ: 'ih', み: 'ih', ミ: 'ih', り: 'ih', リ: 'ih',
       u: 'ou', ú: 'ou', ù: 'ou', û: 'ou', ü: 'ou', う: 'ou', ウ: 'ou', く: 'ou', ク: 'ou', す: 'ou', ス: 'ou', つ: 'ou', ツ: 'ou', ぬ: 'ou', ヌ: 'ou', ふ: 'ou', フ: 'ou', む: 'ou', ム: 'ou', ゆ: 'ou', ユ: 'ou', る: 'ou', ル: 'ou',
       e: 'ee', é: 'ee', è: 'ee', ê: 'ee', ë: 'ee', え: 'ee', エ: 'ee', け: 'ee', ケ: 'ee', せ: 'ee', セ: 'ee', て: 'ee', テ: 'ee', ね: 'ee', ネ: 'ee', へ: 'ee', ヘ: 'ee', め: 'ee', メ: 'ee', れ: 'ee', レ: 'ee',
@@ -252,10 +252,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (persistent) persistentEmotion = name;
     }}
 
-    function setMouth(weight, viseme = 'aa') {{
+    function setMouth(weight, viseme = 'ih') {{
       if (!vrm) return;
       const clamped = Math.max(0, Math.min(1, Number(weight) || 0));
-      const preset  = VISEME_MAP[viseme] ?? viseme ?? 'aa';
+      let preset  = VISEME_MAP[viseme] ?? viseme ?? 'ih';
+      if (preset === 'aa') preset = 'ih'; // Disable 'aa' completely due to chin artifact
       let usedExpression = false;
       if (vrm.expressionManager) {{
         for (const k of VISEME_PRESETS) {{
@@ -277,7 +278,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       }}
     }}
 
-    function clearMouth() {{ setMouth(0, 'aa'); }}
+    function clearMouth() {{ setMouth(0, 'ih'); }}
 
     function setStatus(mode) {{
       const nextMode = String(mode || 'idle').toLowerCase();
@@ -321,7 +322,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function textToVisemes(text) {{
       const tokens = [];
-      let lastViseme = 'aa';
+      let lastViseme = 'ih';
       for (const rawChar of String(text || '').toLowerCase()) {{
         const viseme = TEXT_VISEME_MAP[rawChar];
         if (viseme) {{
@@ -333,7 +334,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
           tokens.push({{ viseme: lastViseme, weight: 0.28 }});
         }}
       }}
-      return tokens.length ? tokens : [{{ viseme: 'aa', weight: 0.25 }}];
+      return tokens.length ? tokens : [{{ viseme: 'ih', weight: 0.25 }}];
     }}
 
     function setSpeechText(text, duration = null) {{
@@ -349,16 +350,21 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function currentTextMouth(now) {{
       if (!speechVisemes.length) return null;
-      const audioDuration = lastAudio && Number.isFinite(lastAudio.duration) && lastAudio.duration > 0
-        ? lastAudio.duration : speechDuration;
-      const duration  = Math.max(0.25, audioDuration || speechDuration || 1);
       const elapsed   = lastAudio && !lastAudio.paused
         ? lastAudio.currentTime
         : (now - speechStartedAt) / 1000;
+
+      // Realistic syllable rate independent of text length
+      const syllablesPerSecond = 4.0;
+      const syllablePhase = Math.sin(elapsed * syllablesPerSecond * Math.PI);
+      
+      const audioDuration = lastAudio && Number.isFinite(lastAudio.duration) && lastAudio.duration > 0
+        ? lastAudio.duration : speechDuration;
+      const duration  = Math.max(0.25, audioDuration || speechDuration || 1);
       const progress  = Math.max(0, Math.min(0.999, elapsed / duration));
       const index     = Math.min(speechVisemes.length - 1, Math.floor(progress * speechVisemes.length));
       const token     = speechVisemes[index];
-      const syllablePhase = Math.sin(progress * speechVisemes.length * Math.PI);
+      
       return {{
         viseme: token.viseme,
         weight: Math.max(0, Math.min(1, token.weight * (0.55 + Math.abs(syllablePhase) * 0.45))),
@@ -586,7 +592,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const rms    = Math.sqrt(sum / audioData.length);
       const gated  = Math.max(0, rms - 0.018);
       const target = Math.min(1, Math.pow(gated * 7.5, 0.72));
-      smoothedAudioMouth += (target - smoothedAudioMouth) * (target > smoothedAudioMouth ? 0.55 : 0.28);
+      smoothedAudioMouth += (target - smoothedAudioMouth) * (target > smoothedAudioMouth ? 0.25 : 0.15);
       return smoothedAudioMouth;
     }}
 

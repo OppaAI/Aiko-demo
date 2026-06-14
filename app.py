@@ -795,49 +795,27 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                         scrollChat();
                         return;
                     }
-                    const elapsed  = performance.now() - startTime;
-                    const shouldBe = Math.floor((elapsed / totalMs) * totalChars);
-                    i = Math.min(Math.max(shouldBe, 0), totalChars);
-
-                    typeTarget.textContent = i < totalChars
-                        ? fullText.slice(0, i) + '▋'
-                        : fullText;
-
-                    scrollChat();
-                    setTimeout(tick, perChar);
-                }
-
-                function onAudioReady(el) {
-                    if (!isUsableDuration(el.duration)) return;
-                    const elapsed   = performance.now() - startTime;
-                    const charsLeft = Math.max(1, totalChars - i);
-                    const timeLeft  = Math.max(100, el.duration * 1000 - elapsed);
-                    perChar = timeLeft / charsLeft;
-                    totalMs = el.duration * 1000;
-                }
-
-                if (audioEl) {
-                    if (isUsableDuration(audioEl.duration)) {
-                        onAudioReady(audioEl);
+                    
+                    let shouldBe = i;
+                    const a = document.querySelector('#aiko-audio audio');
+                    
+                    if (a && isUsableDuration(a.duration) && (!a.paused || a.currentTime > 0)) {
+                        const progress = Math.min(1, a.currentTime / a.duration);
+                        shouldBe = Math.floor(progress * totalChars);
+                        if (a.ended) shouldBe = totalChars;
                     } else {
-                        audioEl.addEventListener('loadedmetadata', function h() {
-                            audioEl.removeEventListener('loadedmetadata', h);
-                            onAudioReady(audioEl);
-                        });
+                        const elapsed = performance.now() - startTime;
+                        shouldBe = Math.floor((elapsed / totalMs) * totalChars);
                     }
-                } else {
-                    (function pollAudio() {
-                        const a = document.querySelector('#aiko-audio audio');
-                        if (!a) { setTimeout(pollAudio, 80); return; }
-                        if (isUsableDuration(a.duration)) {
-                            onAudioReady(a);
-                        } else {
-                            a.addEventListener('loadedmetadata', function h() {
-                                a.removeEventListener('loadedmetadata', h);
-                                onAudioReady(a);
-                            });
-                        }
-                    })();
+
+                    if (shouldBe > i) {
+                        i = Math.min(Math.max(shouldBe, 0), totalChars);
+                        typeTarget.textContent = i < totalChars
+                            ? fullText.slice(0, i) + '▋'
+                            : fullText;
+                        scrollChat();
+                    }
+                    requestAnimationFrame(tick);
                 }
 
                 tick();
