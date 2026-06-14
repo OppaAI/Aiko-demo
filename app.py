@@ -495,6 +495,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     if (btn) {
                         btn.style.boxShadow = '0 0 0 3px rgba(255,80,80,0.65)';
                         btn.classList.add('aiko-recording');
+                        btn.textContent = '■';
                     }
                     console.log('[aiko] recording started');
                 } catch (err) {
@@ -511,6 +512,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 if (btn) {
                     btn.style.boxShadow = 'none';
                     btn.classList.remove('aiko-recording');
+                    btn.textContent = '🎙️';
                 }
                 console.log('[aiko] recording stopped');
             }
