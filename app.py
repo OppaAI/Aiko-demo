@@ -347,6 +347,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 <br>
                 <p>Aiko is your AI companion — chat, ask questions, or just talk.</p>
                 <p>She's got her own personality, moods, and opinions, and she remembers context as you talk. Sometimes sweet, sometimes a little savage — never boring. And she'll give you an actual answer whenever she feels like it.</p>
+                <p>WARNING: Aiko is NOT good at keeping secrets, so don't tell her your personal information or passwords.</p>
                 <br>
                 <p><strong>Try asking:</strong></p>
                 <ul>
