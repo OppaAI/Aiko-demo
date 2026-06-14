@@ -279,8 +279,9 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   font-size: 1.2rem !important;
   color: var(--aiko-accent) !important;
 }
-/* Hidden recorder — zero layout footprint */
+/* Hidden recorder — rendered in DOM but zero visual footprint */
 #aiko-mic-audio {
+  display: block !important;
   position: absolute !important;
   opacity: 0 !important;
   pointer-events: none !important;

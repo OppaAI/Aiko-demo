@@ -246,6 +246,12 @@ def voice_chat(audio_path, history):
         yield h, tts, audio
 
 
+def _toggle_recording(recording):
+    new_recording = not recording
+    btn_label = "⏹️" if new_recording else "🎙️"
+    return new_recording, gr.update(value=btn_label), gr.update(recording=new_recording)
+
+
 # ─────────────────────────────────────────────
 # LOGIN HANDLER
 # ─────────────────────────────────────────────
@@ -361,8 +367,10 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         sources=["microphone"],
                         type="filepath",
                         elem_id="aiko-mic-audio",
-                        visible=False,
+                        visible="hidden",
                     )
+
+                    recording_state = gr.State(value=False)
 
     # ─────────────────────────────────────────────
     # EVENTS
@@ -398,38 +406,9 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
     )
 
     mic_btn.click(
-        None,
-        js="""
-        () => {
-            const micBtn = document.querySelector('#aiko-mic-btn button');
-            const audioContainer = document.querySelector('#aiko-mic-audio');
-            if (!audioContainer) return;
-
-            const isRecording = micBtn.dataset.recording === 'true';
-
-            if (!isRecording) {
-                const buttons = audioContainer.querySelectorAll('button');
-                buttons.forEach(b => {
-                    if (b.title?.toLowerCase().includes('record') ||
-                        b.getAttribute('aria-label')?.toLowerCase().includes('record')) {
-                        b.click();
-                    }
-                });
-                micBtn.textContent = '⏹️';
-                micBtn.dataset.recording = 'true';
-            } else {
-                const buttons = audioContainer.querySelectorAll('button');
-                buttons.forEach(b => {
-                    if (b.title?.toLowerCase().includes('stop') ||
-                        b.getAttribute('aria-label')?.toLowerCase().includes('stop')) {
-                        b.click();
-                    }
-                });
-                micBtn.textContent = '🎙️';
-                micBtn.dataset.recording = 'false';
-            }
-        }
-        """
+        _toggle_recording,
+        inputs=[recording_state],
+        outputs=[recording_state, mic_btn, mic_audio],
     )
 
     # ── Typewriter / lip-sync bridge ─────────────────────────────────────────
