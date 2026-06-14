@@ -1,5 +1,6 @@
 """Browser-upload ASR helper for the Gradio Space.
-The terminal listener captures local PulseAudio.  In Gradio/HF Spaces the browser
+
+The terminal listener captures local PulseAudio. In Gradio/HF Spaces the browser
 records the microphone and uploads a file, so this module transcribes that uploaded
 file by posting it to the Modal ASR endpoint (faster-whisper large-v3-turbo).
 Falls back to local faster-whisper when AIKO_ASR_URL is not set.
