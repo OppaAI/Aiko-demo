@@ -316,7 +316,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const explicit = Number(requestedDuration);
       if (Number.isFinite(explicit) && explicit > 0) return explicit;
       if (lastAudio && Number.isFinite(lastAudio.duration) && lastAudio.duration > 0) return lastAudio.duration;
-      return Math.max(1.0, Math.min(12, text.length * 0.075));
+      return Math.max(1.0, Math.min(12, text.length * 0.10));
     }}
 
     function textToVisemes(text) {{

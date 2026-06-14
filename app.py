@@ -466,7 +466,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             const fullText     = rest.slice(secondPipe + 2);
 
             const cleanLen = fullText.replace(/[*_#`]/g, '').length;
-            const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.067));
+            const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.060));
 
             // ── 0. Scroll helper ─────────────────────────────────────────────
             // Gradio 6.x may nest the actual scrollable element below
