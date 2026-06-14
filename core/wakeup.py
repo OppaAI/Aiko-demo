@@ -202,7 +202,7 @@ def _warmup_asr(
             import httpx
             with open(tmp_path, "rb") as f:
                 resp = httpx.post(
-                    f"{ASR_URL}/transcribe",
+                    ASR_URL,
                     files={"audio": ("warmup.wav", f, "audio/wav")},
                     timeout=180,  # cold Modal container can take a while to spin up
                 )
