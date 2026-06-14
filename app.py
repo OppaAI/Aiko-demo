@@ -397,13 +397,6 @@ Aiko is your AI companion — chat, ask questions, or just talk.
             const notesPrefix = parts[1] || '';
             const fullText    = parts[2] || '';
 
-            const firstPipe  = rest.indexOf('|');
-            const secondPipe = rest.indexOf('|', firstPipe + 1);
-
-            const emotion    = rest.slice(0, firstPipe);
-            // notesPrefix slot intentionally empty — kept for VRM compat
-            const fullText   = rest.slice(secondPipe + 1);
-
             // ── 1. VRM handoff ──────────────────────────────────────
             const iframe = document.querySelector('#aiko-vrm-frame');
             if (iframe?.contentWindow) {
