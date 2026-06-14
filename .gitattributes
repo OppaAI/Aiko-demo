@@ -37,3 +37,4 @@ Aiko.vrm filter=lfs diff=lfs merge=lfs -text
 static/HatsuneMikuNT.vrm filter=lfs diff=lfs merge=lfs -text
 static/Aiko1.vrm filter=lfs diff=lfs merge=lfs -text
 static/Miku.vrm filter=lfs diff=lfs merge=lfs -text
+static/harvard.wav filter=lfs diff=lfs merge=lfs -text
