@@ -97,6 +97,13 @@ _ANIME_TRIGGERS = re.compile(
     re.IGNORECASE,
 )
 
+_CAMERA_SEE_TRIGGERS = re.compile(
+    r"\b(look at (?:this|me|something)|see what|what(?: can)? you see|"
+    r"look around|open (?:the )?camera|take a (?:photo|picture|shot)|"
+    r"what's in front of you|can you see)\b",
+    re.IGNORECASE,
+)
+
 
 def is_search_intent(text: str)   -> bool: return bool(_SEARCH_TRIGGERS.search(text))
 def is_weather_intent(text: str)  -> bool: return bool(_WEATHER_TRIGGERS.search(text))
@@ -105,6 +112,8 @@ def is_currency_intent(text: str) -> bool: return bool(_CURRENCY_TRIGGERS.search
 def is_crypto_intent(text: str)   -> bool: return bool(_CRYPTO_TRIGGERS.search(text))
 def is_joke_intent(text: str)     -> bool: return bool(_JOKE_TRIGGERS.search(text))
 def is_anime_intent(text: str)    -> bool: return bool(_ANIME_TRIGGERS.search(text))
+def is_camera_see_intent(text: str) -> bool: return bool(_CAMERA_SEE_TRIGGERS.search(text))
+
 
 
 # ── query cleaners ────────────────────────────────────────────────────────────
@@ -508,6 +517,68 @@ def get_anime(query: str) -> str:
         return f"[anime fetch failed: {e}]"
 
 
+def capture_camera_image(prompt: str = "Describe what you see in detail.") -> str:
+    """
+    Capture a live frame from Aiko's webcam using ffmpeg, save to a temp file,
+    and describe it using the vision inference model.
+    If no camera is connected, tells the user she cannot see without a camera.
+    """
+    import os
+    import time
+    import tempfile
+    import subprocess
+    from pathlib import Path
+    from core.see import describe as vision_describe
+
+    # Check for webcam devices (Linux typical paths)
+    camera_device = None
+    for dev in ["/dev/video0", "/dev/video1"]:
+        if os.path.exists(dev):
+            camera_device = dev
+            break
+
+    if not camera_device:
+        return "I cannot see without a camera."
+
+    # Write the frame to a temp file
+    temp_dir = tempfile.gettempdir()
+    temp_file = Path(temp_dir) / f"aiko_camera_{int(time.time())}.jpg"
+
+    try:
+        # Capture exactly 1 frame using ffmpeg
+        cmd = [
+            "ffmpeg",
+            "-f", "v4l2",
+            "-video_size", "640x480",
+            "-i", camera_device,
+            "-frames:v", "1",
+            str(temp_file),
+            "-y"
+        ]
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10
+        )
+        if result.returncode != 0 or not temp_file.exists():
+            return "I cannot see without a camera."
+
+        description = vision_describe(str(temp_file), prompt=prompt)
+        
+        # Cleanup
+        if temp_file.exists():
+            temp_file.unlink()
+
+        if description.startswith("[vision error]"):
+            return f"I had trouble analyzing the camera image: {description}"
+            
+        return description
+
+    except Exception as e:
+        return f"I cannot see without a camera. (Error: {e})"
+
+
 # ── LLM tool-calling schemas + dispatch ─────────────────────────────────────────
 
 TOOL_SCHEMAS = [
@@ -630,6 +701,22 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "capture_camera_image",
+            "description": "Capture a live image from Aiko's camera/webcam and describe what she sees in front of her.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Optional specific question or prompt about the image, e.g. 'What color is my shirt?' or 'Describe what you see in detail.'",
+                    }
+                },
+            },
+        },
+    },
 ]
 
 # dispatch table — maps tool name -> (context tag for injection, callable)
@@ -641,4 +728,5 @@ TOOL_DISPATCH = {
     "get_joke":             ("joke",           lambda **kw: get_joke()),
     "get_anime":            ("anime_data",     lambda **kw: get_anime(kw["query"])),
     "web_search_and_fetch": ("search_results", lambda **kw: web_search_and_fetch(kw["query"])),
+    "capture_camera_image": ("camera_view",    lambda **kw: capture_camera_image(kw.get("prompt", "Describe what you see in detail."))),
 }

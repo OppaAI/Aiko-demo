@@ -180,10 +180,12 @@ class AikoThink:
             from core.tools import (
                 is_search_intent, is_weather_intent, is_timezone_intent,
                 is_currency_intent, is_joke_intent, is_anime_intent, is_crypto_intent,
+                is_camera_see_intent,
                 extract_search_query, extract_location, extract_currency_parts,
                 extract_anime_query, extract_crypto_parts,
                 web_search_and_fetch, get_weather, get_timezone,
                 get_currency, get_joke, get_anime, get_crypto_price,
+                capture_camera_image,
             )
 
             if is_joke_intent(user_input):
@@ -224,6 +226,12 @@ class AikoThink:
                     token_callback(f"__TOOL__:Searching anime for {query}...")
                 tool_result = get_anime(query)
                 tool_tag    = "anime_data"
+
+            elif is_camera_see_intent(user_input):
+                if token_callback:
+                    token_callback("__TOOL__:Opening camera...")
+                tool_result = capture_camera_image()
+                tool_tag    = "camera_view"
 
             elif is_search_intent(user_input):
                 query       = extract_search_query(user_input)
