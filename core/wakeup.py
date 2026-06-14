@@ -35,9 +35,6 @@ inference/synthesis/transcription requests rather than health checks, so
 CUDA kernels and Modal containers are hot before the first real user turn.
 """
 
-from lib2to3.fixes import fix_numliterals
-from lib2to3.fixes import fix_numliterals
-from lib2to3.fixes import fix_numliterals
 import os
 import time
 import threading
