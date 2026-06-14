@@ -35,6 +35,9 @@ inference/synthesis/transcription requests rather than health checks, so
 CUDA kernels and Modal containers are hot before the first real user turn.
 """
 
+from lib2to3.fixes import fix_numliterals
+from lib2to3.fixes import fix_numliterals
+from lib2to3.fixes import fix_numliterals
 import os
 import time
 import threading
@@ -139,12 +142,16 @@ def _warmup_tts(
 
     on_loading("warmup_tts")
 
-    preset_id = os.getenv("MIOTTS_PRESET", "aiko_voice")
+    preset_id = os.getenv("MIOTTS_PRESET", "Aiko")
     try:
         r = httpx.post(
             f"{url}/v1/tts/file",
-            json={"text": "Hello.", "preset_id": preset_id},
-            timeout=180,  # cold Modal container can take a while to spin up
+            data={
+                "text": "Hello.",
+                "reference_preset_id": preset_id,
+                "output_format": "wav",
+            },
+            timeout=180,
         )
         log.info("TTS warmup synthesis: status=%s bytes=%d", r.status_code, len(r.content))
         if r.status_code == 200:
@@ -199,13 +206,9 @@ def _warmup_asr(
             import httpx
             with open(tmp_path, "rb") as f:
                 resp = httpx.post(
-                    f"{MIOTTS_URL}/v1/tts/file",
-                    data={
-                        "text": "warmup",
-                        "reference_preset_id": MIOTTS_PRESET_ID,
-                        "output_format": "wav",
-                    },
-                    timeout=120,
+                    f"{ASR_URL}/transcribe",
+                    files={"audio": ("warmup.wav", f, "audio/wav")},
+                    timeout=180,  # cold Modal container can take a while to spin up
                 )
             resp.raise_for_status()
             log.info("ASR warmup (Modal): status=%s", resp.status_code)
