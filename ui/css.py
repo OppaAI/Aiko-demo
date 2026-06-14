@@ -258,8 +258,10 @@ div:has(> #aiko-chatbot) {
 /* Actual typing area */
 #aiko-msg textarea,
 #aiko-msg input {
-  background: transparent !important;
-  background-color: transparent !important;
+  background: rgba(8, 8, 16, 0.72) !important;
+  background-color: rgba(8, 8, 16, 0.72) !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
   color: var(--aiko-accent) !important;
   border: 1px solid rgba(182,140,255,0.55) !important;
   border-radius: 10px !important;

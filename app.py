@@ -61,10 +61,34 @@ def build_soul_prompt(user_id: str) -> str:
 # HELPERS
 # ─────────────────────────────────────────────
 def _strip_for_speech(text: str) -> str:
-    """Remove search notes, tool tags, and think blocks before passing to TTS."""
+    """Remove search notes, tool tags, think blocks, markdown, and non-speech symbols before TTS."""
+    # Remove search/tool annotations
     text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
     text = re.sub(r"\n?🔧 .*?\n?", "", text)
+    # Remove think blocks
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    # Remove markdown formatting (bold, italic, code, headers, blockquotes, hr)
+    text = re.sub(r"#{1,6}\s+", "", text)          # headings
+    text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)  # bold/italic
+    text = re.sub(r"_{1,2}(.*?)_{1,2}", r"\1", text)    # underscore bold/italic
+    text = re.sub(r"`{1,3}.*?`{1,3}", "", text, flags=re.DOTALL)  # inline/block code
+    text = re.sub(r"^\s*[-*>|]\s+", "", text, flags=re.MULTILINE)  # bullets, blockquotes, table pipes
+    text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)   # numbered lists
+    text = re.sub(r"^-{3,}$", "", text, flags=re.MULTILINE)        # horizontal rules
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)           # markdown links → keep label
+    # Remove all emoji and non-speech symbols, keep only:
+    #   letters, digits, whitespace, and: , . ! ? ' " : ; - ( ) & @
+    text = re.sub(
+        r"[^\w\s,\.!\?'\"\:\;\-\(\)\&\@]",
+        "",
+        text,
+        flags=re.UNICODE,
+    )
+    # \w keeps unicode letters/digits/underscore; strip lone underscores left behind
+    text = re.sub(r"(?<!\w)_+(?!\w)", "", text)
+    # Collapse multiple spaces/newlines
+    text = re.sub(r"\n{2,}", "\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
 
 
@@ -349,7 +373,6 @@ with gr.Blocks(
             if (!rawSignal || !rawSignal.startsWith('TYPEWRITE:')) return;
 
             const rest = rawSignal.slice('TYPEWRITE:'.length);
-
             const firstPipe  = rest.indexOf('|');
             const secondPipe = rest.indexOf('|', firstPipe + 1);
 
@@ -357,15 +380,7 @@ with gr.Blocks(
             const notesPrefix = rest.slice(firstPipe + 1, secondPipe);
             const speechText  = rest.slice(secondPipe + 1);
 
-            // ── 1. Hand off to the VRM iframe for lip-sync + expression ────
-            // The iframe is expected to:
-            //   - set the avatar's expression to `emotion`
-            //   - run viseme/mouth animation timed to the #aiko-audio
-            //     <audio> element's playback (it can reach into the
-            //     parent document via window.parent, or this postMessage
-            //     can be extended to also carry phoneme/viseme timing
-            //     data computed server-side, if you add that later)
-            //   - optionally render `speechText` as a caption overlay
+            // ── 1. VRM iframe lip-sync/expression handoff ───────────────
             const iframe = document.querySelector('#aiko-vrm-frame');
             const payload = { expression: emotion, ttsText: speechText, notesPrefix };
             if (iframe?.contentWindow) {
@@ -374,50 +389,109 @@ with gr.Blocks(
             window._aikoLatestTtsText = speechText;
             window._aikoLatestEmotion = emotion;
 
-            // ── 2. Cosmetic reveal over the FINAL (already-correct) text ───
+            // ── 2. Sentence-by-sentence reveal ─────────────────────────
+            // Split into sentences on . ! ? followed by whitespace
+            function splitSentences(text) {
+                const raw = text.match(/[^.!?]+[.!?]+[\s]*/g) || [text];
+                // merge any tiny trailing fragment
+                const out = [];
+                for (const s of raw) {
+                    const trimmed = s.trim();
+                    if (trimmed) out.push(trimmed);
+                }
+                return out.length ? out : [text];
+            }
+
             function getLastBotBubble() {
-                const bubbles = document.querySelectorAll(
-                    '#aiko-chatbot [data-testid="bot"] .message-content, ' +
-                    '#aiko-chatbot [data-testid="bot"] .prose, ' +
-                    '#aiko-chatbot .message.bot .message-content, ' +
-                    '#aiko-chatbot .message.bot .prose, ' +
-                    '#aiko-chatbot .bot .prose, ' +
-                    '#aiko-chatbot [data-testid="bot"]'
-                );
-                return bubbles.length ? bubbles[bubbles.length - 1] : null;
+                const sel = [
+                    '#aiko-chatbot [data-testid="bot"] .message-content',
+                    '#aiko-chatbot [data-testid="bot"] .prose',
+                    '#aiko-chatbot .message.bot .message-content',
+                    '#aiko-chatbot .bot .prose',
+                    '#aiko-chatbot [data-testid="bot"]',
+                ];
+                for (const s of sel) {
+                    const all = document.querySelectorAll(s);
+                    if (all.length) return all[all.length - 1];
+                }
+                return null;
             }
 
             function isUsableDuration(d) {
                 return Number.isFinite(d) && d > 0 && d < 600;
             }
 
-            function runReveal(duration) {
+            function runSentenceReveal(audioDuration) {
                 const bubble = getLastBotBubble();
-                if (!bubble) return; // text is already correct via Gradio; reveal is optional
+                if (!bubble) return;
 
-                const totalChars = (notesPrefix + speechText).length || 1;
-                const steps = Math.min(totalChars, 200); // cap animation steps
-                const stepMs = Math.max(16, (duration * 1000 * 0.92) / steps);
+                const sentences = splitSentences(speechText);
+                const noteLines = notesPrefix ? notesPrefix.split('\\n').filter(Boolean) : [];
 
-                bubble.style.transition = 'none';
-                bubble.style.clipPath = 'inset(0 100% 0 0)';
+                // Hide Gradio's rendered text; we'll overlay our own
+                bubble.style.opacity = '0';
+
+                // Create overlay span inside the bubble
+                const overlay = document.createElement('span');
+                overlay.style.cssText = 'opacity:1; white-space:pre-wrap;';
+                bubble.parentElement.style.position = 'relative';
+                // Insert right after bubble
+                bubble.insertAdjacentElement('afterend', overlay);
+
+                // Copy colour from bubble
+                overlay.style.color = getComputedStyle(bubble).color || '#d8c8ff';
+                overlay.style.fontSize = getComputedStyle(bubble).fontSize || '0.66rem';
+                overlay.style.lineHeight = getComputedStyle(bubble).lineHeight || '1.25';
+                overlay.style.display = 'block';
+                overlay.style.textShadow = '0 1px 6px rgba(0,0,0,0.9), 0 0 16px rgba(100,60,180,0.45)';
+
+                // Show notes immediately
+                if (noteLines.length) {
+                    const notesEl = document.createElement('div');
+                    notesEl.style.cssText = 'color:rgba(182,140,255,0.7);font-size:0.6rem;margin-bottom:4px;';
+                    notesEl.textContent = noteLines.join('\\n');
+                    overlay.appendChild(notesEl);
+                }
+
+                const textContainer = document.createElement('div');
+                overlay.appendChild(textContainer);
+
+                const perSentence = (audioDuration * 1000 * 0.95) / sentences.length;
 
                 let i = 0;
-                const timer = setInterval(() => {
-                    i++;
-                    const pct = Math.max(0, 100 - (i / steps) * 100);
-                    bubble.style.clipPath = `inset(0 ${pct}% 0 0)`;
-                    if (i >= steps) {
-                        clearInterval(timer);
-                        bubble.style.clipPath = 'none';
+                function showNext() {
+                    if (i >= sentences.length) {
+                        // Done: restore Gradio bubble and remove overlay
+                        setTimeout(() => {
+                            bubble.style.opacity = '1';
+                            overlay.remove();
+                        }, 200);
+                        return;
                     }
-                }, stepMs);
+                    const span = document.createElement('span');
+                    span.textContent = (i > 0 ? ' ' : '') + sentences[i];
+                    // Fade in
+                    span.style.cssText = 'opacity:0;transition:opacity 0.25s ease;';
+                    textContainer.appendChild(span);
+                    requestAnimationFrame(() => { span.style.opacity = '1'; });
 
-                // Safety: ensure full reveal no matter what after duration
-                setTimeout(() => {
-                    clearInterval(timer);
-                    bubble.style.clipPath = 'none';
-                }, duration * 1000 + 200);
+                    i++;
+                    if (i < sentences.length) {
+                        setTimeout(showNext, perSentence);
+                    } else {
+                        // Last sentence — remove overlay after audio ends
+                        setTimeout(() => {
+                            bubble.style.opacity = '1';
+                            overlay.remove();
+                        }, perSentence + 300);
+                    }
+                }
+
+                // Scroll chatbot to bottom
+                const chatbot = document.querySelector('#aiko-chatbot');
+                if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
+
+                showNext();
             }
 
             function waitForAudioAndReveal() {
@@ -429,12 +503,8 @@ with gr.Blocks(
 
                 function start() {
                     const dur = audioEl.duration;
-                    if (isUsableDuration(dur)) {
-                        runReveal(dur);
-                    } else {
-                        const estimated = Math.max(2, (notesPrefix + speechText).length * 0.06);
-                        runReveal(estimated);
-                    }
+                    const estimated = Math.max(2, speechText.length * 0.055);
+                    runSentenceReveal(isUsableDuration(dur) ? dur : estimated);
                 }
 
                 if (audioEl.readyState >= 1 && isUsableDuration(audioEl.duration)) {
@@ -447,16 +517,11 @@ with gr.Blocks(
                     audioEl.addEventListener('loadedmetadata', onMeta);
                     setTimeout(() => {
                         audioEl.removeEventListener('loadedmetadata', onMeta);
-                        if (isUsableDuration(audioEl.duration)) {
-                            start();
-                        } else {
-                            runReveal(Math.max(2, (notesPrefix + speechText).length * 0.06));
-                        }
+                        start();
                     }, 600);
                 }
             }
 
-            // Give Gradio a tick to render the new bubble before we touch it
             setTimeout(waitForAudioAndReveal, 30);
         }
         """
