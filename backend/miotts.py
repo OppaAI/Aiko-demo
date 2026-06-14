@@ -153,10 +153,11 @@ class TTSServer:
         llama_cmd = [
             llama_bin,
             "-m", str(MODELS_DIR / GGUF_FILE),
-            "-c", "8192",
+            "-c", "4096",
             "--cont-batching",
-            "--batch-size", "8",
-            "--n-gpu-layers", "99",   # offload all layers to GPU
+            "--parallel", "4",          # match Modal concurrency
+            "--n-gpu-layers", "99",
+            "--alias", "miotts",        # avoid model name 404s
             "--host", "0.0.0.0",
             "--port", str(LLAMA_PORT),
         ]

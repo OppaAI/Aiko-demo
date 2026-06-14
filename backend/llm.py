@@ -40,11 +40,11 @@ image = (
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
-HF_REPO    = "unsloth/Ministral-3-3B-Instruct-2512-GGUF"
-HF_FILE    = "Ministral-3-3B-Instruct-2512-UD-Q4_K_XL.gguf"
+#HF_REPO    = "unsloth/Ministral-3-3B-Instruct-2512-GGUF"
+#HF_FILE    = "Ministral-3-3B-Instruct-2512-UD-Q4_K_XL.gguf"
 #MODEL_PATH = f"/models/{HF_FILE}"
-#HF_REPO = "unsloth/Ministral-3-8B-Instruct-2512-GGUF"
-#HF_FILE = "Ministral-3-8B-Instruct-2512-UD-Q4_K_XL.gguf"
+HF_REPO = "unsloth/Ministral-3-8B-Instruct-2512-GGUF"
+HF_FILE = "Ministral-3-8B-Instruct-2512-UD-Q4_K_XL.gguf"
 MODEL_PATH = f"/models/{HF_FILE}"
 LLAMA_PORT = 8080
 

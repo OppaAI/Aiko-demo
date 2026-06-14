@@ -148,7 +148,7 @@ def _detect_emoji_emotion(text: str) -> str | None:
 # ─────────────────────────────────────────────
 # CORE RESPONSE
 # ─────────────────────────────────────────────
-def _get_response(message: str, history: list):
+def _get_response(message: str, history: list, user_id: str = "Guest"):
     history = list(history) + [
         {"role": "user",      "content": message},
         {"role": "assistant", "content": "▋"},
@@ -179,7 +179,8 @@ def _get_response(message: str, history: list):
         else:
             full_text += token
 
-    think.chat(message, token_callback=_cb)
+    # Pass user_id so memory recall and storage are scoped to the right user
+    think.chat(message, user_id=user_id, token_callback=_cb)
 
     # ── Stage 2: TTS on clean speech text ────────────────────────────────────
     speech_text = _strip_for_speech(full_text)
@@ -215,7 +216,7 @@ def _get_response(message: str, history: list):
     yield history, signal, audio_path
 
 
-def _submit(message, history):
+def _submit(message, history, user_id):
     history = history or []
     message = (message or "").strip()
 
@@ -224,7 +225,7 @@ def _submit(message, history):
         return
 
     first = True
-    for h, tts, audio in _get_response(message, history):
+    for h, tts, audio in _get_response(message, history, user_id=user_id):
         if first:
             yield h, tts, audio, ""
             first = False
@@ -235,7 +236,7 @@ def _submit(message, history):
 # ─────────────────────────────────────────────
 # VOICE INPUT (custom MediaRecorder → base64 → here)
 # ─────────────────────────────────────────────
-def _voice_from_b64(b64_data: str, history: list):
+def _voice_from_b64(b64_data: str, history: list, user_id: str):
     """Decode a base64 audio blob (sent via hidden textbox from JS
     MediaRecorder), transcribe it via the Modal ASR endpoint, and run
     it through the normal chat pipeline.
@@ -288,7 +289,7 @@ def _voice_from_b64(b64_data: str, history: list):
     print(f"[voice] transcript: {transcript!r}")
 
     first = True
-    for h, tts, audio in _get_response(transcript, history):
+    for h, tts, audio in _get_response(transcript, history, user_id=user_id):
         if h and len(h) >= 2:
             h[-2]["content"] = f"🎙️ {transcript}"
         if first:
@@ -308,10 +309,9 @@ def _check_login(profile: OAuthProfile | None):
     user_id = profile.username or "Guest"
     soul = build_soul_prompt(user_id)
 
-    if hasattr(think, "set_system_prompt"):
-        think.set_system_prompt(soul)
-    elif hasattr(think, "system_prompt"):
-        think.system_prompt = soul
+    # set_system_prompt now takes both the rendered soul and the user_id
+    # so think can scope memory ops correctly
+    think.set_system_prompt(soul, user_id=user_id)
 
     return user_id, gr.update(visible=False), gr.update(visible=True)
 
@@ -427,9 +427,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
     )
 
     # ── Custom MediaRecorder wired to #aiko-mic-btn ──────────────────────
-    # Toggle on click: first click starts recording, second click stops
-    # and writes the resulting blob (base64) into the hidden
-    # #aiko-audio-b64 textbox, which triggers audio_b64.change() below.
     demo.load(
         None,
         inputs=None,
@@ -531,7 +528,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     } else {
                         stopRecording(btn);
                     }
-                }, true); // capture phase — runs before any Gradio click handler
+                }, true);
             }
 
             attachMicHandler();
@@ -547,29 +544,23 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
     msg.submit(
         _submit,
-        inputs=[msg, chatbot],
+        inputs=[msg, chatbot, user_id_state],
         outputs=[chatbot, tts_text, audio_out, msg],
     )
 
     send.click(
         _submit,
-        inputs=[msg, chatbot],
+        inputs=[msg, chatbot, user_id_state],
         outputs=[chatbot, tts_text, audio_out, msg],
     )
 
-    # Fires when the JS MediaRecorder writes a finished recording (base64)
-    # into the hidden #aiko-audio-b64 textbox.
     audio_b64.change(
         _voice_from_b64,
-        inputs=[audio_b64, chatbot],
+        inputs=[audio_b64, chatbot, user_id_state],
         outputs=[chatbot, tts_text, audio_out, audio_b64],
     )
 
     # ── Typewriter / lip-sync bridge ─────────────────────────────────────────
-    # Signal format: TYPEWRITE:<emotion>||<notes_prefix>||<response_text>
-    #
-    # notes_prefix: tool/search annotation lines (rendered immediately, no typewrite)
-    # response_text: Aiko's actual reply (typewritten in sync with audio)
     tts_text.change(
         None,
         inputs=[tts_text],
@@ -601,10 +592,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             const cleanLen = fullText.replace(/[*_#`]/g, '').length;
             const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.055));
 
-            // ── 0. Scroll helper ─────────────────────────────────────────────
-            // Gradio 6.x may nest the actual scrollable element below
-            // #aiko-chatbot. Dynamically find whatever descendant is
-            // actually overflowing and scroll that.
             function scrollChat() {
                 const root = document.querySelector('#aiko-chatbot');
                 if (!root) return;
@@ -623,7 +610,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 });
             }
 
-            // ── 1. VRM handoff ──────────────────────────────────────────────
             sendAvatar({
                 status: 'speaking',
                 speaking: true,
@@ -635,7 +621,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             window._aikoLatestTtsText = fullText;
             window._aikoLatestEmotion = emotion;
 
-            // ── 1b. Audio play/pause/ended → iframe speaking state bridge ───
             if (window._aikoSpeakingFallbackTimer) {
                 clearTimeout(window._aikoSpeakingFallbackTimer);
             }
@@ -693,7 +678,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 if (attachSpeakingBridge() || bridgeTries > 60) clearInterval(bridgePoll);
             }, 100);
 
-            // ── 2. Helpers ──────────────────────────────────────────────────
             function getBubbleEl() {
                 const allBubbles = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
                 if (!allBubbles.length) return null;
@@ -714,10 +698,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 return Number.isFinite(d) && d > 0 && d < 600;
             }
 
-            // ── 3. Blank watcher ────────────────────────────────────────────
-            // Fires as soon as the bot bubble has content (the ▋ placeholder),
-            // wipes it, inserts tool/search notes statically, then hands off
-            // to the typewriter for the response text only.
             let blanked       = false;
             let targetEl      = null;
             let typingStarted = false;
@@ -730,12 +710,10 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     targetEl = el;
                     wipeEl(el);
 
-                    // Insert tool/search annotation lines (static, no typewrite)
                     if (notesPrefix && notesPrefix.trim()) {
                         const notesDiv = document.createElement('div');
                         notesDiv.className = 'aiko-tool-notes';
                         notesDiv.style.cssText = 'opacity:0.65;font-size:0.78rem;margin-bottom:6px;color:rgba(180,160,255,0.75);';
-                        // Each line on its own row
                         notesPrefix.trim().split('\\n').forEach(line => {
                             if (!line.trim()) return;
                             const row = document.createElement('div');
@@ -745,22 +723,16 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         el.appendChild(notesDiv);
                     }
 
-                    // Span for typewritten response text
                     const responseSpan = document.createElement('span');
                     el.appendChild(responseSpan);
                     targetEl._responseSpan = responseSpan;
                     blanked = true;
 
-                    // Observer: only wipe if typing hasn't started AND
-                    // only target the responseSpan, not the whole element.
-                    // This prevents Gradio's re-renders from blowing away notes.
                     const obs = new MutationObserver(() => {
                         if (!typingStarted) {
-                            // Gradio tried to rewrite — restore our structure
                             const hasNotes = el.querySelector('.aiko-tool-notes');
                             const hasSpan  = el.querySelector('span[data-aiko-response]');
                             if (!hasNotes && notesPrefix && notesPrefix.trim()) {
-                                // Notes got wiped — re-insert
                                 wipeEl(el);
                                 const nd = document.createElement('div');
                                 nd.className = 'aiko-tool-notes';
@@ -783,7 +755,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     obs.observe(el, { childList: true, subtree: false });
                     window._aikoBlankObs = obs;
 
-                    // Scroll now that the bubble has real content
                     scrollChat();
                 } else {
                     requestAnimationFrame(blankWatcher);
@@ -791,7 +762,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             }
             blankWatcher();
 
-            // ── 4. Typewriter ───────────────────────────────────────────────
             function startTypewriter() {
                 if (!blanked || !targetEl) { setTimeout(startTypewriter, 200); return; }
 
@@ -808,7 +778,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 let totalMs  = audioDur * 1000;
                 let perChar  = totalMs / Math.max(1, totalChars);
 
-                // Sync to real audio duration if already loaded
                 const audioEl = document.querySelector('#aiko-audio audio');
                 if (audioEl && isUsableDuration(audioEl.duration)) {
                     audioDur = audioEl.duration;
@@ -835,7 +804,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         : fullText;
 
                     scrollChat();
-
                     setTimeout(tick, perChar);
                 }
 

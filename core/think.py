@@ -2,7 +2,7 @@
 core/think.py
 
 Aiko's cognitive loop.
-  - Retrieves relevant memories before each turn
+  - Retrieves relevant memories before each turn (scoped by user_id)
   - Tool routing: LLM-driven tool calling (preferred), with regex-based
     intent detection as fallback for weather, timezone, currency, joke,
     anime, and web search
@@ -60,6 +60,11 @@ class AikoThink:
     LLM warmup starts immediately on init in a background thread.
     wakeup.py calls join_warmup() to block until the model is hot.
     speak is accepted but ignored (kept for BootResult API compatibility).
+
+    user_id is tracked per-instance and updated via set_system_prompt()
+    when the HF OAuth login resolves the real username. All memory
+    operations (search + store) are scoped to the current user_id so
+    memories never bleed between users.
     """
 
     def __init__(self, memorize: AikoMemorize, speak=None) -> None:
@@ -73,10 +78,14 @@ class AikoThink:
             timeout=120.0,
         )
         self._memorize  = memorize
+        self._user_id   = _DEFAULT_USER_ID   # updated on HF login via set_system_prompt()
 
         if not _PERSONA_PATH.exists():
             raise FileNotFoundError(f"soul.md not found at {_PERSONA_PATH}")
         self._persona_raw = _PERSONA_PATH.read_text(encoding="utf-8").strip()
+
+        # Live rendered system prompt — set_system_prompt() replaces this
+        self._system_prompt: str | None = None
 
         self._history:  list[dict] = []
         self._reasoning = False
@@ -85,24 +94,29 @@ class AikoThink:
         self._mem_worker = threading.Thread(target=self._mem_write_loop, daemon=True)
         self._mem_worker.start()
 
-        self._warmup_thread = threading.Thread(target=self._warmup_llm, daemon=True)
+        # Internal warmup — just checks the LLM endpoint is reachable.
+        # The real KV-cache warmup with soul.md is handled by wakeup._warmup_llm()
+        # which runs concurrently. This one only fires a tiny probe so
+        # join_warmup() can confirm the network path is alive.
+        self._warmup_thread = threading.Thread(target=self._probe_llm, daemon=True)
         self._warmup_thread.start()
 
-    def _warmup_llm(self) -> None:
+    def _probe_llm(self) -> None:
+        """Lightweight connectivity probe — does NOT duplicate the full warmup."""
         try:
             self._client.post(
                 "/",
                 json={
                     "model":      LLAMA_MODEL,
-                    "max_tokens": 50,           # enough to force real inference
-                    "messages":   [{"role": "user", "content": "Say hello briefly."}],
+                    "max_tokens": 8,
+                    "messages":   [{"role": "user", "content": "hi"}],
                     "temperature": 0.1,
                 },
-                timeout=120,
+                timeout=60,
             )
-            log.info("LLM warmup complete")
+            log.info("LLM probe complete")
         except Exception as e:
-            log.warning("LLM warmup failed: %s", e)
+            log.warning("LLM probe failed (non-fatal): %s", e)
 
     # ── public api ────────────────────────────────────────────────────────────
 
@@ -110,19 +124,40 @@ class AikoThink:
         if self._warmup_thread.is_alive():
             self._warmup_thread.join()
 
-    def chat(self, user_input: str, user_id: str = _DEFAULT_USER_ID, token_callback=None) -> str:
+    def set_system_prompt(self, rendered_soul: str, user_id: str | None = None) -> None:
+        """
+        Replace the active system prompt with a fully rendered soul.md string.
+        Called by app.py _check_login() after HF OAuth resolves the username.
+        Also updates user_id so memory ops are scoped to the logged-in user.
+        Clears conversation history so the new persona starts fresh.
+        """
+        self._system_prompt = rendered_soul
+        if user_id:
+            self._user_id = user_id
+            log.info("System prompt updated for user: %s", user_id)
+        self._history.clear()
+
+    def chat(self, user_input: str, user_id: str | None = None, token_callback=None) -> str:
         self._token_callback = token_callback
 
-        # 1. retrieve relevant long-term memories
+        # Resolve effective user_id: explicit arg > instance state > env default
+        effective_user_id = user_id or self._user_id or _DEFAULT_USER_ID
+
+        # 1. retrieve relevant long-term memories (scoped to this user)
         if self._memorize:
-            memories     = self._memorize.search(user_input, limit=int(os.getenv("MEMORY_RECALL_LIMIT", 5)))
+            memories     = self._memorize.search(user_input, user_id=effective_user_id, limit=int(os.getenv("MEMORY_RECALL_LIMIT", 5)))
             memory_block = self._memorize.format_for_context(memories)
         else:
             memories     = []
             memory_block = None
 
-        # 2. build system prompt — persona (templated per-user) + memories
-        system = _render_persona(self._persona_raw, user_id)
+        # 2. build system prompt — rendered persona + injected memories
+        # Use the live _system_prompt if set (post-login), otherwise render fresh
+        if self._system_prompt:
+            system = self._system_prompt
+        else:
+            system = _render_persona(self._persona_raw, effective_user_id)
+
         if memory_block:
             system = f"{system}\n\n{memory_block}"
 
@@ -224,8 +259,8 @@ class AikoThink:
         # 9. append assistant turn to history
         self._history.append({"role": "assistant", "content": response_text})
 
-        # 10. persist to memory (background)
-        self._store_async(user_input, response_text)
+        # 10. persist to memory (background), scoped to effective user
+        self._store_async(user_input, response_text, effective_user_id)
 
         # 11. auto-reset reasoning mode
         self._reasoning = False
@@ -375,19 +410,22 @@ class AikoThink:
             sanitized.pop(0)
         return sanitized
 
-    def _store_async(self, user_input: str, response_text: str) -> None:
-        self._mem_queue.put((user_input, response_text))
+    def _store_async(self, user_input: str, response_text: str, user_id: str) -> None:
+        self._mem_queue.put((user_input, response_text, user_id))
 
     def _mem_write_loop(self) -> None:
         """Serial background worker that drains the memory write queue."""
         while True:
-            user_input, response_text = self._mem_queue.get()
+            user_input, response_text, user_id = self._mem_queue.get()
             try:
                 if self._memorize:
-                    self._memorize.add([
-                        {"role": "user",      "content": user_input[:500]},
-                        {"role": "assistant", "content": response_text[:800]},
-                    ])
+                    self._memorize.add(
+                        [
+                            {"role": "user",      "content": user_input[:500]},
+                            {"role": "assistant", "content": response_text[:800]},
+                        ],
+                        user_id=user_id,
+                    )
             except Exception as exc:
                 log.error("Async memory write failed: %s", exc)
             finally:
