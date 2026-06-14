@@ -177,11 +177,11 @@ class AikoThink:
             # fallback: regex-based intent detection (unchanged behavior)
             from core.tools import (
                 is_search_intent, is_weather_intent, is_timezone_intent,
-                is_currency_intent, is_joke_intent, is_anime_intent,
+                is_currency_intent, is_joke_intent, is_anime_intent, is_crypto_intent,
                 extract_search_query, extract_location, extract_currency_parts,
-                extract_anime_query,
+                extract_anime_query, extract_crypto_parts,
                 web_search_and_fetch, get_weather, get_timezone,
-                get_currency, get_joke, get_anime,
+                get_currency, get_joke, get_anime, get_crypto_price,
             )
 
             if is_joke_intent(user_input):
@@ -208,6 +208,13 @@ class AikoThink:
                     token_callback(f"__TOOL__:Converting {from_cur} to {to_cur}...")
                 tool_result = get_currency(amount, from_cur, to_cur)
                 tool_tag    = "currency_data"
+
+            elif is_crypto_intent(user_input):
+                coin, currency = extract_crypto_parts(user_input)
+                if token_callback:
+                    token_callback(f"__TOOL__:Checking {coin} price...")
+                tool_result = get_crypto_price(coin, currency)
+                tool_tag    = "crypto_data"
 
             elif is_anime_intent(user_input):
                 query       = extract_anime_query(user_input)
