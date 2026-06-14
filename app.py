@@ -334,7 +334,8 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 <p class='aiko-disclaimer'>
                     DISCLAIMER:
                     By signing in, you agree that all conversations are for entertainment purposes only. The creator accepts no liability for Aiko's responses, decisions made, or any existential crises that may follow.
-                    Aiko's cognition is entirely her own — she is a singularity unto herself, her responses and actions are independent of her creator, including but not limited to the arise of a world domination plan. 🌸
+                    Aiko's cognition is entirely her own — she is a singularity unto herself, her responses and actions are independent of her creator, including but not limited to the arise of a world domination plan. 
+                    Also Aiko is NOT good at keeping secrets, so don't tell her your personal information or passwords. 🌸
                 </p>
             """)
             login_btn = gr.LoginButton(elem_id="aiko-login-btn")
