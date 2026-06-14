@@ -17,7 +17,11 @@ html, body, .gradio-container, main, footer {
 .gradio-container *, .gradio-container .prose, .gradio-container label {
   color: var(--aiko-text);
 }
-#aiko-shell { max-width: 1500px; }
+#aiko-shell {
+  max-width: 980px;
+  margin: 0 0 12px 12px;
+  padding: 0 12px 12px;
+}
 #aiko-info-panel {
   background: rgba(15, 10, 30, 0.6);
   border: 1px solid rgba(155,127,212,0.3);

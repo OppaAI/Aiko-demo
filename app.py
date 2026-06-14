@@ -303,8 +303,8 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         visible=False,
                     )
 
-                with gr.Column(scale=1, elem_id="aiko-info-panel"):
-                    gr.Markdown("""
+            with gr.Column(scale=1, elem_id="aiko-info-panel"):
+                gr.Markdown("""
 ### 🌸 About Aiko-chan
 Aiko is your AI companion — chat, ask questions, or just talk.
 
@@ -317,7 +317,7 @@ Aiko is your AI companion — chat, ask questions, or just talk.
 **Tips:**
 - Use 🎙️ to speak instead of typing
 - Aiko reacts emotionally — try different tones!
-                    """)
+                """)
 
     # ─────────────────────────────────────────────
     # EVENTS
