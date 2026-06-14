@@ -141,10 +141,9 @@ def _get_response(message: str, history: list):
     def _cb(token: str):
         nonlocal full_text
         if token.startswith("__SEARCHING__:"):
-            q = token.split(":", 1)[1]
-            tool_lines.append(f"🌐 Searching internet...")
+            tool_lines.append("🌐 Searching internet...")
         elif token.startswith("__TOOL__:"):
-            tool_lines.append(f"⚙️ Executing skill...")
+            tool_lines.append("⚙️ Executing skill...")
         else:
             full_text += token
 
@@ -162,14 +161,17 @@ def _get_response(message: str, history: list):
     final_emotion = emoji_emotion or emotion
 
     # ── Stage 3: build display text ────────────────────────────────────────
-    # Tool/search lines each get their own line, followed by the streamed
-    # response starting on the next line.
+    # Tool/search lines on their own line(s), response starts on the next line.
     notes_prefix = ("\n".join(tool_lines) + "\n\n") if tool_lines else ""
-    display_text = notes_prefix + _strip_emoji(full_text)
+    response_text = _strip_emoji(full_text)
+    display_text = notes_prefix + response_text
 
     history[-1] = {"role": "assistant", "content": display_text}
 
-    signal = f"TYPEWRITE:{final_emotion}||{display_text}"
+    # Keep the original 2-part signal format — JS typewriter unchanged.
+    # fullText for the typewriter is just the response (no notes),
+    # so notes don't get animated.
+    signal = f"TYPEWRITE:{final_emotion}||{response_text}"
     yield history, signal, audio_path
 
 
