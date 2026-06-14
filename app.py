@@ -254,6 +254,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             gr.HTML("""
                 <h2>🌸 About Aiko-chan</h2>
                 <p>Aiko is your AI companion — chat, ask questions, or just talk.</p>
+                <p>She's got her own personality, moods, and opinions, and she remembers context as you talk. Sometimes sweet, sometimes a little savage — never boring. And she'll give you an actual answer whenever she feels like it.</p>
                 <p><strong>Try asking:</strong></p>
                 <ul>
                     <li>"What's the score of [game]?" → triggers live sports lookup</li>
