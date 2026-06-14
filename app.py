@@ -132,7 +132,7 @@ def _get_response(message: str, history: list):
         {"role": "user",      "content": message},
         {"role": "assistant", "content": "▋"},
     ]
-    yield history, None, None
+    yield history, "STATUS:thinking", None
 
     # ── Stage 1: full LLM completion ─────────────────────────────────────────
     full_text = ""
@@ -402,38 +402,83 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         inputs=[tts_text],
         js="""
         (rawSignal) => {
-            if (!rawSignal || !rawSignal.startsWith('TYPEWRITE:')) return;
+            const iframe = document.querySelector('#aiko-vrm-frame');
+            const sendAvatar = (payload) => {
+                if (iframe?.contentWindow) {
+                    iframe.contentWindow.postMessage(JSON.stringify(payload), '*');
+                }
+            };
+
+            if (!rawSignal) return;
+
+            if (rawSignal.startsWith('STATUS:')) {
+                sendAvatar({ status: rawSignal.slice('STATUS:'.length) });
+                return;
+            }
+
+            if (!rawSignal.startsWith('TYPEWRITE:')) return;
 
             const rest    = rawSignal.slice('TYPEWRITE:'.length);
             const parts   = rest.split('||');
             const emotion = parts[0];
             const notesPrefix = parts[1] || '';
             const fullText    = parts[2] || '';
+            const cleanLen = fullText.replace(/[*_#`]/g, '').length;
+            const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.075));
 
             // ── 1. VRM handoff ──────────────────────────────────────
-            const iframe = document.querySelector('#aiko-vrm-frame');
-            if (iframe?.contentWindow) {
-                iframe.contentWindow.postMessage(
-                    JSON.stringify({ expression: emotion, ttsText: fullText }), '*'
-                );
-            }
+            sendAvatar({
+                status: 'speaking',
+                speaking: true,
+                expression: emotion,
+                ttsText: fullText,
+                duration: estimatedDuration,
+                playNow: true,
+            });
             window._aikoLatestTtsText = fullText;
             window._aikoLatestEmotion = emotion;
 
             // ── 1b. Bridge audio play/pause/ended → iframe speaking state ──
-            const audioEl = document.querySelector('#aiko-audio audio');
-            if (audioEl && !audioEl._aikoSpeakingBridge) {
-                audioEl._aikoSpeakingBridge = true;
-                const sendSpeaking = (speaking) => {
-                    if (iframe?.contentWindow) {
-                        iframe.contentWindow.postMessage(JSON.stringify({ speaking }), '*');
-                    }
-                };
-                audioEl.addEventListener('play',    () => sendSpeaking(true));
-                audioEl.addEventListener('playing', () => sendSpeaking(true));
-                audioEl.addEventListener('pause',   () => sendSpeaking(false));
-                audioEl.addEventListener('ended',   () => sendSpeaking(false));
+            if (window._aikoSpeakingFallbackTimer) {
+                clearTimeout(window._aikoSpeakingFallbackTimer);
             }
+            window._aikoSpeakingFallbackTimer = setTimeout(() => {
+                sendAvatar({ speaking: false, status: 'idle' });
+            }, (estimatedDuration + 2) * 1000);
+
+            function attachSpeakingBridge() {
+                const audioEl = document.querySelector('#aiko-audio audio');
+                if (!audioEl) return false;
+
+                if (!audioEl._aikoSpeakingBridge) {
+                    audioEl._aikoSpeakingBridge = true;
+                    const sendSpeaking = (speaking) => {
+                        if (!speaking && window._aikoSpeakingFallbackTimer) {
+                            clearTimeout(window._aikoSpeakingFallbackTimer);
+                            window._aikoSpeakingFallbackTimer = null;
+                        }
+                        sendAvatar({ speaking, status: speaking ? 'speaking' : 'idle' });
+                    };
+                    audioEl.addEventListener('play',    () => sendSpeaking(true));
+                    audioEl.addEventListener('playing', () => sendSpeaking(true));
+                    audioEl.addEventListener('pause',   () => {
+                        if (!audioEl.ended) sendSpeaking(false);
+                    });
+                    audioEl.addEventListener('ended',   () => sendSpeaking(false));
+                    audioEl.addEventListener('error',   () => sendSpeaking(false));
+                }
+
+                if (!audioEl.paused && !audioEl.ended) {
+                    sendAvatar({ speaking: true, status: 'speaking' });
+                }
+                return true;
+            }
+            attachSpeakingBridge();
+            let bridgeTries = 0;
+            const bridgePoll = setInterval(() => {
+                bridgeTries += 1;
+                if (attachSpeakingBridge() || bridgeTries > 60) clearInterval(bridgePoll);
+            }, 100);
 
             // ── 2. Helpers ──────────────────────────────────────────
             function getBubbleEl() {

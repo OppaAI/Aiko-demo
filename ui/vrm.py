@@ -90,6 +90,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     #top {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; }}
     #status {{ display: flex; align-items: center; gap: 8px; color: #8b7ab6; font-size: 11px; }}
     #dot {{ width: 8px; height: 8px; border-radius: 999px; background: #4b3a79; box-shadow: 0 0 10px rgba(155,127,212,.2); }}
+    #dot.thinking {{ background: #8ad8ff; box-shadow: 0 0 16px rgba(138,216,255,.8); animation: pulse 1.1s infinite; }}
     #dot.speaking {{ background: #d68cff; box-shadow: 0 0 16px rgba(214,140,255,.9); animation: pulse .6s infinite; }}
     #emotion {{ letter-spacing: .16em; text-transform: uppercase; font-size: 11px; color: #7867a3; }}
     /* Caption bar — bottom of the canvas, left side so it doesn't clash with chat overlay */
@@ -346,12 +347,29 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function clearMouth() {{ setMouth(0, 'aa'); }}
 
+    function setStatus(mode) {{
+      const nextMode = String(mode || 'idle').toLowerCase();
+      if (nextMode === 'speaking') {{
+        speaking = true;
+        dot.className = 'speaking';
+        statusText.textContent = 'speaking';
+        setExpression('happy', 0.55);
+        return;
+      }}
+      speaking = false;
+      dot.className = nextMode === 'thinking' ? 'thinking' : '';
+      statusText.textContent = nextMode === 'thinking' ? 'thinking' : 'idle';
+      clearMouth();
+      if (nextMode === 'thinking') {{
+        setExpression('surprised', 0.22);
+      }} else {{
+        setExpression('relaxed', 0.25);
+        stopCaption();
+      }}
+    }}
+
     function setSpeaking(active) {{
-      speaking = Boolean(active);
-      dot.className = speaking ? 'speaking' : '';
-      statusText.textContent = speaking ? 'speaking' : 'idle';
-      setExpression(speaking ? 'happy' : 'relaxed', speaking ? 0.55 : 0.25);
-      if (!speaking) {{ clearMouth(); stopCaption(); }}
+      setStatus(active ? 'speaking' : 'idle');
     }}
 
     function estimateSpeechDuration(text, requestedDuration = null) {{
@@ -665,13 +683,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       try {{
         const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
 
-        // Expression / emotion
-        if (msg.expression !== undefined) {{
-          setExpression(msg.expression, msg.intensity ?? 1.0);
-          clearTimeout(exprResetTimer);
-          if (msg.expression && msg.expression !== 'neutral') {{
-            exprResetTimer = setTimeout(() => setExpression('relaxed', 0.25), EXPR_RESET_DELAY);
-          }}
+        // High-level avatar state: idle, thinking, speaking
+        if (msg.status !== undefined) {{
+          setStatus(msg.status);
         }}
 
         // Speech text for lip-sync + caption (sent by the JS bridge alongside audio)
@@ -680,11 +694,20 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
           // Store for the audio 'play' event to pick up if it fires after postMessage
           window._aikoLatestTtsText = incomingText;
           setSpeechText(incomingText, msg.duration ?? msg.audioDuration ?? null);
-          if (msg.speaking === undefined && msg.playNow) setSpeaking(true);
+          if (msg.speaking === undefined && msg.playNow) setStatus('speaking');
         }}
 
         // Direct speaking state override
         if (msg.speaking !== undefined) setSpeaking(msg.speaking);
+
+        // Expression / emotion should win over generic speaking/thinking faces.
+        if (msg.expression !== undefined) {{
+          setExpression(msg.expression, msg.intensity ?? 1.0);
+          clearTimeout(exprResetTimer);
+          if (msg.expression && msg.expression !== 'neutral') {{
+            exprResetTimer = setTimeout(() => setExpression('relaxed', 0.25), EXPR_RESET_DELAY);
+          }}
+        }}
 
         // Direct viseme override (for external controllers)
         if (msg.viseme !== undefined) {{
