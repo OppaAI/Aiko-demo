@@ -454,7 +454,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
 
                     mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
 
-                    cam_btn = gr.Button("📷", elem_id="aiko-cam-btn")
+                    cam_btn = gr.Button("🖼️", elem_id="aiko-cam-btn")
 
                     msg = gr.Textbox(
                         placeholder="Type a message…",
@@ -639,7 +639,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                         btn.textContent = '⏳';
                         btn.style.opacity = '0.6';
                         setTimeout(() => {
-                            btn.textContent = '📷';
+                            btn.textContent = '🖼️';
                             btn.style.opacity = '1';
                         }, 3000);
                     });

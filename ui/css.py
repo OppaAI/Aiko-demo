@@ -244,9 +244,11 @@ div:has(> #aiko-chatbot) {
   width: 100% !important;
 }
 textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important; }
-/* Mic + send buttons — fixed square size, never shrink */
+/* Mic + cam + send buttons — fixed square size, never shrink */
 #aiko-mic-btn,
 #aiko-mic-btn button,
+#aiko-cam-btn,
+#aiko-cam-btn button,
 #aiko-send,
 #aiko-send button {
   width: 42px !important;
@@ -261,8 +263,20 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   justify-content: center !important;
   flex-shrink: 0 !important;
   flex-grow: 0 !important;
+}
+
+#aiko-cam-btn,
+#aiko-cam-btn button,
+#aiko-send,
+#aiko-send button {
   margin-right: 36px !important;
 }
+
+#aiko-mic-btn,
+#aiko-mic-btn button {
+  margin-right: 6px !important;
+}
+
 /* Send button */
 #aiko-send,
 #aiko-send button {
@@ -270,9 +284,12 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   border: 0 !important;
   color: #fff !important;
 }
-/* Mic button */
+
+/* Mic + Cam buttons */
 #aiko-mic-btn,
-#aiko-mic-btn button {
+#aiko-mic-btn button,
+#aiko-cam-btn,
+#aiko-cam-btn button {
   background: rgba(118, 82, 214, 0.25) !important;
   border: 1px solid rgba(182, 140, 255, 0.6) !important;
   box-shadow: none !important;
