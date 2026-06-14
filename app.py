@@ -214,7 +214,7 @@ def _check_login(profile: OAuthProfile | None):
 # UI
 # ─────────────────────────────────────────────
 with gr.Blocks(
-    title="Aiko-chan 🌸",
+    title="AI Waifu and Companion: Aiko-chan 🌸",
 ) as demo:
 
     user_id_state = gr.State(value="Guest")
@@ -372,46 +372,34 @@ with gr.Blocks(
         (rawSignal) => {
             if (!rawSignal || !rawSignal.startsWith('TYPEWRITE:')) return;
 
-            const rest = rawSignal.slice('TYPEWRITE:'.length);
-            const firstPipe  = rest.indexOf('|');
-            const secondPipe = rest.indexOf('|', firstPipe + 1);
-
+            const rest        = rawSignal.slice('TYPEWRITE:'.length);
+            const firstPipe   = rest.indexOf('|');
+            const secondPipe  = rest.indexOf('|', firstPipe + 1);
             const emotion     = rest.slice(0, firstPipe);
             const notesPrefix = rest.slice(firstPipe + 1, secondPipe);
             const speechText  = rest.slice(secondPipe + 1);
 
-            // ── 1. VRM iframe lip-sync/expression handoff ───────────────
+            // ── 1. VRM handoff ─────────────────────────────────────────
             const iframe = document.querySelector('#aiko-vrm-frame');
-            const payload = { expression: emotion, ttsText: speechText, notesPrefix };
             if (iframe?.contentWindow) {
-                iframe.contentWindow.postMessage(JSON.stringify(payload), '*');
+                iframe.contentWindow.postMessage(
+                    JSON.stringify({ expression: emotion, ttsText: speechText, notesPrefix }), '*'
+                );
             }
             window._aikoLatestTtsText = speechText;
             window._aikoLatestEmotion = emotion;
 
-            // ── 2. Sentence-by-sentence reveal ─────────────────────────
-            // Split into sentences on . ! ? followed by whitespace
-            function splitSentences(text) {
-                const raw = text.match(/[^.!?]+[.!?]+[\s]*/g) || [text];
-                // merge any tiny trailing fragment
-                const out = [];
-                for (const s of raw) {
-                    const trimmed = s.trim();
-                    if (trimmed) out.push(trimmed);
-                }
-                return out.length ? out : [text];
-            }
-
-            function getLastBotBubble() {
-                const sel = [
-                    '#aiko-chatbot [data-testid="bot"] .message-content',
+            // ── 2. Character-by-character typewriter, inside the bubble ─
+            function getBubbleTextNode() {
+                // Try increasingly broad selectors — return the deepest text container
+                const selectors = [
+                    '#aiko-chatbot [data-testid="bot"] .prose p',
                     '#aiko-chatbot [data-testid="bot"] .prose',
-                    '#aiko-chatbot .message.bot .message-content',
-                    '#aiko-chatbot .bot .prose',
+                    '#aiko-chatbot [data-testid="bot"] .message-content',
                     '#aiko-chatbot [data-testid="bot"]',
                 ];
-                for (const s of sel) {
-                    const all = document.querySelectorAll(s);
+                for (const sel of selectors) {
+                    const all = document.querySelectorAll(sel);
                     if (all.length) return all[all.length - 1];
                 }
                 return null;
@@ -421,108 +409,74 @@ with gr.Blocks(
                 return Number.isFinite(d) && d > 0 && d < 600;
             }
 
-            function runSentenceReveal(audioDuration) {
-                const bubble = getLastBotBubble();
-                if (!bubble) return;
-
-                const sentences = splitSentences(speechText);
-                const noteLines = notesPrefix ? notesPrefix.split('\\n').filter(Boolean) : [];
-
-                // Hide Gradio's rendered text; we'll overlay our own
-                bubble.style.opacity = '0';
-
-                // Create overlay span inside the bubble
-                const overlay = document.createElement('span');
-                overlay.style.cssText = 'opacity:1; white-space:pre-wrap;';
-                bubble.parentElement.style.position = 'relative';
-                // Insert right after bubble
-                bubble.insertAdjacentElement('afterend', overlay);
-
-                // Copy colour from bubble
-                overlay.style.color = getComputedStyle(bubble).color || '#d8c8ff';
-                overlay.style.fontSize = getComputedStyle(bubble).fontSize || '0.66rem';
-                overlay.style.lineHeight = getComputedStyle(bubble).lineHeight || '1.25';
-                overlay.style.display = 'block';
-                overlay.style.textShadow = '0 1px 6px rgba(0,0,0,0.9), 0 0 16px rgba(100,60,180,0.45)';
-
-                // Show notes immediately
-                if (noteLines.length) {
-                    const notesEl = document.createElement('div');
-                    notesEl.style.cssText = 'color:rgba(182,140,255,0.7);font-size:0.6rem;margin-bottom:4px;';
-                    notesEl.textContent = noteLines.join('\\n');
-                    overlay.appendChild(notesEl);
-                }
-
-                const textContainer = document.createElement('div');
-                overlay.appendChild(textContainer);
-
-                const perSentence = (audioDuration * 1000 * 0.95) / sentences.length;
-
-                let i = 0;
-                function showNext() {
-                    if (i >= sentences.length) {
-                        // Done: restore Gradio bubble and remove overlay
-                        setTimeout(() => {
-                            bubble.style.opacity = '1';
-                            overlay.remove();
-                        }, 200);
-                        return;
+            function runTypewriter(audioDuration) {
+                // Poll until Gradio has rendered the final bubble
+                // (it may not exist yet when tts_text fires)
+                let attempts = 0;
+                function tryStart() {
+                    const el = getBubbleTextNode();
+                    // Keep trying until the bubble shows something other than ▋
+                    if (!el || el.textContent.trim() === '▋' || el.textContent.trim() === '') {
+                        if (++attempts < 40) { setTimeout(tryStart, 50); return; }
                     }
-                    const span = document.createElement('span');
-                    span.textContent = (i > 0 ? ' ' : '') + sentences[i];
-                    // Fade in
-                    span.style.cssText = 'opacity:0;transition:opacity 0.25s ease;';
-                    textContainer.appendChild(span);
-                    requestAnimationFrame(() => { span.style.opacity = '1'; });
 
-                    i++;
-                    if (i < sentences.length) {
-                        setTimeout(showNext, perSentence);
-                    } else {
-                        // Last sentence — remove overlay after audio ends
-                        setTimeout(() => {
-                            bubble.style.opacity = '1';
-                            overlay.remove();
-                        }, perSentence + 300);
+                    // Full display text (notes + speech)
+                    const fullText = (notesPrefix ? notesPrefix + '\\n\\n' : '') + speechText;
+
+                    // Immediately blank the bubble — prevents the flash of full text
+                    el.textContent = '';
+
+                    const totalChars = fullText.length;
+                    // Aim to finish at 95 % of audio duration; floor at 16 ms/char
+                    const totalMs    = audioDuration * 1000 * 0.95;
+                    const perChar    = Math.max(16, totalMs / totalChars);
+
+                    let i = 0;
+                    // Use a cursor character while typing
+                    function tick() {
+                        if (i <= totalChars) {
+                            el.textContent = fullText.slice(0, i) + (i < totalChars ? '▋' : '');
+                            i++;
+                            setTimeout(tick, perChar);
+                        } else {
+                            // Ensure exact final text (no cursor)
+                            el.textContent = fullText;
+                            // Scroll to bottom
+                            const chatbot = document.querySelector('#aiko-chatbot');
+                            if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
+                        }
                     }
+
+                    // Scroll to bottom before starting
+                    const chatbot = document.querySelector('#aiko-chatbot');
+                    if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
+
+                    tick();
                 }
-
-                // Scroll chatbot to bottom
-                const chatbot = document.querySelector('#aiko-chatbot');
-                if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
-
-                showNext();
+                tryStart();
             }
 
-            function waitForAudioAndReveal() {
+            function waitForAudioAndStart() {
                 const audioEl = document.querySelector('#aiko-audio audio');
-                if (!audioEl) {
-                    setTimeout(waitForAudioAndReveal, 100);
-                    return;
-                }
+                if (!audioEl) { setTimeout(waitForAudioAndStart, 80); return; }
 
-                function start() {
+                function go() {
                     const dur = audioEl.duration;
-                    const estimated = Math.max(2, speechText.length * 0.055);
-                    runSentenceReveal(isUsableDuration(dur) ? dur : estimated);
+                    const estimated = Math.max(3, speechText.length * 0.055);
+                    runTypewriter(isUsableDuration(dur) ? dur : estimated);
                 }
 
                 if (audioEl.readyState >= 1 && isUsableDuration(audioEl.duration)) {
-                    start();
+                    go();
                 } else {
-                    const onMeta = () => {
-                        audioEl.removeEventListener('loadedmetadata', onMeta);
-                        start();
-                    };
+                    const onMeta = () => { audioEl.removeEventListener('loadedmetadata', onMeta); go(); };
                     audioEl.addEventListener('loadedmetadata', onMeta);
-                    setTimeout(() => {
-                        audioEl.removeEventListener('loadedmetadata', onMeta);
-                        start();
-                    }, 600);
+                    setTimeout(() => { audioEl.removeEventListener('loadedmetadata', onMeta); go(); }, 600);
                 }
             }
 
-            setTimeout(waitForAudioAndReveal, 30);
+            // Small delay so Gradio's second yield has time to render the bubble
+            setTimeout(waitForAudioAndStart, 60);
         }
         """
     )
