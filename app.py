@@ -7,9 +7,6 @@ import gradio as gr
 from gradio import OAuthProfile
 import time
 import inspect
-import threading
-import queue
-import re
 
 load_dotenv()
 
@@ -214,7 +211,7 @@ def _check_login(profile: OAuthProfile | None):
 # UI
 # ─────────────────────────────────────────────
 with gr.Blocks(
-    title="AI Waifu and Companion: Aiko-chan 🌸",
+    title="🌸 AI Waifu and Companion: Aiko-chan",
 ) as demo:
 
     user_id_state = gr.State(value="Guest")
@@ -223,7 +220,7 @@ with gr.Blocks(
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
         with gr.Column(elem_id="aiko-login-card"):
             gr.HTML("""
-                <h1>🌸 Aiko-chan</h1>
+                <h1>⚠️ ATTENTION‼️</h1>
                 <p class='aiko-subtitle'>Please sign in to continue</p>
             """)
             gr.HTML("""
@@ -237,7 +234,7 @@ with gr.Blocks(
 
     with gr.Column(elem_id="aiko-shell"):
 
-        gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
+        gr.HTML("<div id='aiko-title'>🌸 AI Waifu and Companion: Aiko-chan</div>")
 
         with gr.Row(equal_height=True):
 
