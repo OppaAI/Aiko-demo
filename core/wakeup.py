@@ -142,7 +142,7 @@ def _warmup_tts(
     preset_id = os.getenv("MIOTTS_PRESET", "aiko_voice")
     try:
         r = httpx.post(
-            f"{url}/synthesize",
+            f"{url}/v1/tts/file",
             json={"text": "Hello.", "preset_id": preset_id},
             timeout=180,  # cold Modal container can take a while to spin up
         )
