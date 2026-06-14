@@ -61,19 +61,21 @@ def build_soul_prompt(user_id: str) -> str:
 # HELPERS
 # ─────────────────────────────────────────────
 def _strip_emoji(text: str) -> str:
-    """Remove emoji only — keep all punctuation, markdown, symbols."""
-    return re.sub(
+    """Remove emoji and any immediately following colon, keep all else."""
+    # Remove emoji + optional trailing colon+space
+    text = re.sub(
         r"[\U00010000-\U0010FFFF"
         r"\U00002600-\U000027BF"
         r"\U0001F000-\U0001FFFF"
         r"\U00002300-\U000023FF"
         r"\U00002B00-\U00002BFF"
         r"\U0001FA00-\U0001FFFF"
-        r"]",
+        r"]:?",
         "",
         text,
         flags=re.UNICODE,
     )
+    return text
 
 
 def _strip_for_speech(text: str) -> str:
