@@ -88,7 +88,10 @@ def _clean_for_tts(text: str) -> str:
     text = re.sub(r"__SEARCHING__:[^\n]+", "", text)
     text = re.sub(r"\[(?:think|search)[^\]]*\]", "", text, flags=re.I)
     text = _ACTION_RE.sub("", text)
-    text = re.sub(r"[`_#>~]", "", text)
+    text = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", text)   # **bold** -> bold
+    text = re.sub(r"^\s*[-*]\s+", "", text, flags=re.M)  # bullet markers
+    text = re.sub(r"^\s*-{3,}\s*$", "", text, flags=re.M)  # --- rules
+    text = re.sub(r"[`_#>~*-]", "", text)              # leftover symbols, now includes * and -
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
