@@ -153,7 +153,7 @@ class TTSServer:
         llama_cmd = [
             llama_bin,
             "-m", str(MODELS_DIR / GGUF_FILE),
-            "-c", "4096",
+            "-c", "8192",
             "--cont-batching",
             "--parallel", "4",          # match Modal concurrency
             "--n-gpu-layers", "99",

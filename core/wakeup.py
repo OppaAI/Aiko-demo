@@ -146,7 +146,6 @@ def _warmup_tts(
             data={
                 "text": "Hello.",
                 "reference_preset_id": preset_id,
-                "output_format": "wav",
             },
             timeout=180,
         )

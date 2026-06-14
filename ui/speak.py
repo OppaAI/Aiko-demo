@@ -125,17 +125,16 @@ def _miotts_to_file(text: str, out_path: Path) -> None:
     """Call MioTTS /v1/tts/file (multipart/form-data) → write WAV."""
     import httpx
 
-    data = {
-        "text": text,
-        "reference_preset_id": MIOTTS_PRESET_ID,
-        "output_format": "wav",
-    }
-
     resp = httpx.post(
         f"{MIOTTS_URL}/v1/tts/file",
-        data=data,
+        data={
+            "text": text,
+            "reference_preset_id": MIOTTS_PRESET_ID,
+        },
         timeout=120,
     )
+    if not resp.is_success:
+        print(f"[miotts] {resp.status_code}: {resp.text}")
     resp.raise_for_status()
 
     # Write WAV bytes directly — no conversion needed
