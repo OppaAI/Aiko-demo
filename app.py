@@ -468,7 +468,7 @@ Aiko is your AI companion — chat, ask questions, or just talk.
 
             // ── 4. Typewriter — starts as soon as bubble is blanked ─
             function startTypewriter() {
-                if (!blanked || !targetEl) { setTimeout(startTypewriter, 20); return; }
+                if (!blanked || !targetEl) { setTimeout(startTypewriter, 300); return; }
 
                 typingStarted = true;
 

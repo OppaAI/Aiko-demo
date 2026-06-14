@@ -18,7 +18,7 @@ html, body, .gradio-container, main, footer {
   color: var(--aiko-text);
 }
 #aiko-shell {
-  max-width: 980px;
+  max-width: 1180px;
   margin: 0 0 12px 12px;
   padding: 0 12px 12px;
 }
