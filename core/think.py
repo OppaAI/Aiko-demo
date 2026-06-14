@@ -44,7 +44,7 @@ _REASONING_SCALE = 3
 
 _PERSONA_PATH = Path(__file__).resolve().parent.parent / "persona" / "soul.md"
 
-_DEFAULT_USER_ID = os.getenv("USER_ID", "OppaAI")
+_DEFAULT_USER_ID = os.getenv("USER_ID", "Guest")
 
 
 def _render_persona(template: str, user_id: str) -> str:

@@ -80,7 +80,7 @@ RRF_K       = 60    # standard RRF constant — dampens outlier ranks
 KNN_LIMIT   = 20    # candidates fetched before RRF re-rank
 FTS_LIMIT   = 20    # candidates fetched before RRF re-rank
 
-USER_ID = os.getenv("USER_ID", "OppaAI")
+USER_ID = os.getenv("USER_ID", "Guest")
 
 # Minimum conversation size (chars) worth sending to LLM for extraction.
 # Skips trivial turns (greetings, one-word replies) to save inference time.
