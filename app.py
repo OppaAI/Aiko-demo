@@ -424,7 +424,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             const notesPrefix = parts[1] || '';
             const fullText    = parts[2] || '';
             const cleanLen = fullText.replace(/[*_#`]/g, '').length;
-            const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.07));
+            const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.067));
 
             // ── 1. VRM handoff ──────────────────────────────────────
             sendAvatar({
