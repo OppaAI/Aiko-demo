@@ -22,7 +22,7 @@ import fastapi
 app = modal.App("aiko-nemotron-asr")
 
 image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.11")
     .apt_install("libsndfile1", "ffmpeg", "git")
     .pip_install("Cython", "packaging")
     .pip_install("torch", "torchaudio")
@@ -50,14 +50,13 @@ model_volume = modal.Volume.from_name("nemotron-asr-weights", create_if_missing=
 class ASR:
     @modal.enter()
     def load_model(self):
-        import os
         import nemo.collections.asr as nemo_asr
+        from huggingface_hub import hf_hub_download
 
         # Download/cache the .nemo checkpoint so the script can load it by path
         self.model = nemo_asr.models.ASRModel.from_pretrained(model_name=MODEL_ID)
-        # Find the cached .nemo file path
-        from huggingface_hub import hf_hub_download
 
+        # Find the cached .nemo file path
         self.model_path = hf_hub_download(
             repo_id=MODEL_ID,
             filename="nemotron-3.5-asr-streaming-0.6b.nemo",
@@ -68,6 +67,7 @@ class ASR:
         import io
         import json
         import os
+        import re
         import subprocess
         import tempfile
 
@@ -115,17 +115,28 @@ class ASR:
             if result.returncode != 0:
                 raise RuntimeError(f"Inference script failed: {result.stderr[-2000:]}")
 
-            # Output is written as a manifest with predicted text
+            # --- Primary: parse transcription directly from stdout ---
+            match = re.search(
+                r"Final streaming transcriptions:\s*\['(.+?)'\]",
+                result.stdout,
+            )
+            if match:
+                return match.group(1)
+
+            # --- Fallback: look for output manifest file ---
             output_files = [
-                f for f in os.listdir(output_dir) if f.endswith(".json") or f.endswith(".jsonl")
+                f for f in os.listdir(output_dir)
+                if f.endswith(".json") or f.endswith(".jsonl")
             ]
             if not output_files:
-                raise RuntimeError(f"No output file found in {output_dir}: {os.listdir(output_dir)}")
+                raise RuntimeError(
+                    f"No transcription found in stdout or output dir.\n"
+                    f"stdout tail: {result.stdout[-500:]}"
+                )
 
             out_path = os.path.join(output_dir, output_files[0])
             with open(out_path) as f:
-                line = f.readline()
-                entry = json.loads(line)
+                entry = json.loads(f.readline())
 
             return entry.get("pred_text", entry.get("text", ""))
 
