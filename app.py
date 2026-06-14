@@ -60,37 +60,40 @@ def build_soul_prompt(user_id: str) -> str:
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
-def _strip_for_speech(text: str) -> str:
-    """Remove search notes, tool tags, think blocks, markdown, and non-speech symbols before TTS."""
-    # Remove search/tool annotations
-    text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
-    text = re.sub(r"\n?🔧 .*?\n?", "", text)
-    # Remove think blocks
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    # Remove markdown formatting (bold, italic, code, headers, blockquotes, hr)
-    text = re.sub(r"#{1,6}\s+", "", text)          # headings
-    text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)  # bold/italic
-    text = re.sub(r"_{1,2}(.*?)_{1,2}", r"\1", text)    # underscore bold/italic
-    text = re.sub(r"`{1,3}.*?`{1,3}", "", text, flags=re.DOTALL)  # inline/block code
-    text = re.sub(r"^\s*[-*>|]\s+", "", text, flags=re.MULTILINE)  # bullets, blockquotes, table pipes
-    text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)   # numbered lists
-    text = re.sub(r"^-{3,}$", "", text, flags=re.MULTILINE)        # horizontal rules
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)           # markdown links → keep label
-    # Remove all emoji and non-speech symbols, keep only:
-    #   letters, digits, whitespace, and: , . ! ? ' " : ; - ( ) & @
-    text = re.sub(
-        r"[^\w\s,\.!\?'\"\:\;\-\(\)\&\@]",
+def _strip_emoji(text: str) -> str:
+    """Remove emoji only, keep all punctuation, markdown, symbols."""
+    return re.sub(
+        r"[\U00010000-\U0010FFFF"   # supplementary planes (most emoji)
+        r"\U00002600-\U000027BF"    # misc symbols, dingbats
+        r"\U0001F000-\U0001FFFF"    # emoticons, transport, maps etc.
+        r"\U00002300-\U000023FF"    # misc technical
+        r"\U00002B00-\U00002BFF"    # misc symbols and arrows
+        r"\U0001FA00-\U0001FFFF"    # newer emoji blocks
+        r"]",
         "",
         text,
         flags=re.UNICODE,
     )
-    # \w keeps unicode letters/digits/underscore; strip lone underscores left behind
+
+
+def _strip_for_speech(text: str) -> str:
+    """Aggressive clean for TTS — removes markdown, symbols, emoji."""
+    text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
+    text = re.sub(r"\n?🔧 .*?\n?", "", text)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    text = re.sub(r"#{1,6}\s+", "", text)
+    text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)
+    text = re.sub(r"_{1,2}(.*?)_{1,2}", r"\1", text)
+    text = re.sub(r"`{1,3}.*?`{1,3}", "", text, flags=re.DOTALL)
+    text = re.sub(r"^\s*[-*>|]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^-{3,}$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"[^\w\s,\.!\?'\"\:\;\-\(\)\&\@]", "", text, flags=re.UNICODE)
     text = re.sub(r"(?<!\w)_+(?!\w)", "", text)
-    # Collapse multiple spaces/newlines
     text = re.sub(r"\n{2,}", "\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
-
 
 # ─────────────────────────────────────────────
 # CORE RESPONSE  (full text → TTS → reveal)
@@ -144,9 +147,9 @@ def _get_response(message: str, history: list):
     else:
         audio_path, emotion = None, "neutral"
 
-    # Build the display text shown in the chatbot bubble (notes + answer).
+    # Build the display text shown in the chatbot bubble — strip ONLY emoji, keep everything else
     notes_prefix = "\n".join(search_notes) + "\n\n" if search_notes else ""
-    display_text = notes_prefix + speech_text
+    display_text = notes_prefix + _strip_emoji(full_text)  # ← use full_text, not speech_text
 
     # ── Stage 3: write the FINAL text into history (persistent, correct) ─────
     history[-1] = {"role": "assistant", "content": display_text}
@@ -155,7 +158,7 @@ def _get_response(message: str, history: list):
     # reveal animation / VRM lip-sync layer. The chatbot text itself is
     # already final via `history` above — this signal is purely for
     # animation + lip-sync, never the source of truth for the text.
-    signal = f"TYPEWRITE:{emotion}|{notes_prefix}|{speech_text}"
+    signal = f"TYPEWRITE:{emotion}|{notes_prefix}|{display_text}"
     yield history, signal, audio_path
 
 
