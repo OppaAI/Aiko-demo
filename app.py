@@ -319,7 +319,7 @@ def _check_login(profile: OAuthProfile | None):
 # ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
-with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
+with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
 
     user_id_state = gr.State(value="Guest")
 
@@ -327,7 +327,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
         with gr.Column(elem_id="aiko-login-card"):
             gr.HTML("""
-                <h1>🌸 AI Waifu and Companion Aiko-chan</h1>
+                <h1>🌸 AI Waifu and Companion: Aiko-chan</h1>
                 <p class='aiko-subtitle'>Please sign in to continue</p>
             """)
             gr.HTML("""
@@ -365,7 +365,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
     with gr.Column(elem_id="aiko-shell"):
 
-        gr.HTML("<div id='aiko-title'>🌸 AI Waifu and Companion Aiko-chan</div>")
+        gr.HTML("<div id='aiko-title'>🌸 AI Waifu and Companion: Aiko-chan</div>")
 
         with gr.Row(equal_height=True):
 
