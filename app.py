@@ -454,7 +454,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 const totalChars = fullText.length;
                 // Estimate pace from char count (stripped of markdown for timing)
                 const cleanLen   = fullText.replace(/[*_#`]/g, '').length;
-                let audioDur     = Math.max(3, cleanLen * 0.055);
+                let audioDur = Math.max(3, cleanLen * 0.07);
                 let totalMs      = audioDur * 1000;
                 let perChar      = totalMs / Math.max(1, totalChars);
 
@@ -470,21 +470,19 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 let startTime = performance.now();
 
                 function tick() {
-                    if (i > totalChars) {
+                    if (i >= totalChars) {
                         targetEl.textContent = fullText;
                         const cb = document.querySelector('#aiko-chatbot');
                         if (cb) cb.scrollTop = cb.scrollHeight;
                         return;
                     }
-                    // Resync to elapsed time to prevent drift
                     const elapsed  = performance.now() - startTime;
                     const shouldBe = Math.floor((elapsed / totalMs) * totalChars);
-                    i = Math.max(i, Math.min(shouldBe, totalChars));
+                    i = Math.min(Math.max(shouldBe, 0), totalChars);
 
                     targetEl.textContent = i < totalChars
                         ? fullText.slice(0, i) + '▋'
                         : fullText;
-                    i++;
                     setTimeout(tick, perChar);
                 }
 
