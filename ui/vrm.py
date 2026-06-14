@@ -1,3 +1,4 @@
+import _interpqueues
 from __future__ import annotations
 
 import html
@@ -353,22 +354,24 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         speaking = true;
         dot.className = 'speaking';
         statusText.textContent = 'speaking';
-        setExpression('happy', 0.55);
-        return;
+        return; // don't override emotion here — let the emoji/TTS-derived expression hold
       }}
       speaking = false;
       dot.className = nextMode === 'thinking' ? 'thinking' : '';
       statusText.textContent = nextMode === 'thinking' ? 'thinking' : 'idle';
       clearMouth();
       if (nextMode === 'thinking') {{
-        setExpression('surprised', 0.22);
+        // hold current expression instead of forcing 'surprised'
+        clearTimeout(exprResetTimer);
       }} else {{
         setExpression('relaxed', 0.25);
         stopCaption();
       }}
     }}
+    let speakingLockUntil = 0;
 
     function setSpeaking(active) {{
+      if (!active && performance.now() < speakingLockUntil) return; // ignore premature pause/ended
       setStatus(active ? 'speaking' : 'idle');
     }}
 
@@ -691,14 +694,17 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         // Speech text for lip-sync + caption (sent by the JS bridge alongside audio)
         const incomingText = msg.ttsText ?? msg.speechText ?? msg.text;
         if (incomingText !== undefined) {{
-          // Store for the audio 'play' event to pick up if it fires after postMessage
           window._aikoLatestTtsText = incomingText;
           setSpeechText(incomingText, msg.duration ?? msg.audioDuration ?? null);
-          if (msg.speaking === undefined && msg.playNow) setStatus('speaking');
+          if (msg.speaking === undefined && msg.playNow) {{
+            setStatus('speaking');
+            speakingLockUntil = performance.now() + 400; // ignore false 'paused' for 400ms
+          }}
         }}
-
-        // Direct speaking state override
-        if (msg.speaking !== undefined) setSpeaking(msg.speaking);
+        if (msg.speaking !== undefined) {{
+          if (msg.speaking) speakingLockUntil = performance.now() + 400;
+          setSpeaking(msg.speaking);
+        }}
 
         // Expression / emotion should win over generic speaking/thinking faces.
         if (msg.expression !== undefined) {{
