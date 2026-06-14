@@ -392,54 +392,60 @@ with gr.Blocks(
             window._aikoLatestTtsText = speechText;
             window._aikoLatestEmotion = emotion;
 
-            // ── 2. Find deepest text container in last bot bubble ───────
+            // ── 2. Helpers ──────────────────────────────────────────────
             function getBubbleEl() {
-                const selectors = [
-                    '#aiko-chatbot [data-testid="bot"] .prose p',
-                    '#aiko-chatbot [data-testid="bot"] .prose',
-                    '#aiko-chatbot [data-testid="bot"] .message-content',
-                    '#aiko-chatbot [data-testid="bot"]',
+                const allBubbles = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
+                if (!allBubbles.length) return null;
+                const lastBubble = allBubbles[allBubbles.length - 1];
+                const candidates = [
+                    lastBubble.querySelector('.prose p:last-child'),
+                    lastBubble.querySelector('.prose'),
+                    lastBubble.querySelector('.message-content'),
+                    lastBubble,
                 ];
-                for (const sel of selectors) {
-                    const all = document.querySelectorAll(sel);
-                    if (all.length) return all[all.length - 1];
+                for (const el of candidates) {
+                    if (el) return el;
                 }
-                return null;
+                return lastBubble;
             }
 
-            // ── 3. PHASE 1: blank the bubble the moment ▋ appears ──────
-            // This runs RIGHT NOW (no delay) so we catch it before Gradio
-            // writes the full text on yield 2.
-            const fullText   = (notesPrefix ? notesPrefix + '\\n\\n' : '') + speechText;
-            let   blanked    = false;
-            let   targetEl   = null;
+            function wipeEl(el) {
+                while (el.firstChild) el.removeChild(el.firstChild);
+                el.textContent = '';
+            }
+
+            function isUsableDuration(d) {
+                return Number.isFinite(d) && d > 0 && d < 600;
+            }
+
+            // ── 3. PHASE 1: blank watcher ───────────────────────────────
+            const fullText  = (notesPrefix ? notesPrefix + '\\n\\n' : '') + speechText;
+            let blanked     = false;
+            let targetEl    = null;
+            let typingStarted = false;
 
             function blankWatcher() {
                 const el = getBubbleEl();
                 if (!el) { requestAnimationFrame(blankWatcher); return; }
 
                 const t = el.textContent.trim();
-                // As soon as ANY content appears in the bubble, blank it and hold
                 if (t !== '') {
-                    targetEl         = el;
-                    el.textContent   = '';      // blank immediately
-                    blanked          = true;
-                    // Also install a MutationObserver to re-blank if Gradio
-                    // overwrites us with the full text before we start typing
+                    targetEl = el;
+                    wipeEl(el);
+                    blanked = true;
+
                     const obs = new MutationObserver(() => {
-                        if (!typingStarted) el.textContent = '';
+                        if (!typingStarted) wipeEl(el);
                     });
                     obs.observe(el, { childList: true, subtree: true, characterData: true });
-                    window._aikoBlankObs = obs;   // store so typewriter can disconnect it
+                    window._aikoBlankObs = obs;
                 } else {
                     requestAnimationFrame(blankWatcher);
                 }
             }
-            blankWatcher();
+            blankWatcher();   // ← starts immediately, no setTimeout
 
-            // ── 4. PHASE 2: typewriter — start immediately, resync to audio ─
-            let typingStarted = false;
-
+            // ── 4. PHASE 2: typewriter ──────────────────────────────────
             function startTypewriter() {
                 if (!blanked || !targetEl) {
                     setTimeout(startTypewriter, 20);
@@ -447,21 +453,18 @@ with gr.Blocks(
                 }
                 typingStarted = true;
 
-                // Disconnect the blank-guard observer now that we own the element
                 if (window._aikoBlankObs) {
                     window._aikoBlankObs.disconnect();
                     window._aikoBlankObs = null;
                 }
 
-                const totalChars = fullText.length;
-                // Optimistic pace: assume ~0.055 s/char until audio metadata arrives
+                const totalChars  = fullText.length;
                 let audioDuration = Math.max(3, speechText.length * 0.055);
                 let totalMs       = audioDuration * 1000;
                 let perChar       = totalMs / totalChars;
 
-                // Try to get real duration immediately (may already be available)
                 const audioEl = document.querySelector('#aiko-audio audio');
-                if (audioEl && Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
+                if (audioEl && isUsableDuration(audioEl.duration)) {
                     audioDuration = audioEl.duration;
                     totalMs       = audioDuration * 1000;
                     perChar       = totalMs / totalChars;
@@ -469,7 +472,6 @@ with gr.Blocks(
 
                 let i         = 0;
                 let startTime = performance.now();
-                let timerId   = null;
 
                 function tick() {
                     if (i > totalChars) {
@@ -478,52 +480,43 @@ with gr.Blocks(
                         if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
                         return;
                     }
-
-                    // Resync: recalculate where we SHOULD be based on elapsed time
-                    const elapsed   = performance.now() - startTime;
-                    const shouldBe  = Math.floor((elapsed / totalMs) * totalChars);
+                    const elapsed  = performance.now() - startTime;
+                    const shouldBe = Math.floor((elapsed / totalMs) * totalChars);
                     i = Math.max(i, Math.min(shouldBe, totalChars));
-
                     targetEl.textContent = i < totalChars
                         ? fullText.slice(0, i) + '▋'
                         : fullText;
-
                     i++;
-                    timerId = setTimeout(tick, perChar);
+                    setTimeout(tick, perChar);
                 }
 
-                // When real audio duration arrives, update pace mid-typewriter
                 function onAudioReady(el) {
-                    const dur = el.duration;
-                    if (!Number.isFinite(dur) || dur <= 0 || dur >= 600) return;
-                    // How far through the text are we?
-                    const elapsed     = performance.now() - startTime;
-                    const charsLeft   = totalChars - i;
-                    const timeLeft    = Math.max(100, dur * 1000 - elapsed);
-                    perChar           = timeLeft / Math.max(1, charsLeft);
-                    totalMs           = dur * 1000;
-                    // startTime stays the same so resync math stays correct
+                    if (!isUsableDuration(el.duration)) return;
+                    const elapsed  = performance.now() - startTime;
+                    const charsLeft = totalChars - i;
+                    const timeLeft  = Math.max(100, el.duration * 1000 - elapsed);
+                    perChar = timeLeft / Math.max(1, charsLeft);
+                    totalMs = el.duration * 1000;
                 }
 
                 if (audioEl) {
-                    if (Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
+                    if (isUsableDuration(audioEl.duration)) {
                         onAudioReady(audioEl);
                     } else {
-                        audioEl.addEventListener('loadedmetadata', function handler() {
-                            audioEl.removeEventListener('loadedmetadata', handler);
+                        audioEl.addEventListener('loadedmetadata', function h() {
+                            audioEl.removeEventListener('loadedmetadata', h);
                             onAudioReady(audioEl);
                         });
                     }
                 } else {
-                    // Audio element not in DOM yet — poll for it
                     function pollAudio() {
                         const a = document.querySelector('#aiko-audio audio');
                         if (!a) { setTimeout(pollAudio, 80); return; }
-                        if (Number.isFinite(a.duration) && a.duration > 0) {
+                        if (isUsableDuration(a.duration)) {
                             onAudioReady(a);
                         } else {
-                            a.addEventListener('loadedmetadata', function handler() {
-                                a.removeEventListener('loadedmetadata', handler);
+                            a.addEventListener('loadedmetadata', function h() {
+                                a.removeEventListener('loadedmetadata', h);
                                 onAudioReady(a);
                             });
                         }
