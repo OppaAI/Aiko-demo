@@ -468,6 +468,28 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             const cleanLen = fullText.replace(/[*_#`]/g, '').length;
             const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.067));
 
+            // ── 0. Scroll helper ─────────────────────────────────────────────
+            // Gradio 6.x may nest the actual scrollable element below
+            // #aiko-chatbot. Dynamically find whatever descendant is
+            // actually overflowing and scroll that.
+            function scrollChat() {
+                const root = document.querySelector('#aiko-chatbot');
+                if (!root) return;
+                let target = root;
+                const candidates = root.querySelectorAll('*');
+                for (const el of candidates) {
+                    const style = getComputedStyle(el);
+                    if ((style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+                        el.scrollHeight > el.clientHeight) {
+                        target = el;
+                        break;
+                    }
+                }
+                requestAnimationFrame(() => {
+                    target.scrollTop = target.scrollHeight;
+                });
+            }
+
             // ── 1. VRM handoff ──────────────────────────────────────────────
             sendAvatar({
                 status: 'speaking',
@@ -627,6 +649,9 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     if (responseSpan) responseSpan.setAttribute('data-aiko-response', '1');
                     obs.observe(el, { childList: true, subtree: false });
                     window._aikoBlankObs = obs;
+
+                    // Scroll now that the bubble has real content
+                    scrollChat();
                 } else {
                     requestAnimationFrame(blankWatcher);
                 }
@@ -665,8 +690,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 function tick() {
                     if (i >= totalChars) {
                         typeTarget.textContent = fullText;
-                        const cb = document.querySelector('#aiko-chatbot');
-                        if (cb) cb.scrollTop = cb.scrollHeight;
+                        scrollChat();
                         return;
                     }
                     const elapsed  = performance.now() - startTime;
@@ -677,8 +701,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         ? fullText.slice(0, i) + '▋'
                         : fullText;
 
-                    const cb = document.querySelector('#aiko-chatbot');
-                    if (cb) cb.scrollTop = cb.scrollHeight;
+                    scrollChat();
 
                     setTimeout(tick, perChar);
                 }
