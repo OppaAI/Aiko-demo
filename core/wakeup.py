@@ -1,19 +1,15 @@
 """
 core/wakeup.py
 Aiko's boot orchestrator — owns parallel subsystem startup and warmup sequencing.
-
 main.py calls AikoWakeup().boot(...) and receives a BootResult with all live
 subsystem references; it never needs to know the startup choreography.
-
 Progress is reported through three injected callbacks so wakeup.py stays
 completely TUI-ignorant:
     on_loading(key)  — subsystem is starting
     on_done(key)     — subsystem finished successfully
     on_skip(key)     — subsystem skipped
-
 Each module owns its BOOT_LABELS dict; wakeup collects them and exposes
 ALL_BOOT_LABELS so the UI can register display text before boot begins.
-
 Usage:
     result = AikoWakeup().boot(
         on_loading = ...,
@@ -22,14 +18,12 @@ Usage:
     )
     think    = result.think
     memorize = result.memorize
-
 Note: the dream scheduler is not used in this Gradio/HF Space demo, so
       `speak` is always None. ASR (`listen`) IS used here — browser-recorded
       audio is transcribed via ui.listen.transcribe_file (Modal endpoint
       or local faster-whisper fallback) — but it has no persistent live
       object to hand back, so `listen` remains None in BootResult; its
       warmup is just a cold-start prefill (see _warmup_asr).
-
 All four warmups (LLM, TTS, ASR, plus think/memorize init) fire real
 inference/synthesis/transcription requests rather than health checks, so
 CUDA kernels and Modal containers are hot before the first real user turn.
@@ -202,7 +196,7 @@ def _warmup_asr(
             import httpx
             with open(tmp_path, "rb") as f:
                 resp = httpx.post(
-                    ASR_URL,
+                    f"{ASR_URL}/transcribe",
                     files={"audio": ("warmup.wav", f, "audio/wav")},
                     timeout=180,  # cold Modal container can take a while to spin up
                 )
@@ -261,23 +255,19 @@ class AikoWakeup:
     ) -> BootResult:
         """
         Execute boot sequence and return live subsystem references.
-
         All five subsystems boot concurrently:
           - AikoThink          (LLM client + persona load + internal warmup)
           - AikoMemorize       (sqlite-vec + fastembed + cleanup)
           - Modal LLM warmup   (real inference prefill)
           - Modal TTS warmup   (real synthesis)
           - ASR warmup         (real transcription, Modal or local)
-
         Memory backend is injected into think once both are ready.
         Modal/ASR warmups are joined before returning so the first user
         message hits warm containers.
-
         Args:
             on_loading: Called with a progress key when a subsystem starts.
             on_done:    Called with a progress key when a subsystem finishes.
             on_skip:    Called with a progress key when a subsystem is skipped.
-
         Returns:
             BootResult with think and memorize references; speak and
             listen are always None in this deployment (see module docstring).

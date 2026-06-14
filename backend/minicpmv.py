@@ -1,46 +1,32 @@
 """
 MiniCPM-V 4.6 — Modal inference endpoint
-Supports: image (URL or base64), video (URL or base64), text-only
-
-Endpoints:
-  POST /vision   — main inference
-  GET  /health   — liveness check
-
-Request body (JSON):
-  {
-    "prompt": "What do you see?",
-    "image_url": "https://...",          # optional — remote image
-    "image_b64": "<base64 string>",      # optional — local image (png/jpg)
-    "video_url": "https://...",          # optional — remote video
-    "video_b64": "<base64 string>",      # optional — local video (mp4)
-    "downsample_mode": "16x",            # "4x" for finer detail, "16x" for speed
-    "max_new_tokens": 512,
-    "max_num_frames": 128                # video only
-  }
-
-Only one of image_url / image_b64 / video_url / video_b64 should be set per request.
-
-Note: uses PyAV (av) instead of torchvision to avoid torchvision.io.read_video removal.
+Video is decoded manually with PyAV (bypasses transformers video pipeline entirely).
+Frames are subsampled and resized before being passed as PIL images.
 """
 
 import base64
 import io
 import os
 import tempfile
-from typing import Optional
+from typing import Optional, List
 
 import modal
 
-# ---------------------------------------------------------------------------
-# Modal image — av instead of torchvision fixes the read_video AttributeError
-# ---------------------------------------------------------------------------
+TORCH_INDEX = "https://download.pytorch.org/whl/cu121"
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
+        "torch==2.6.0",
+        "torchvision==0.21.0",
+        extra_index_url=TORCH_INDEX,
+    )
+    .pip_install(
         "transformers[torch]>=5.7.0",
-        "av",           # PyAV — replaces torchvision for video decoding
+        "av",
         "accelerate",
         "Pillow",
+        "requests",
         "fastapi",
         "uvicorn",
     )
@@ -49,6 +35,57 @@ image = (
 app = modal.App("minicpm-v-4-6", image=image)
 
 MODEL_ID = "openbmb/MiniCPM-V-4.6"
+
+
+def _decode_video_pyav(source: str | bytes, max_frames: int = 16, max_size: int = 448) -> List:
+    """Decode video with PyAV, subsample to max_frames, resize to max_size."""
+    import av
+    from PIL import Image as PILImage
+
+    if isinstance(source, (bytes, bytearray)):
+        container = av.open(io.BytesIO(source))
+    else:
+        # URL or file path
+        import requests
+        if source.startswith("http"):
+            resp = requests.get(source, timeout=30)
+            resp.raise_for_status()
+            container = av.open(io.BytesIO(resp.content))
+        else:
+            container = av.open(source)
+
+    stream = container.streams.video[0]
+    total = stream.frames or 0
+
+    # Collect all frame pts first for uniform subsampling
+    frames = []
+    container.seek(0)
+    for packet in container.demux(stream):
+        for frame in packet.decode():
+            frames.append(frame)
+
+    container.close()
+
+    if not frames:
+        return []
+
+    # Uniform subsample
+    if len(frames) > max_frames:
+        idxs = [int(i * len(frames) / max_frames) for i in range(max_frames)]
+        frames = [frames[i] for i in idxs]
+
+    # Convert to PIL and resize
+    pil_frames = []
+    for f in frames:
+        img = f.to_image()  # PIL Image
+        # Resize keeping aspect ratio
+        w, h = img.size
+        if max(w, h) > max_size:
+            scale = max_size / max(w, h)
+            img = img.resize((int(w * scale), int(h * scale)), PILImage.LANCZOS)
+        pil_frames.append(img)
+
+    return pil_frames
 
 
 @app.cls(
@@ -67,7 +104,7 @@ class VisionModel:
         self.processor = AutoProcessor.from_pretrained(MODEL_ID)
         self.model = AutoModelForImageTextToText.from_pretrained(
             MODEL_ID,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map="auto",
         )
         self.model.eval()
@@ -83,14 +120,12 @@ class VisionModel:
         video_b64: Optional[str] = None,
         downsample_mode: str = "16x",
         max_new_tokens: int = 512,
-        max_num_frames: int = 128,
+        max_num_frames: int = 16,
     ) -> str:
         import torch
         from PIL import Image
 
-        # ---- Build content list ----------------------------------------
         content = []
-        tmp_path = None
 
         if image_url:
             content.append({"type": "image", "url": image_url})
@@ -100,47 +135,35 @@ class VisionModel:
             img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
             content.append({"type": "image", "image": img})
 
-        elif video_url:
-            content.append({"type": "video", "url": video_url})
+        elif video_url or video_b64:
+            # Decode video manually with PyAV — bypass transformers video pipeline
+            if video_b64:
+                source = base64.b64decode(video_b64)
+            else:
+                source = video_url
 
-        elif video_b64:
-            video_bytes = base64.b64decode(video_b64)
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
-                f.write(video_bytes)
-                tmp_path = f.name
-            content.append({"type": "video", "url": f"file://{tmp_path}"})
+            frames = _decode_video_pyav(source, max_frames=max_num_frames)
+            if not frames:
+                return "Error: could not decode video."
+
+            # Pass frames as multiple images
+            for frame in frames:
+                content.append({"type": "image", "image": frame})
 
         content.append({"type": "text", "text": prompt})
         messages = [{"role": "user", "content": content}]
 
-        # ---- Tokenise — kwargs directly in apply_chat_template (official API) --
-        is_video = bool(video_url or video_b64)
+        # All requests use image path (video frames passed as images)
+        inputs = self.processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt",
+            downsample_mode=downsample_mode,
+            max_slice_nums=36,
+        ).to(self.model.device)
 
-        if is_video:
-            inputs = self.processor.apply_chat_template(
-                messages,
-                tokenize=True,
-                add_generation_prompt=True,
-                return_dict=True,
-                return_tensors="pt",
-                downsample_mode=downsample_mode,
-                max_num_frames=max_num_frames,
-                stack_frames=1,
-                max_slice_nums=1,
-                use_image_id=False,
-            ).to(self.model.device)
-        else:
-            inputs = self.processor.apply_chat_template(
-                messages,
-                tokenize=True,
-                add_generation_prompt=True,
-                return_dict=True,
-                return_tensors="pt",
-                downsample_mode=downsample_mode,
-                max_slice_nums=36,
-            ).to(self.model.device)
-
-        # ---- Generate --------------------------------------------------
         with torch.inference_mode():
             generated_ids = self.model.generate(
                 **inputs,
@@ -152,23 +175,15 @@ class VisionModel:
             out[len(inp):]
             for inp, out in zip(inputs.input_ids, generated_ids)
         ]
-        text = self.processor.batch_decode(
+        return self.processor.batch_decode(
             trimmed,
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False,
         )[0]
 
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-        return text
-
 
 # ---------------------------------------------------------------------------
-# FastAPI web endpoint
+# FastAPI
 # ---------------------------------------------------------------------------
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -184,7 +199,7 @@ class VisionRequest(BaseModel):
     video_b64: Optional[str] = None
     downsample_mode: str = "16x"
     max_new_tokens: int = 512
-    max_num_frames: int = 128
+    max_num_frames: int = 16
 
 
 class VisionResponse(BaseModel):
@@ -198,17 +213,11 @@ async def health():
 
 @web_app.post("/vision", response_model=VisionResponse)
 async def vision_endpoint(req: VisionRequest):
-    n_inputs = sum([
-        bool(req.image_url),
-        bool(req.image_b64),
-        bool(req.video_url),
-        bool(req.video_b64),
-    ])
+    n_inputs = sum([bool(req.image_url), bool(req.image_b64),
+                    bool(req.video_url), bool(req.video_b64)])
     if n_inputs > 1:
-        raise HTTPException(
-            status_code=400,
-            detail="Provide at most one of: image_url, image_b64, video_url, video_b64",
-        )
+        raise HTTPException(status_code=400,
+            detail="Provide at most one of: image_url, image_b64, video_url, video_b64")
 
     model = VisionModel()
     result = model.infer.remote(
@@ -230,25 +239,22 @@ def fastapi_app():
     return web_app
 
 
-# ---------------------------------------------------------------------------
-# Local test — modal run minicpmv.py
-# ---------------------------------------------------------------------------
 @app.local_entrypoint()
 def main():
     model = VisionModel()
 
-    print("=== Image test (URL) ===")
+    print("=== Image test ===")
     result = model.infer.remote(
         prompt="What causes this phenomenon?",
         image_url="https://huggingface.co/datasets/openbmb/DemoCase/resolve/main/refract.png",
     )
     print(result)
 
-    print("\n=== Video test (URL) ===")
+    print("\n=== Video test (8 frames) ===")
     result = model.infer.remote(
-        prompt="Describe this video in detail. Follow the timeline and focus on on-screen text, interface changes, main actions, and scene changes.",
+        prompt="Describe what is happening in this video.",
         video_url="https://huggingface.co/datasets/openbmb/DemoCase/resolve/main/football.mp4",
-        max_new_tokens=2048,
-        max_num_frames=128,
+        max_num_frames=8,
+        max_new_tokens=512,
     )
     print(result)
