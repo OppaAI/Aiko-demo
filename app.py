@@ -246,7 +246,7 @@ def _voice_from_b64(b64_data: str, history: list, user_id: str):
     history = history or []
 
     if not b64_data:
-        yield history, None, None, ""
+        yield history, gr.update(), gr.update(), ""
         return
 
     try:
@@ -257,11 +257,11 @@ def _voice_from_b64(b64_data: str, history: list, user_id: str):
         audio_bytes = base64.b64decode(encoded)
     except Exception as e:
         print(f"[voice] base64 decode error: {e}")
-        yield history, None, None, ""
+        yield history, gr.update(), gr.update(), ""
         return
 
     if not audio_bytes:
-        yield history, None, None, ""
+        yield history, gr.update(), gr.update(), ""
         return
 
     tmp_path = None
@@ -283,7 +283,7 @@ def _voice_from_b64(b64_data: str, history: list, user_id: str):
 
     if not transcript:
         print("[voice] empty transcript, ignoring")
-        yield history, None, None, ""
+        yield history, gr.update(), gr.update(), ""
         return
 
     print(f"[voice] transcript: {transcript!r}")
