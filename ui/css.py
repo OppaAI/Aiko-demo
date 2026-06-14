@@ -103,8 +103,8 @@ body > #aiko-emotion-label,
   position: absolute;
   top: 16px;
   right: 16px;
-  bottom: 90px;
-  width: 42%;
+  bottom: 76px;
+  width: 44%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
