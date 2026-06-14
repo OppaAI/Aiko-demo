@@ -452,6 +452,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
                 if (!audioEl._aikoSpeakingBridge) {
                     audioEl._aikoSpeakingBridge = true;
+                    let pauseDebounceTimer = null;
                     const sendSpeaking = (speaking) => {
                         if (!speaking && window._aikoSpeakingFallbackTimer) {
                             clearTimeout(window._aikoSpeakingFallbackTimer);
@@ -459,13 +460,29 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         }
                         sendAvatar({ speaking, status: speaking ? 'speaking' : 'idle' });
                     };
-                    audioEl.addEventListener('play',    () => sendSpeaking(true));
-                    audioEl.addEventListener('playing', () => sendSpeaking(true));
-                    audioEl.addEventListener('pause',   () => {
-                        if (!audioEl.ended) sendSpeaking(false);
+                    audioEl.addEventListener('play',    () => {
+                        clearTimeout(pauseDebounceTimer);
+                        sendSpeaking(true);
                     });
-                    audioEl.addEventListener('ended',   () => sendSpeaking(false));
-                    audioEl.addEventListener('error',   () => sendSpeaking(false));
+                    audioEl.addEventListener('playing', () => {
+                        clearTimeout(pauseDebounceTimer);
+                        sendSpeaking(true);
+                    });
+                    audioEl.addEventListener('pause',   () => {
+                        // Debounce: Gradio swaps sources causing brief pause→play
+                        clearTimeout(pauseDebounceTimer);
+                        pauseDebounceTimer = setTimeout(() => {
+                            if (audioEl.paused && !audioEl.ended) sendSpeaking(false);
+                        }, 250);
+                    });
+                    audioEl.addEventListener('ended',   () => {
+                        clearTimeout(pauseDebounceTimer);
+                        setTimeout(() => sendSpeaking(false), 150);
+                    });
+                    audioEl.addEventListener('error',   () => {
+                        clearTimeout(pauseDebounceTimer);
+                        sendSpeaking(false);
+                    });
                 }
 
                 if (!audioEl.paused && !audioEl.ended) {
@@ -508,6 +525,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             let blanked       = false;
             let targetEl      = null;
             let typingStarted = false;
+            let notesInserted = false;
 
             function blankWatcher() {
                 const el = getBubbleEl();
@@ -516,11 +534,16 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 if (el.textContent.trim() !== '') {
                     targetEl = el;
                     wipeEl(el);
+
+                    // Insert tool lines (search/skill annotations) first
+                    notesInserted = true;  // guard: don't let observer wipe these
                     if (notesPrefix) {
                         const notesSpan = document.createElement('div');
+                        notesSpan.className = 'aiko-tool-notes';
                         notesSpan.textContent = notesPrefix.trim();
                         notesSpan.style.opacity = '0.7';
                         notesSpan.style.fontSize = '0.9em';
+                        notesSpan.style.marginBottom = '4px';
                         el.appendChild(notesSpan);
                     }
                     const responseSpan = document.createElement('span');
@@ -528,8 +551,9 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     targetEl._responseSpan = responseSpan;
                     blanked = true;
 
+                    // Start observer AFTER notes are inserted
                     const obs = new MutationObserver(() => {
-                        if (!typingStarted) wipeEl(el);
+                        if (!typingStarted && !notesInserted) wipeEl(el);
                     });
                     obs.observe(el, { childList: true, subtree: true, characterData: true });
                     window._aikoBlankObs = obs;
@@ -567,9 +591,10 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
                 let i         = 0;
                 let startTime = performance.now();
+                const typeTarget = targetEl._responseSpan || targetEl;
                 function tick() {
                     if (i >= totalChars) {
-                        targetEl.textContent = fullText;
+                        typeTarget.textContent = fullText;
                         const cb = document.querySelector('#aiko-chatbot');
                         if (cb) cb.scrollTop = cb.scrollHeight;
                         return;
@@ -578,7 +603,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     const shouldBe = Math.floor((elapsed / totalMs) * totalChars);
                     i = Math.min(Math.max(shouldBe, 0), totalChars);
 
-                    targetEl.textContent = i < totalChars
+                    typeTarget.textContent = i < totalChars
                         ? fullText.slice(0, i) + '▋'
                         : fullText;
 

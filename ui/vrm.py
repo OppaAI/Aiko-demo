@@ -230,6 +230,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     const BLINK_OPEN_DUR  = 0.10;
     let exprResetTimer = null;
     const EXPR_RESET_DELAY = 4000;
+    let persistentEmotion = null;  // emoji-derived emotion that persists until next turn
     let idleTime = 0;
     let speechText     = '';
     let speechVisemes  = [];
@@ -312,12 +313,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     }}
     addEventListener('resize', resize);
 
-    function setExpression(name, weight = 1) {{
+    function setExpression(name, weight = 1, persistent = false) {{
       if (!vrm?.expressionManager) return;
       for (const k of ['happy', 'relaxed', 'angry', 'sad', 'surprised']) {{
         safeSetExpression(k, k === name ? weight : 0);
       }}
       emotionEl.textContent = name || 'neutral';
+      if (persistent) persistentEmotion = name;
     }}
 
     function setMouth(weight, viseme = 'aa') {{
@@ -349,20 +351,31 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function setStatus(mode) {{
       const nextMode = String(mode || 'idle').toLowerCase();
+      // Respect speaking lock — don't go idle while TTS is still ramping up
+      if (nextMode === 'idle' && performance.now() < speakingLockUntil) return;
       if (nextMode === 'speaking') {{
         speaking = true;
         dot.className = 'speaking';
         statusText.textContent = 'speaking';
-        return; // don't override emotion here — let the emoji/TTS-derived expression hold
+        // Restore persistent emoji emotion if we have one
+        if (persistentEmotion && persistentEmotion !== 'neutral') {{
+          setExpression(persistentEmotion, 1.0, true);
+        }}
+        return;
       }}
       speaking = false;
       dot.className = nextMode === 'thinking' ? 'thinking' : '';
       statusText.textContent = nextMode === 'thinking' ? 'thinking' : 'idle';
       clearMouth();
       if (nextMode === 'thinking') {{
-        // hold current expression instead of forcing 'surprised'
+        // Hold persistent emoji expression if we have one, otherwise keep current
         clearTimeout(exprResetTimer);
+        if (persistentEmotion && persistentEmotion !== 'neutral') {{
+          setExpression(persistentEmotion, 1.0, true);
+        }}
       }} else {{
+        // New idle: clear persistent emotion (next turn)
+        persistentEmotion = null;
         setExpression('relaxed', 0.25);
         stopCaption();
       }}
@@ -592,9 +605,29 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let audioSource    = null;
     let audioMeterOk   = false;
     let meteredAudio   = null;
+    let meteredSrc     = null;  // track audio src to detect source swaps
 
     function setupAudioMeter(audio) {{
-      if (!audio || (audioMeterOk && audio === meteredAudio)) return;
+      if (!audio) return;
+      // Detect if the audio element changed or its source changed
+      const currentSrc = audio.currentSrc || audio.src || '';
+      if (audioMeterOk && audio === meteredAudio && currentSrc === meteredSrc) return;
+
+      // If element changed, we need a fresh MediaElementSource
+      if (audio !== meteredAudio) {{
+        // Disconnect old analyser if any
+        try {{ if (analyserAudio) analyserAudio.disconnect(); }} catch (_) {{}}
+        try {{ if (audioSource && audioSource !== audio._aikoMediaSource) audioSource.disconnect(); }} catch (_) {{}}
+        audioMeterOk = false;
+        analyserAudio = null;
+        audioData = null;
+        audioSource = null;
+      }} else if (currentSrc !== meteredSrc) {{
+        // Same element, new source — reconnect analyser
+        try {{ if (analyserAudio) analyserAudio.disconnect(); }} catch (_) {{}}
+        audioMeterOk = false;
+      }}
+
       try {{
         audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') audioContext.resume().catch(() => {{}});
@@ -608,10 +641,13 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         analyserAudio.connect(audioContext.destination);
         audioMeterOk = true;
         meteredAudio = audio;
+        meteredSrc   = currentSrc;
+        smoothedAudioMouth = 0;  // reset smoothing for fresh audio
       }} catch (err) {{
         console.warn('[aiko-vrm] audio meter unavailable; using text lip-sync fallback', err);
         audioMeterOk = false;
         meteredAudio = null;
+        meteredSrc   = null;
         analyserAudio = null;
         audioData = null;
       }}
@@ -639,19 +675,31 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function syncAudioState(audio) {{
       if (!audio) return;
-      setSpeaking(!audio.paused && !audio.ended && audio.currentTime >= 0);
+      const isPlaying = !audio.paused && !audio.ended && audio.currentTime >= 0;
+      if (isPlaying) {{
+        speakingLockUntil = performance.now() + 800;
+        setSpeaking(true);
+        setupAudioMeter(audio);
+      }}
     }}
 
+    let pauseDebounce = null;
     function attachAudio(audio) {{
       if (!audio) return;
       if (audio !== lastAudio) {{
+        // Element changed — reset meter state
+        if (lastAudio) {{
+          audioMeterOk = false;
+          meteredAudio = null;
+          meteredSrc = null;
+        }}
         lastAudio = audio;
 
         audio.addEventListener('play', () => {{
+          clearTimeout(pauseDebounce);
+          speakingLockUntil = performance.now() + 800;
           setSpeaking(true);
           setupAudioMeter(audio);
-          // ttsText is pushed via postMessage from the parent page's JS bridge;
-          // _aikoLatestTtsText is set on window by that same bridge as a fallback.
           if (window._aikoLatestTtsText) {{
             setSpeechText(window._aikoLatestTtsText, audio.duration);
             window._aikoLatestTtsText = '';
@@ -659,6 +707,8 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         }});
 
         audio.addEventListener('playing', () => {{
+          clearTimeout(pauseDebounce);
+          speakingLockUntil = performance.now() + 800;
           setSpeaking(true);
           setupAudioMeter(audio);
           if (window._aikoLatestTtsText) {{
@@ -668,10 +718,24 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         }});
 
         audio.addEventListener('timeupdate', () => {{
-          if (!audio.paused && audio.currentTime > 0) setSpeaking(true);
+          if (!audio.paused && audio.currentTime > 0) {{
+            setSpeaking(true);
+            // Re-meter if src changed (Gradio swapped the source)
+            const curSrc = audio.currentSrc || audio.src || '';
+            if (curSrc !== meteredSrc) setupAudioMeter(audio);
+          }}
         }});
-        audio.addEventListener('pause',  () => setSpeaking(false));
-        audio.addEventListener('ended',  () => setSpeaking(false));
+        audio.addEventListener('pause',  () => {{
+          // Debounce pause — Gradio swaps sources causing brief pause→play
+          clearTimeout(pauseDebounce);
+          pauseDebounce = setTimeout(() => {{
+            if (audio.paused || audio.ended) setSpeaking(false);
+          }}, 200);
+        }});
+        audio.addEventListener('ended',  () => {{
+          clearTimeout(pauseDebounce);
+          pauseDebounce = setTimeout(() => setSpeaking(false), 150);
+        }});
       }}
       syncAudioState(audio);
     }}
@@ -706,12 +770,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         }}
 
         // Expression / emotion should win over generic speaking/thinking faces.
+        // Emoji-derived expressions persist until next assistant turn (no auto-reset).
         if (msg.expression !== undefined) {{
-          setExpression(msg.expression, msg.intensity ?? 1.0);
+          const isPersistent = msg.persistent !== false;  // default to persistent
+          setExpression(msg.expression, msg.intensity ?? 1.0, isPersistent);
           clearTimeout(exprResetTimer);
-          if (msg.expression && msg.expression !== 'neutral') {{
-            exprResetTimer = setTimeout(() => setExpression('relaxed', 0.25), EXPR_RESET_DELAY);
-          }}
+          // No auto-reset timer — emotion persists until next turn's setStatus('idle')
         }}
 
         // Direct viseme override (for external controllers)
