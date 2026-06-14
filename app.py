@@ -493,7 +493,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 const totalChars = fullText.length;
                 // Estimate pace from char count (stripped of markdown for timing)
                 const cleanLen   = fullText.replace(/[*_#`]/g, '').length;
-                let audioDur = Math.max(3, cleanLen * 0.065);
+                let audioDur = Math.max(3, cleanLen * 0.075);
                 let totalMs      = audioDur * 1000;
                 let perChar      = totalMs / Math.max(1, totalChars);
 
