@@ -426,24 +426,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         outputs=[user_id_state, login_overlay, info_overlay],
     )
 
-    # ── Mic permission warm-up ────────────────────────────────────────────
-    demo.load(
-        None,
-        inputs=None,
-        outputs=None,
-        js="""
-        () => {
-            if (!navigator.mediaDevices) return;
-            navigator.mediaDevices.getUserMedia({audio: true})
-                .then(stream => {
-                    stream.getTracks().forEach(t => t.stop());
-                    console.log("[aiko] mic permission granted");
-                })
-                .catch(err => console.warn("[aiko] mic permission error:", err));
-        }
-        """
-    )
-
     # ── Custom MediaRecorder wired to #aiko-mic-btn ──────────────────────
     # Toggle on click: first click starts recording, second click stops
     # and writes the resulting blob (base64) into the hidden
