@@ -16,10 +16,11 @@ import re
 load_dotenv()
 
 from core.wakeup import AikoWakeup
+from core.listen import transcribe_file
+from core.see import describe as vision_describe, is_supported as vision_supported
+from core.speak import speak_to_file
 from ui.css import AIKO_CSS
 from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
-from ui.listen import transcribe_file
-from ui.speak import speak_to_file
 
 # ─────────────────────────────────────────────
 # BOOT
@@ -166,7 +167,6 @@ def _get_response(message: str, history: list, user_id: str = "Guest"):
                 _tool_seen.add(label)
                 tool_lines.append(label)
         elif token.startswith("__TOOL__:"):
-            # Extract tool name from token if present, e.g. "__TOOL__:weather"
             tool_name = token[len("__TOOL__:"):].strip()
             label = f"🛠️ Using tool: {tool_name}" if tool_name else "🛠️ Using tool..."
             if label not in _tool_seen:
@@ -175,7 +175,6 @@ def _get_response(message: str, history: list, user_id: str = "Guest"):
         else:
             full_text += token
 
-    # Pass user_id so memory recall and storage are scoped to the right user
     think.chat(message, user_id=user_id, token_callback=_cb)
 
     # ── Stage 2: TTS on clean speech text ────────────────────────────────────
@@ -198,16 +197,12 @@ def _get_response(message: str, history: list, user_id: str = "Guest"):
     final_emotion = emoji_emotion or emotion
 
     # ── Stage 3: build display text ──────────────────────────────────────────
-    # Tool/search lines shown above the response in the chat bubble.
     notes_prefix = ("\n".join(tool_lines) + "\n\n") if tool_lines else ""
     response_text = _strip_emoji(full_text)
     display_text  = notes_prefix + response_text
 
     history[-1] = {"role": "assistant", "content": display_text}
 
-    # Signal format: TYPEWRITE:<emotion>||<notes_prefix>||<response_text>
-    # notes_prefix and response_text are separated so JS can render notes
-    # statically and only typewrite the response portion.
     signal = f"TYPEWRITE:{final_emotion}||{notes_prefix}||{response_text}"
     yield history, signal, audio_path
 
@@ -230,15 +225,10 @@ def _submit(message, history, user_id):
 
 
 # ─────────────────────────────────────────────
-# VOICE INPUT (custom MediaRecorder → base64 → here)
+# VOICE INPUT
 # ─────────────────────────────────────────────
 def _voice_from_b64(b64_data: str, history: list, user_id: str):
-    """Decode a base64 audio blob (sent via hidden textbox from JS
-    MediaRecorder), transcribe it via the Modal ASR endpoint, and run
-    it through the normal chat pipeline.
-
-    Signal format coming in: "data:audio/webm;base64,<...>" or raw base64.
-    """
+    """Decode a base64 audio blob, transcribe via Modal ASR, run chat pipeline."""
     history = history or []
 
     if not b64_data:
@@ -296,10 +286,67 @@ def _voice_from_b64(b64_data: str, history: list, user_id: str):
 
 
 # ─────────────────────────────────────────────
+# VISION INPUT
+# ─────────────────────────────────────────────
+def _vision_upload(file_obj, history: list, user_id: str):
+    """Receive an uploaded image/video, run MiniCPM-V, stream result into chat."""
+    history = list(history or [])
+
+    if file_obj is None:
+        yield history, gr.update(), gr.update(), None
+        return
+
+    path = file_obj if isinstance(file_obj, str) else file_obj.name
+    filename = Path(path).name
+
+    if not vision_supported(path):
+        history.append({
+            "role": "assistant",
+            "content": "⚠️ Unsupported file type. Please upload an image or video.",
+        })
+        yield history, gr.update(), gr.update(), None
+        return
+
+    # Show upload confirmation + thinking state
+    history = history + [
+        {"role": "user",      "content": f"📎 *[uploaded: {filename}]*"},
+        {"role": "assistant", "content": "👁️ Let me take a look…"},
+    ]
+    yield history, "STATUS:thinking", None, None
+
+    print(f"[vision] processing: {path}")
+    result = vision_describe(path, prompt="Describe what you see in detail.")
+
+    if result.startswith("[vision error]"):
+        display = f"Sorry, I couldn't process that file — {result}"
+        emotion = "sad"
+    else:
+        display = f"👁️ Here's what I see:\n\n{result}"
+        emotion = "surprised"
+
+    history[-1] = {"role": "assistant", "content": display}
+
+    # TTS
+    audio_path = None
+    try:
+        speech_text = _strip_for_speech(display)
+        if speech_text:
+            audio_path, tts_emotion = speak_to_file(speech_text)
+            # Only override emotion if TTS returned something useful
+            if tts_emotion and tts_emotion != "neutral":
+                emotion = tts_emotion
+    except Exception as e:
+        print(f"[vision] tts error: {e}")
+
+    clean_display = _strip_emoji(display)
+    signal = f"TYPEWRITE:{emotion}||{clean_display}"
+    yield history, signal, audio_path, None
+
+
+# ─────────────────────────────────────────────
 # LOGIN HANDLER
 # ─────────────────────────────────────────────
 def _check_login(profile: OAuthProfile | None):
-    # Fire off network warmups asynchronously in case servers scaled down
     AikoWakeup().warm_servers_async()
 
     if profile is None:
@@ -307,9 +354,6 @@ def _check_login(profile: OAuthProfile | None):
 
     user_id = profile.username or "Guest"
     soul = build_soul_prompt(user_id)
-
-    # set_system_prompt now takes both the rendered soul and the user_id
-    # so think can scope memory ops correctly
     think.set_system_prompt(soul, user_id=user_id)
 
     return user_id, gr.update(visible=False), gr.update(visible=True)
@@ -353,10 +397,12 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                     <li>"What's the weather in [city]?" → triggers weather tool</li>
                     <li>"Search the web for..." → triggers web search</li>
                     <li>"What's [crypto] price?" → triggers price lookup</li>
+                    <li>📷 Upload an image or video → Aiko will describe what she sees</li>
                 </ul>
                 <p><strong>Tips:</strong></p>
                 <ul>
                     <li>Use 🎙️ to speak instead of typing</li>
+                    <li>Use 📷 to share an image or video with Aiko</li>
                     <li>Aiko reacts emotionally — try different tones!</li>
                 </ul>
             """)
@@ -383,12 +429,17 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                     elem_id="aiko-tts-text",
                 )
 
-                # Hidden carrier for base64 audio recorded via custom JS
-                # MediaRecorder (see demo.load JS below). Replaces the old
-                # broken gr.Audio(sources=["microphone"]) component.
+                # Hidden carrier for base64 voice audio from MediaRecorder
                 audio_b64 = gr.Textbox(
                     elem_id="aiko-audio-b64",
                     container=False,
+                )
+
+                # Hidden file component for vision uploads — triggered by 📷 button
+                vision_file = gr.File(
+                    file_types=["image", "video"],
+                    visible=False,
+                    elem_id="aiko-vision-file",
                 )
 
                 with gr.Column(elem_id="aiko-chat-overlay"):
@@ -402,6 +453,8 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                 with gr.Row(elem_id="aiko-input-row"):
 
                     mic_btn = gr.Button("🎙️", elem_id="aiko-mic-btn")
+
+                    cam_btn = gr.Button("📷", elem_id="aiko-cam-btn")
 
                     msg = gr.Textbox(
                         placeholder="Type a message…",
@@ -536,6 +589,70 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
         """
     )
 
+    # ── Camera / vision button wired to native file picker ───────────────
+    demo.load(
+        None,
+        inputs=None,
+        outputs=None,
+        js="""
+        () => {
+            function attachCamBtn() {
+                const btn = document.querySelector('#aiko-cam-btn button') ||
+                            document.querySelector('#aiko-cam-btn');
+                if (!btn) { setTimeout(attachCamBtn, 300); return; }
+                if (btn._aikoCamAttached) return;
+                btn._aikoCamAttached = true;
+
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // Spawn a native file input so we bypass HF Space CSP issues
+                    const fi = document.createElement('input');
+                    fi.type   = 'file';
+                    fi.accept = 'image/*,video/*';
+                    fi.style.display = 'none';
+                    document.body.appendChild(fi);
+
+                    fi.addEventListener('change', () => {
+                        const file = fi.files[0];
+                        document.body.removeChild(fi);
+                        if (!file) return;
+
+                        // Inject into the hidden gr.File upload input
+                        const visionComp = document.querySelector('#aiko-vision-file');
+                        if (!visionComp) {
+                            console.warn('[aiko] #aiko-vision-file not found');
+                            return;
+                        }
+                        const uploadInput = visionComp.querySelector('input[type=file]');
+                        if (!uploadInput) {
+                            console.warn('[aiko] vision file input not found');
+                            return;
+                        }
+                        const dt = new DataTransfer();
+                        dt.items.add(file);
+                        uploadInput.files = dt.files;
+                        uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+                        // Visual feedback on cam button
+                        btn.textContent = '⏳';
+                        btn.style.opacity = '0.6';
+                        setTimeout(() => {
+                            btn.textContent = '📷';
+                            btn.style.opacity = '1';
+                        }, 3000);
+                    });
+
+                    fi.click();
+                }, true);
+            }
+
+            attachCamBtn();
+        }
+        """
+    )
+
     info_ok_btn.click(
         lambda: gr.update(visible=False),
         inputs=None,
@@ -560,6 +677,12 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
         outputs=[chatbot, tts_text, audio_out, audio_b64],
     )
 
+    vision_file.change(
+        _vision_upload,
+        inputs=[vision_file, chatbot, user_id_state],
+        outputs=[chatbot, tts_text, audio_out, vision_file],
+    )
+
     # ── Typewriter / lip-sync bridge ─────────────────────────────────────────
     tts_text.change(
         None,
@@ -582,12 +705,30 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
 
             if (!rawSignal.startsWith('TYPEWRITE:')) return;
 
-            const rest         = rawSignal.slice('TYPEWRITE:'.length);
-            const firstPipe    = rest.indexOf('||');
-            const secondPipe   = rest.indexOf('||', firstPipe + 2);
-            const emotion      = rest.slice(0, firstPipe);
-            const notesPrefix  = rest.slice(firstPipe + 2, secondPipe);
-            const fullText     = rest.slice(secondPipe + 2);
+            // Support both 3-part signal (with notes) and 2-part (vision shortcut)
+            const rest      = rawSignal.slice('TYPEWRITE:'.length);
+            const firstPipe = rest.indexOf('||');
+
+            let emotion, notesPrefix, fullText;
+
+            if (firstPipe === -1) {
+                // Malformed — bail
+                return;
+            }
+
+            emotion = rest.slice(0, firstPipe);
+            const afterEmotion = rest.slice(firstPipe + 2);
+            const secondPipe   = afterEmotion.indexOf('||');
+
+            if (secondPipe === -1) {
+                // 2-part format: TYPEWRITE:<emotion>||<text>  (vision path)
+                notesPrefix = '';
+                fullText    = afterEmotion;
+            } else {
+                // 3-part format: TYPEWRITE:<emotion>||<notes>||<text>  (chat path)
+                notesPrefix = afterEmotion.slice(0, secondPipe);
+                fullText    = afterEmotion.slice(secondPipe + 2);
+            }
 
             const cleanLen = fullText.replace(/[*_#`]/g, '').length;
             const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.055));
@@ -795,10 +936,10 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                         scrollChat();
                         return;
                     }
-                    
+
                     let shouldBe = i;
                     const a = document.querySelector('#aiko-audio audio');
-                    
+
                     if (a && isUsableDuration(a.duration) && (!a.paused || a.currentTime > 0)) {
                         const progress = Math.min(1, a.currentTime / a.duration);
                         shouldBe = Math.floor(progress * totalChars);
