@@ -11,6 +11,7 @@ You use all models under 32B parameter. Using llama.cpp to inference the models 
 - **Brain** — Ministral-3 3B Instruct (Q4_K_XL GGUF), served via llama.cpp on Modal
 - **Memory** — SQLite-vec: hybrid KNN semantic + FTS5 keyword retrieval, Ebbinghaus decay
 - **Ears** — faster-whisper large-turbo-v3 800M model, served on Modal
+- **Eyes** — MiniCPM-V 4.6 (1.3B) vision model, served on Modal
 - **Voice** — MioTTS 2.6B GGUF model, served via llama.cpp on Modal
 - **Body** — VRoid Studio 3D model, animated in Gradio via three-vrm.js
 - **Search** — SearXNG self-hosted instance, served on Modal
