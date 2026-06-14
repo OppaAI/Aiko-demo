@@ -199,9 +199,13 @@ def _warmup_asr(
             import httpx
             with open(tmp_path, "rb") as f:
                 resp = httpx.post(
-                    f"{ASR_URL}/transcribe",
-                    files={"audio": ("warmup.wav", f, "audio/wav")},
-                    timeout=180,  # cold Modal container can take a while to spin up
+                    f"{MIOTTS_URL}/v1/tts/file",
+                    data={
+                        "text": "warmup",
+                        "reference_preset_id": MIOTTS_PRESET_ID,
+                        "output_format": "wav",
+                    },
+                    timeout=120,
                 )
             resp.raise_for_status()
             log.info("ASR warmup (Modal): status=%s", resp.status_code)
