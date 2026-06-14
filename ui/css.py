@@ -261,7 +261,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   justify-content: center !important;
   flex-shrink: 0 !important;
   flex-grow: 0 !important;
-  margin-right: 8px !important;
+  margin-right: 24px !important;
 }
 /* Send button */
 #aiko-send,
