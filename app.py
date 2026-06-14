@@ -379,7 +379,7 @@ with gr.Blocks(
             const notesPrefix = rest.slice(firstPipe + 1, secondPipe);
             const speechText  = rest.slice(secondPipe + 1);
 
-            // ── 1. VRM handoff ─────────────────────────────────────────
+            // ── 1. VRM handoff ──────────────────────────────────────────
             const iframe = document.querySelector('#aiko-vrm-frame');
             if (iframe?.contentWindow) {
                 iframe.contentWindow.postMessage(
@@ -389,9 +389,8 @@ with gr.Blocks(
             window._aikoLatestTtsText = speechText;
             window._aikoLatestEmotion = emotion;
 
-            // ── 2. Character-by-character typewriter, inside the bubble ─
-            function getBubbleTextNode() {
-                // Try increasingly broad selectors — return the deepest text container
+            // ── 2. Find deepest text container in last bot bubble ───────
+            function getBubbleEl() {
                 const selectors = [
                     '#aiko-chatbot [data-testid="bot"] .prose p',
                     '#aiko-chatbot [data-testid="bot"] .prose',
@@ -405,78 +404,134 @@ with gr.Blocks(
                 return null;
             }
 
-            function isUsableDuration(d) {
-                return Number.isFinite(d) && d > 0 && d < 600;
-            }
+            // ── 3. PHASE 1: blank the bubble the moment ▋ appears ──────
+            // This runs RIGHT NOW (no delay) so we catch it before Gradio
+            // writes the full text on yield 2.
+            const fullText   = (notesPrefix ? notesPrefix + '\\n\\n' : '') + speechText;
+            let   blanked    = false;
+            let   targetEl   = null;
 
-            function runTypewriter(audioDuration) {
-                // Poll until Gradio has rendered the final bubble
-                // (it may not exist yet when tts_text fires)
-                let attempts = 0;
-                function tryStart() {
-                    const el = getBubbleTextNode();
-                    // Keep trying until the bubble shows something other than ▋
-                    if (!el || el.textContent.trim() === '▋' || el.textContent.trim() === '') {
-                        if (++attempts < 40) { setTimeout(tryStart, 50); return; }
+            function blankWatcher() {
+                const el = getBubbleEl();
+                if (!el) { requestAnimationFrame(blankWatcher); return; }
+
+                const t = el.textContent.trim();
+                // As soon as ANY content appears in the bubble, blank it and hold
+                if (t !== '') {
+                    targetEl         = el;
+                    el.textContent   = '';      // blank immediately
+                    blanked          = true;
+                    // Also install a MutationObserver to re-blank if Gradio
+                    // overwrites us with the full text before we start typing
+                    const obs = new MutationObserver(() => {
+                        if (!typingStarted) el.textContent = '';
+                    });
+                    obs.observe(el, { childList: true, subtree: true, characterData: true });
+                    window._aikoBlankObs = obs;   // store so typewriter can disconnect it
+                } else {
+                    requestAnimationFrame(blankWatcher);
+                }
+            }
+            blankWatcher();
+
+            // ── 4. PHASE 2: typewriter — start immediately, resync to audio ─
+            let typingStarted = false;
+
+            function startTypewriter() {
+                if (!blanked || !targetEl) {
+                    setTimeout(startTypewriter, 20);
+                    return;
+                }
+                typingStarted = true;
+
+                // Disconnect the blank-guard observer now that we own the element
+                if (window._aikoBlankObs) {
+                    window._aikoBlankObs.disconnect();
+                    window._aikoBlankObs = null;
+                }
+
+                const totalChars = fullText.length;
+                // Optimistic pace: assume ~0.055 s/char until audio metadata arrives
+                let audioDuration = Math.max(3, speechText.length * 0.055);
+                let totalMs       = audioDuration * 1000;
+                let perChar       = totalMs / totalChars;
+
+                // Try to get real duration immediately (may already be available)
+                const audioEl = document.querySelector('#aiko-audio audio');
+                if (audioEl && Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
+                    audioDuration = audioEl.duration;
+                    totalMs       = audioDuration * 1000;
+                    perChar       = totalMs / totalChars;
+                }
+
+                let i         = 0;
+                let startTime = performance.now();
+                let timerId   = null;
+
+                function tick() {
+                    if (i > totalChars) {
+                        targetEl.textContent = fullText;
+                        const chatbot = document.querySelector('#aiko-chatbot');
+                        if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
+                        return;
                     }
 
-                    // Full display text (notes + speech)
-                    const fullText = (notesPrefix ? notesPrefix + '\\n\\n' : '') + speechText;
+                    // Resync: recalculate where we SHOULD be based on elapsed time
+                    const elapsed   = performance.now() - startTime;
+                    const shouldBe  = Math.floor((elapsed / totalMs) * totalChars);
+                    i = Math.max(i, Math.min(shouldBe, totalChars));
 
-                    // Immediately blank the bubble — prevents the flash of full text
-                    el.textContent = '';
+                    targetEl.textContent = i < totalChars
+                        ? fullText.slice(0, i) + '▋'
+                        : fullText;
 
-                    const totalChars = fullText.length;
-                    // Aim to finish at 95 % of audio duration; floor at 16 ms/char
-                    const totalMs    = audioDuration * 1000 * 0.95;
-                    const perChar    = Math.max(16, totalMs / totalChars);
+                    i++;
+                    timerId = setTimeout(tick, perChar);
+                }
 
-                    let i = 0;
-                    // Use a cursor character while typing
-                    function tick() {
-                        if (i <= totalChars) {
-                            el.textContent = fullText.slice(0, i) + (i < totalChars ? '▋' : '');
-                            i++;
-                            setTimeout(tick, perChar);
+                // When real audio duration arrives, update pace mid-typewriter
+                function onAudioReady(el) {
+                    const dur = el.duration;
+                    if (!Number.isFinite(dur) || dur <= 0 || dur >= 600) return;
+                    // How far through the text are we?
+                    const elapsed     = performance.now() - startTime;
+                    const charsLeft   = totalChars - i;
+                    const timeLeft    = Math.max(100, dur * 1000 - elapsed);
+                    perChar           = timeLeft / Math.max(1, charsLeft);
+                    totalMs           = dur * 1000;
+                    // startTime stays the same so resync math stays correct
+                }
+
+                if (audioEl) {
+                    if (Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
+                        onAudioReady(audioEl);
+                    } else {
+                        audioEl.addEventListener('loadedmetadata', function handler() {
+                            audioEl.removeEventListener('loadedmetadata', handler);
+                            onAudioReady(audioEl);
+                        });
+                    }
+                } else {
+                    // Audio element not in DOM yet — poll for it
+                    function pollAudio() {
+                        const a = document.querySelector('#aiko-audio audio');
+                        if (!a) { setTimeout(pollAudio, 80); return; }
+                        if (Number.isFinite(a.duration) && a.duration > 0) {
+                            onAudioReady(a);
                         } else {
-                            // Ensure exact final text (no cursor)
-                            el.textContent = fullText;
-                            // Scroll to bottom
-                            const chatbot = document.querySelector('#aiko-chatbot');
-                            if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
+                            a.addEventListener('loadedmetadata', function handler() {
+                                a.removeEventListener('loadedmetadata', handler);
+                                onAudioReady(a);
+                            });
                         }
                     }
-
-                    // Scroll to bottom before starting
-                    const chatbot = document.querySelector('#aiko-chatbot');
-                    if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
-
-                    tick();
+                    pollAudio();
                 }
-                tryStart();
+
+                tick();
             }
 
-            function waitForAudioAndStart() {
-                const audioEl = document.querySelector('#aiko-audio audio');
-                if (!audioEl) { setTimeout(waitForAudioAndStart, 80); return; }
-
-                function go() {
-                    const dur = audioEl.duration;
-                    const estimated = Math.max(3, speechText.length * 0.055);
-                    runTypewriter(isUsableDuration(dur) ? dur : estimated);
-                }
-
-                if (audioEl.readyState >= 1 && isUsableDuration(audioEl.duration)) {
-                    go();
-                } else {
-                    const onMeta = () => { audioEl.removeEventListener('loadedmetadata', onMeta); go(); };
-                    audioEl.addEventListener('loadedmetadata', onMeta);
-                    setTimeout(() => { audioEl.removeEventListener('loadedmetadata', onMeta); go(); }, 600);
-                }
-            }
-
-            // Small delay so Gradio's second yield has time to render the bubble
-            setTimeout(waitForAudioAndStart, 60);
+            startTypewriter();
         }
         """
     )
