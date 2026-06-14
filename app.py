@@ -62,7 +62,6 @@ def build_soul_prompt(user_id: str) -> str:
 # ─────────────────────────────────────────────
 def _strip_emoji(text: str) -> str:
     """Remove emoji and any immediately following colon, keep all else."""
-    # Remove emoji + optional trailing colon+space
     text = re.sub(
         r"[\U00010000-\U0010FFFF"
         r"\U00002600-\U000027BF"
@@ -79,13 +78,23 @@ def _strip_emoji(text: str) -> str:
 
 
 def _strip_for_speech(text: str) -> str:
-    """Aggressive clean for TTS — removes markdown, symbols, emoji."""
-    # Remove search/tool annotations
-    text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
-    text = re.sub(r"\n?🔧 .*?\n?", "", text)
-    # Remove think blocks
+    """Clean text for TTS — removes markdown and symbols, keeps natural speech.
+
+    IMPORTANT: do NOT use a character whitelist ([^\w\s...]) — it nukes
+    valid unicode letters in non-ASCII responses and leaves TTS with empty
+    strings, causing silent audio.
+    """
+    # Remove tool/search annotation lines injected by _get_response
+    text = re.sub(r"\n?🔍 Searching:.*?(\n|$)", "", text)
+    text = re.sub(r"\n?🔍 Searching internet.*?(\n|$)", "", text)
+    text = re.sub(r"\n?🌐 Searching.*?(\n|$)", "", text)
+    text = re.sub(r"\n?⚙️.*?(\n|$)", "", text)
+    text = re.sub(r"\n?🔧.*?(\n|$)", "", text)
+    text = re.sub(r"\n?🛠️.*?(\n|$)", "", text)
+    # Remove reasoning / tool result blocks
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    # Strip markdown formatting
+    text = re.sub(r"<search_results>.*?</search_results>", "", text, flags=re.DOTALL)
+    # Strip markdown formatting — keep the inner text
     text = re.sub(r"#{1,6}\s+", "", text)
     text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)
     text = re.sub(r"_{1,2}(.*?)_{1,2}", r"\1", text)
@@ -94,11 +103,21 @@ def _strip_for_speech(text: str) -> str:
     text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"^-{3,}$", "", text, flags=re.MULTILINE)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    # Keep only speech-friendly characters
-    text = re.sub(r"[^\w\s,\.!\?'\"\:\;\-\(\)\&\@]", "", text, flags=re.UNICODE)
-    text = re.sub(r"(?<!\w)_+(?!\w)", "", text)
-    # Collapse whitespace
-    text = re.sub(r"\n{2,}", "\n", text)
+    # Remove emoji ranges (without touching regular unicode letters)
+    text = re.sub(
+        r"[\U00010000-\U0010FFFF"
+        r"\U00002600-\U000027BF"
+        r"\U0001F000-\U0001FFFF"
+        r"\U00002300-\U000023FF"
+        r"\U00002B00-\U00002BFF"
+        r"\U0001FA00-\U0001FFFF]",
+        "", text, flags=re.UNICODE,
+    )
+    # Remove layout/code symbols that TTS would read awkwardly — NOT letters
+    text = re.sub(r"[|<>{}\[\]\\^~`#@]", " ", text)
+    # Turn paragraph breaks into natural speech pauses
+    text = re.sub(r"\n{2,}", ". ", text)
+    text = re.sub(r"\n", " ", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
 
@@ -136,14 +155,25 @@ def _get_response(message: str, history: list):
 
     # ── Stage 1: full LLM completion ─────────────────────────────────────────
     full_text = ""
+    # Use a set to deduplicate tool/search lines — _cb fires per token so the
+    # same __SEARCHING__: prefix can arrive multiple times for one search call.
+    _tool_seen: set[str] = set()
     tool_lines: list[str] = []
 
     def _cb(token: str):
         nonlocal full_text
         if token.startswith("__SEARCHING__:"):
-            tool_lines.append("🌐 Searching internet...")
+            label = "🔍 Searching internet..."
+            if label not in _tool_seen:
+                _tool_seen.add(label)
+                tool_lines.append(label)
         elif token.startswith("__TOOL__:"):
-            tool_lines.append("⚙️ Executing skill...")
+            # Extract tool name from token if present, e.g. "__TOOL__:weather"
+            tool_name = token[len("__TOOL__:"):].strip()
+            label = f"🛠️ Using tool: {tool_name}" if tool_name else "🛠️ Using tool..."
+            if label not in _tool_seen:
+                _tool_seen.add(label)
+                tool_lines.append(label)
         else:
             full_text += token
 
@@ -151,26 +181,34 @@ def _get_response(message: str, history: list):
 
     # ── Stage 2: TTS on clean speech text ────────────────────────────────────
     speech_text = _strip_for_speech(full_text)
+    print(f"[tts] speech_text ({len(speech_text)} chars): {speech_text[:120]!r}")
+
+    audio_path, emotion = None, "neutral"
     if speech_text:
-        audio_path, emotion = speak_to_file(speech_text)
-    else:
-        audio_path, emotion = None, "neutral"
+        try:
+            audio_path, emotion = speak_to_file(speech_text)
+            print(f"[tts] audio_path={audio_path}, emotion={emotion}")
+        except Exception as e:
+            print(f"[tts] speak_to_file error: {e}")
+            audio_path, emotion = None, "neutral"
+        if audio_path is None:
+            print(f"[tts] WARNING: speak_to_file returned None for: {speech_text[:80]!r}")
 
     # Emoji overrides TTS-detected emotion
     emoji_emotion = _detect_emoji_emotion(full_text)
     final_emotion = emoji_emotion or emotion
 
-    # ── Stage 3: build display text ────────────────────────────────────────
-    # Tool/search lines on their own line(s), response starts on the next line.
+    # ── Stage 3: build display text ──────────────────────────────────────────
+    # Tool/search lines shown above the response in the chat bubble.
     notes_prefix = ("\n".join(tool_lines) + "\n\n") if tool_lines else ""
     response_text = _strip_emoji(full_text)
-    display_text = notes_prefix + response_text
+    display_text  = notes_prefix + response_text
 
     history[-1] = {"role": "assistant", "content": display_text}
 
-    # Keep the original 2-part signal format — JS typewriter unchanged.
-    # fullText for the typewriter is just the response (no notes),
-    # so notes don't get animated.
+    # Signal format: TYPEWRITE:<emotion>||<notes_prefix>||<response_text>
+    # notes_prefix and response_text are separated so JS can render notes
+    # statically and only typewrite the response portion.
     signal = f"TYPEWRITE:{final_emotion}||{notes_prefix}||{response_text}"
     yield history, signal, audio_path
 
@@ -394,9 +432,11 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         """
     )
 
-    # ── Typewriter / lip-sync bridge ──────────────────────────────────────────
-    # Signal format: TYPEWRITE:<emotion>||<display_text>
-    # (double-pipe so notes_prefix slot is empty — display_text already contains it)
+    # ── Typewriter / lip-sync bridge ─────────────────────────────────────────
+    # Signal format: TYPEWRITE:<emotion>||<notes_prefix>||<response_text>
+    #
+    # notes_prefix: tool/search annotation lines (rendered immediately, no typewrite)
+    # response_text: Aiko's actual reply (typewritten in sync with audio)
     tts_text.change(
         None,
         inputs=[tts_text],
@@ -418,15 +458,17 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
             if (!rawSignal.startsWith('TYPEWRITE:')) return;
 
-            const rest    = rawSignal.slice('TYPEWRITE:'.length);
-            const parts   = rest.split('||');
-            const emotion = parts[0];
-            const notesPrefix = parts[1] || '';
-            const fullText    = parts[2] || '';
+            const rest         = rawSignal.slice('TYPEWRITE:'.length);
+            const firstPipe    = rest.indexOf('||');
+            const secondPipe   = rest.indexOf('||', firstPipe + 2);
+            const emotion      = rest.slice(0, firstPipe);
+            const notesPrefix  = rest.slice(firstPipe + 2, secondPipe);
+            const fullText     = rest.slice(secondPipe + 2);
+
             const cleanLen = fullText.replace(/[*_#`]/g, '').length;
             const estimatedDuration = Math.max(1.5, Math.min(120, cleanLen * 0.067));
 
-            // ── 1. VRM handoff ──────────────────────────────────────
+            // ── 1. VRM handoff ──────────────────────────────────────────────
             sendAvatar({
                 status: 'speaking',
                 speaking: true,
@@ -438,7 +480,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             window._aikoLatestTtsText = fullText;
             window._aikoLatestEmotion = emotion;
 
-            // ── 1b. Bridge audio play/pause/ended → iframe speaking state ──
+            // ── 1b. Audio play/pause/ended → iframe speaking state bridge ───
             if (window._aikoSpeakingFallbackTimer) {
                 clearTimeout(window._aikoSpeakingFallbackTimer);
             }
@@ -469,7 +511,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         sendSpeaking(true);
                     });
                     audioEl.addEventListener('pause',   () => {
-                        // Debounce: Gradio swaps sources causing brief pause→play
                         clearTimeout(pauseDebounceTimer);
                         pauseDebounceTimer = setTimeout(() => {
                             if (audioEl.paused && !audioEl.ended) sendSpeaking(false);
@@ -497,7 +538,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 if (attachSpeakingBridge() || bridgeTries > 60) clearInterval(bridgePoll);
             }, 100);
 
-            // ── 2. Helpers ──────────────────────────────────────────
+            // ── 2. Helpers ──────────────────────────────────────────────────
             function getBubbleEl() {
                 const allBubbles = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
                 if (!allBubbles.length) return null;
@@ -518,14 +559,13 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 return Number.isFinite(d) && d > 0 && d < 600;
             }
 
-            // ── 3. Blank watcher — fires immediately via rAF ────────
-            // Catches the bubble the instant ▋ (yield 1) or the full
-            // text (yield 2) appears, wipes it, and holds it blank via
-            // MutationObserver until the typewriter takes over.
+            // ── 3. Blank watcher ────────────────────────────────────────────
+            // Fires as soon as the bot bubble has content (the ▋ placeholder),
+            // wipes it, inserts tool/search notes statically, then hands off
+            // to the typewriter for the response text only.
             let blanked       = false;
             let targetEl      = null;
             let typingStarted = false;
-            let notesInserted = false;
 
             function blankWatcher() {
                 const el = getBubbleEl();
@@ -535,27 +575,57 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     targetEl = el;
                     wipeEl(el);
 
-                    // Insert tool lines (search/skill annotations) first
-                    notesInserted = true;  // guard: don't let observer wipe these
-                    if (notesPrefix) {
-                        const notesSpan = document.createElement('div');
-                        notesSpan.className = 'aiko-tool-notes';
-                        notesSpan.textContent = notesPrefix.trim();
-                        notesSpan.style.opacity = '0.7';
-                        notesSpan.style.fontSize = '0.9em';
-                        notesSpan.style.marginBottom = '4px';
-                        el.appendChild(notesSpan);
+                    // Insert tool/search annotation lines (static, no typewrite)
+                    if (notesPrefix && notesPrefix.trim()) {
+                        const notesDiv = document.createElement('div');
+                        notesDiv.className = 'aiko-tool-notes';
+                        notesDiv.style.cssText = 'opacity:0.65;font-size:0.78rem;margin-bottom:6px;color:rgba(180,160,255,0.75);';
+                        // Each line on its own row
+                        notesPrefix.trim().split('\\n').forEach(line => {
+                            if (!line.trim()) return;
+                            const row = document.createElement('div');
+                            row.textContent = line.trim();
+                            notesDiv.appendChild(row);
+                        });
+                        el.appendChild(notesDiv);
                     }
+
+                    // Span for typewritten response text
                     const responseSpan = document.createElement('span');
                     el.appendChild(responseSpan);
                     targetEl._responseSpan = responseSpan;
                     blanked = true;
 
-                    // Start observer AFTER notes are inserted
+                    // Observer: only wipe if typing hasn't started AND
+                    // only target the responseSpan, not the whole element.
+                    // This prevents Gradio's re-renders from blowing away notes.
                     const obs = new MutationObserver(() => {
-                        if (!typingStarted && !notesInserted) wipeEl(el);
+                        if (!typingStarted) {
+                            // Gradio tried to rewrite — restore our structure
+                            const hasNotes = el.querySelector('.aiko-tool-notes');
+                            const hasSpan  = el.querySelector('span[data-aiko-response]');
+                            if (!hasNotes && notesPrefix && notesPrefix.trim()) {
+                                // Notes got wiped — re-insert
+                                wipeEl(el);
+                                const nd = document.createElement('div');
+                                nd.className = 'aiko-tool-notes';
+                                nd.style.cssText = 'opacity:0.65;font-size:0.78rem;margin-bottom:6px;color:rgba(180,160,255,0.75);';
+                                notesPrefix.trim().split('\\n').forEach(line => {
+                                    if (!line.trim()) return;
+                                    const row = document.createElement('div');
+                                    row.textContent = line.trim();
+                                    nd.appendChild(row);
+                                });
+                                el.appendChild(nd);
+                                const rs = document.createElement('span');
+                                rs.setAttribute('data-aiko-response', '1');
+                                el.appendChild(rs);
+                                targetEl._responseSpan = rs;
+                            }
+                        }
                     });
-                    obs.observe(el, { childList: true, subtree: true, characterData: true });
+                    if (responseSpan) responseSpan.setAttribute('data-aiko-response', '1');
+                    obs.observe(el, { childList: true, subtree: false });
                     window._aikoBlankObs = obs;
                 } else {
                     requestAnimationFrame(blankWatcher);
@@ -563,7 +633,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             }
             blankWatcher();
 
-            // ── 4. Typewriter — starts as soon as bubble is blanked ─
+            // ── 4. Typewriter ───────────────────────────────────────────────
             function startTypewriter() {
                 if (!blanked || !targetEl) { setTimeout(startTypewriter, 200); return; }
 
@@ -575,13 +645,12 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 }
 
                 const totalChars = fullText.length;
-                // Estimate pace from char count (stripped of markdown for timing)
                 const cleanLen   = fullText.replace(/[*_#`]/g, '').length;
                 let audioDur = Math.max(3, cleanLen * 0.075);
-                let totalMs      = audioDur * 1000;
-                let perChar      = totalMs / Math.max(1, totalChars);
+                let totalMs  = audioDur * 1000;
+                let perChar  = totalMs / Math.max(1, totalChars);
 
-                // Use real audio duration if already available
+                // Sync to real audio duration if already loaded
                 const audioEl = document.querySelector('#aiko-audio audio');
                 if (audioEl && isUsableDuration(audioEl.duration)) {
                     audioDur = audioEl.duration;
@@ -592,6 +661,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 let i         = 0;
                 let startTime = performance.now();
                 const typeTarget = targetEl._responseSpan || targetEl;
+
                 function tick() {
                     if (i >= totalChars) {
                         typeTarget.textContent = fullText;
@@ -613,7 +683,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     setTimeout(tick, perChar);
                 }
 
-                // Resync pace when real audio duration arrives
                 function onAudioReady(el) {
                     if (!isUsableDuration(el.duration)) return;
                     const elapsed   = performance.now() - startTime;

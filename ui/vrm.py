@@ -34,11 +34,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     Camera is framed to a half-body shot (waist-up). The iframe exposes a
     postMessage API for expression, viseme, ttsText, and duration control.
-    Caption bar at the bottom streams the speech text during audio playback.
+    Caption display is handled by the parent chat overlay, not this iframe.
 
     postMessage API (JSON string or object):
       { expression: str, intensity?: float }        — set face expression
-      { ttsText: str, duration?: float }            — set lip-sync + caption text
+      { ttsText: str, duration?: float }            — set lip-sync text
       { speaking: bool }                            — force speaking state
       { viseme: str, weight?: float }               — direct viseme override
     """
@@ -83,9 +83,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       pointer-events: none;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
-      padding: 14px 18px 70px;
-      background: linear-gradient(180deg, rgba(5,5,10,.45), transparent 20%, transparent 72%, rgba(5,5,10,.55));
+      justify-content: flex-start;
+      padding: 14px 18px;
+      background: linear-gradient(180deg, rgba(5,5,10,.45), transparent 20%);
     }}
     #top {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; }}
     #status {{ display: flex; align-items: center; gap: 8px; color: #8b7ab6; font-size: 11px; }}
@@ -93,32 +93,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     #dot.thinking {{ background: #8ad8ff; box-shadow: 0 0 16px rgba(138,216,255,.8); animation: pulse 1.1s infinite; }}
     #dot.speaking {{ background: #d68cff; box-shadow: 0 0 16px rgba(214,140,255,.9); animation: pulse .6s infinite; }}
     #emotion {{ letter-spacing: .16em; text-transform: uppercase; font-size: 11px; color: #7867a3; }}
-    /* Caption bar — bottom of the canvas, left side so it doesn't clash with chat overlay */
-    #caption-bar {{
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 40%;
-      min-height: 50px;
-      max-height: 108px;
-      padding: 10px 20px 14px 18px;
-      display: flex;
-      align-items: flex-end;
-      background: linear-gradient(0deg, rgba(5,5,10,.90) 0%, transparent 100%);
-      pointer-events: none;
-      z-index: 8;
-      transition: opacity .3s;
-    }}
-    #caption-bar.hidden {{ opacity: 0; }}
-    #caption-text {{
-      color: #ecdeff;
-      font-size: 13px;
-      line-height: 1.55;
-      text-shadow: 0 1px 6px rgba(0,0,0,0.95), 0 0 20px rgba(110,60,200,.55);
-      letter-spacing: .01em;
-      max-width: 100%;
-      word-break: break-word;
-    }}
     #loader {{
       position: fixed; inset: 0; display: grid; place-content: center; gap: 18px; text-align: center;
       background: #080810; z-index: 10; transition: opacity .45s ease;
@@ -145,10 +119,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       <div id="emotion">neutral</div>
       <div id="status"><span id="dot"></span><span id="status-text">idle</span></div>
     </div>
-  </div>
-  <!-- Closed-caption bar: streams assistant text during audio playback -->
-  <div id="caption-bar" class="hidden">
-    <div id="caption-text"></div>
   </div>
   <div id="loader"><h1>🌸 Aiko</h1><p id="load-msg">loading VRM…</p></div>
   <script type="module">
@@ -230,7 +200,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     const BLINK_OPEN_DUR  = 0.10;
     let exprResetTimer = null;
     const EXPR_RESET_DELAY = 4000;
-    let persistentEmotion = null;  // emoji-derived emotion that persists until next turn
+    let persistentEmotion = null;
     let idleTime = 0;
     let speechText     = '';
     let speechVisemes  = [];
@@ -249,46 +219,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     const dot         = document.getElementById('dot');
     const statusText  = document.getElementById('status-text');
     const emotionEl   = document.getElementById('emotion');
-    const captionBar  = document.getElementById('caption-bar');
-    const captionText = document.getElementById('caption-text');
-
-    // ── Caption streaming ─────────────────────────────────────────────────────
-    // Paces word-by-word reveal proportional to audio duration.
-    let captionWords = [];
-    let captionIdx   = 0;
-    let captionTimer = null;
-
-    function startCaption(text) {{
-      clearInterval(captionTimer);
-      captionWords = text.trim().split(/\s+/).filter(Boolean);
-      captionIdx   = 0;
-      captionText.textContent = '';
-      captionBar.classList.remove('hidden');
-      if (!captionWords.length) return;
-
-      const totalWords   = captionWords.length;
-      const totalSeconds = (lastAudio && lastAudio.duration > 0)
-        ? lastAudio.duration
-        : Math.max(2, totalWords * 0.38);
-      const msPerWord = (totalSeconds * 1000) / totalWords;
-
-      captionTimer = setInterval(() => {{
-        if (captionIdx >= captionWords.length) {{
-          clearInterval(captionTimer);
-          setTimeout(() => {{ captionBar.classList.add('hidden'); }}, 1800);
-          return;
-        }}
-        const windowEnd   = captionIdx + 1;
-        const windowStart = Math.max(0, windowEnd - 12);
-        captionText.textContent = captionWords.slice(windowStart, windowEnd).join(' ');
-        captionIdx++;
-      }}, msPerWord);
-    }}
-
-    function stopCaption() {{
-      clearInterval(captionTimer);
-      setTimeout(() => captionBar.classList.add('hidden'), 1200);
-    }}
 
     // ─────────────────────────────────────────────────────────────────────────
     function nextBlinkWait() {{ return 3.0 + Math.random() * 4.0; }}
@@ -351,13 +281,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
 
     function setStatus(mode) {{
       const nextMode = String(mode || 'idle').toLowerCase();
-      // Respect speaking lock — don't go idle while TTS is still ramping up
       if (nextMode === 'idle' && performance.now() < speakingLockUntil) return;
       if (nextMode === 'speaking') {{
         speaking = true;
         dot.className = 'speaking';
         statusText.textContent = 'speaking';
-        // Restore persistent emoji emotion if we have one
         if (persistentEmotion && persistentEmotion !== 'neutral') {{
           setExpression(persistentEmotion, 1.0, true);
         }}
@@ -368,22 +296,19 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       statusText.textContent = nextMode === 'thinking' ? 'thinking' : 'idle';
       clearMouth();
       if (nextMode === 'thinking') {{
-        // Hold persistent emoji expression if we have one, otherwise keep current
         clearTimeout(exprResetTimer);
         if (persistentEmotion && persistentEmotion !== 'neutral') {{
           setExpression(persistentEmotion, 1.0, true);
         }}
       }} else {{
-        // New idle: clear persistent emotion (next turn)
         persistentEmotion = null;
         setExpression('relaxed', 0.25);
-        stopCaption();
       }}
     }}
     let speakingLockUntil = 0;
 
     function setSpeaking(active) {{
-      if (!active && performance.now() < speakingLockUntil) return; // ignore premature pause/ended
+      if (!active && performance.now() < speakingLockUntil) return;
       setStatus(active ? 'speaking' : 'idle');
     }}
 
@@ -418,7 +343,8 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       speechVisemes   = textToVisemes(speechText);
       speechDuration  = estimateSpeechDuration(speechText, duration);
       speechStartedAt = performance.now();
-      startCaption(speechText);
+      // Caption display is handled by the parent page's chat overlay —
+      // no caption bar in this iframe.
     }}
 
     function currentTextMouth(now) {{
@@ -605,17 +531,14 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     let audioSource    = null;
     let audioMeterOk   = false;
     let meteredAudio   = null;
-    let meteredSrc     = null;  // track audio src to detect source swaps
+    let meteredSrc     = null;
 
     function setupAudioMeter(audio) {{
       if (!audio) return;
-      // Detect if the audio element changed or its source changed
       const currentSrc = audio.currentSrc || audio.src || '';
       if (audioMeterOk && audio === meteredAudio && currentSrc === meteredSrc) return;
 
-      // If element changed, we need a fresh MediaElementSource
       if (audio !== meteredAudio) {{
-        // Disconnect old analyser if any
         try {{ if (analyserAudio) analyserAudio.disconnect(); }} catch (_) {{}}
         try {{ if (audioSource && audioSource !== audio._aikoMediaSource) audioSource.disconnect(); }} catch (_) {{}}
         audioMeterOk = false;
@@ -623,7 +546,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         audioData = null;
         audioSource = null;
       }} else if (currentSrc !== meteredSrc) {{
-        // Same element, new source — reconnect analyser
         try {{ if (analyserAudio) analyserAudio.disconnect(); }} catch (_) {{}}
         audioMeterOk = false;
       }}
@@ -642,7 +564,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         audioMeterOk = true;
         meteredAudio = audio;
         meteredSrc   = currentSrc;
-        smoothedAudioMouth = 0;  // reset smoothing for fresh audio
+        smoothedAudioMouth = 0;
       }} catch (err) {{
         console.warn('[aiko-vrm] audio meter unavailable; using text lip-sync fallback', err);
         audioMeterOk = false;
@@ -687,7 +609,6 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     function attachAudio(audio) {{
       if (!audio) return;
       if (audio !== lastAudio) {{
-        // Element changed — reset meter state
         if (lastAudio) {{
           audioMeterOk = false;
           meteredAudio = null;
@@ -720,13 +641,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         audio.addEventListener('timeupdate', () => {{
           if (!audio.paused && audio.currentTime > 0) {{
             setSpeaking(true);
-            // Re-meter if src changed (Gradio swapped the source)
             const curSrc = audio.currentSrc || audio.src || '';
             if (curSrc !== meteredSrc) setupAudioMeter(audio);
           }}
         }});
         audio.addEventListener('pause',  () => {{
-          // Debounce pause — Gradio swaps sources causing brief pause→play
           clearTimeout(pauseDebounce);
           pauseDebounce = setTimeout(() => {{
             if (audio.paused || audio.ended) setSpeaking(false);
@@ -743,25 +662,21 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     setInterval(() => attachAudio(findParentAudio()), 500);
 
     // ── postMessage API ───────────────────────────────────────────────────────
-    // Receives messages from app.py's tts_text.change JS bridge (and anything
-    // else that wants to control the avatar).
     window.addEventListener('message', (e) => {{
       try {{
         const msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
 
-        // High-level avatar state: idle, thinking, speaking
         if (msg.status !== undefined) {{
           setStatus(msg.status);
         }}
 
-        // Speech text for lip-sync + caption (sent by the JS bridge alongside audio)
         const incomingText = msg.ttsText ?? msg.speechText ?? msg.text;
         if (incomingText !== undefined) {{
           window._aikoLatestTtsText = incomingText;
           setSpeechText(incomingText, msg.duration ?? msg.audioDuration ?? null);
           if (msg.speaking === undefined && msg.playNow) {{
             setStatus('speaking');
-            speakingLockUntil = performance.now() + 400; // ignore false 'paused' for 400ms
+            speakingLockUntil = performance.now() + 400;
           }}
         }}
         if (msg.speaking !== undefined) {{
@@ -769,16 +684,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
           setSpeaking(msg.speaking);
         }}
 
-        // Expression / emotion should win over generic speaking/thinking faces.
-        // Emoji-derived expressions persist until next assistant turn (no auto-reset).
         if (msg.expression !== undefined) {{
-          const isPersistent = msg.persistent !== false;  // default to persistent
+          const isPersistent = msg.persistent !== false;
           setExpression(msg.expression, msg.intensity ?? 1.0, isPersistent);
           clearTimeout(exprResetTimer);
-          // No auto-reset timer — emotion persists until next turn's setStatus('idle')
         }}
 
-        // Direct viseme override (for external controllers)
         if (msg.viseme !== undefined) {{
           setMouth(msg.weight ?? 1.0, msg.viseme);
           clearTimeout(window._aikoMouthTimer);
