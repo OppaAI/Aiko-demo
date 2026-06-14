@@ -391,7 +391,7 @@ AIKO_CSS += r"""
   inset: auto !important;
 }
 #aiko-info-card {
-  width: min(440px, 90vw);
+  width: min(600px, 90vw);
   max-height: 90vh;
   overflow-y: auto;
   padding: 24px 28px;
