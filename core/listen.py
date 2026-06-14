@@ -14,7 +14,10 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Modal ASR endpoint — set this in your Gradio Space secrets
 # ---------------------------------------------------------------------------
-ASR_URL = os.getenv("AIKO_ASR_URL", "").rstrip("/")
+ASR_URL = os.getenv("AIKO_ASR_URL")
+if not ASR_URL:
+    raise RuntimeError("AIKO_ASR_URL is not set")
+ASR_URL = ASR_URL.rstrip("/")
 
 # ---------------------------------------------------------------------------
 # Local fallback config (used when AIKO_ASR_URL is not set)

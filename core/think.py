@@ -34,7 +34,9 @@ BOOT_LABELS = {
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-LLAMA_BASE_URL       = os.getenv("LLAMA_BASE_URL",  "https://your-modal-endpoint.modal.run")
+LLAMA_BASE_URL       = os.getenv("LLAMA_BASE_URL")
+if not LLAMA_BASE_URL:
+    raise RuntimeError("LLAMA_BASE_URL is not set")
 LLAMA_API_KEY        = os.getenv("LLAMA_API_KEY",    "")
 CONTEXT_WINDOW_TURNS = int(os.getenv("CONTEXT_WINDOW_TURNS", 20))
 

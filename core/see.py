@@ -15,10 +15,9 @@ from pathlib import Path
 
 import requests
 
-VISION_ENDPOINT = os.getenv(
-    "VISION_ENDPOINT",
-    "https://oppa-ai-org--minicpm-v-4-6-fastapi-app.modal.run/vision",
-)
+VISION_ENDPOINT = os.getenv("VISION_ENDPOINT")
+if not VISION_ENDPOINT:
+    raise RuntimeError("VISION_ENDPOINT is not set")
 
 # Supported MIME prefixes
 _IMAGE_RE = re.compile(r"^image/")

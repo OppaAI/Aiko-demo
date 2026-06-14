@@ -39,7 +39,9 @@ import httpx
 
 # Full URL to the SearXNG "search" endpoint itself (NOT a base path — do not
 # append "/search", the Modal fastapi_endpoint root IS the search route).
-SEARXNG_BASE_URL = os.getenv("SEARXNG_BASE_URL", "")
+SEARXNG_BASE_URL = os.getenv("SEARXNG_BASE_URL")
+if not SEARXNG_BASE_URL:
+    raise RuntimeError("SEARXNG_BASE_URL is not set")
 
 # ── intent patterns ───────────────────────────────────────────────────────────
 

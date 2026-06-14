@@ -26,7 +26,10 @@ EDGE_TTS_PITCH = os.getenv("EDGE_TTS_PITCH", "+0Hz")
 # Set MIOTTS_URL in your environment / Gradio Space secrets to enable MioTTS.
 # Leave it unset (or empty) to fall back to edge-tts.
 # Example: https://oppa-ai-org--miotts-ttsserver-serve.modal.run
-MIOTTS_URL = os.getenv("MIOTTS_URL", "").rstrip("/")
+MIOTTS_URL = os.getenv("MIOTTS_URL")
+if not MIOTTS_URL:
+    raise RuntimeError("MIOTTS_URL is not set")
+MIOTTS_URL = MIOTTS_URL.rstrip("/")
 
 # Preset ID registered in MioTTS via register_preset_cli.
 # e.g. "Aiko" or "jp_female"
