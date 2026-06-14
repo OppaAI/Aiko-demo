@@ -24,6 +24,15 @@ from ui.vrm import avatar_html, gradio_file_urls, resolve_vrm_path
 from ui.listen import transcribe_file
 from ui.speak import speak_to_file
 
+import os
+
+keys = ["FASTEMBED_CACHE_PATH","EXTRACT_MODEL","USER_ID","AI_NAME","LLAMA_BASE_URL",
+        "SQLITE_MEMORY_PATH","MEMORY_RECALL_LIMIT","LLAMA_NUM_CTX","LLAMA_MODEL",
+        "LLAMA_TEMPERATURE","LLAMA_REPEAT_PENALTY","LLAMA_REPEAT_LAST_N",
+        "LLAMA_TOP_P","LLAMA_TOP_K","SEARXNG_BASE_URL","AIKO_ASR_URL",
+        "MIOTTS_URL","MIOTTS_PRESET_ID"]
+for k in keys:
+    print(f"{k}={os.getenv(k, 'NOT SET')}")
 
 # ─────────────────────────────────────────────
 # BOOT
