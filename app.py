@@ -381,6 +381,23 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         outputs=[user_id_state, login_overlay, info_overlay],
     )
 
+    demo.load(
+        None,
+        inputs=None,
+        outputs=None,
+        js="""
+        () => {
+            if (!navigator.mediaDevices) return;
+            navigator.mediaDevices.getUserMedia({audio: true})
+                .then(stream => {
+                    stream.getTracks().forEach(t => t.stop());
+                    console.log("[aiko] mic permission granted");
+                })
+                .catch(err => console.warn("[aiko] mic permission error:", err));
+        }
+        """
+    )
+    
     info_ok_btn.click(
         lambda: gr.update(visible=False),
         inputs=None,
