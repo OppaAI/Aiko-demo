@@ -45,7 +45,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
     if isinstance(vrm_urls, str):
         vrm_urls = [vrm_urls]
 
-    srcdoc = f"""<!DOCTYPE html>
+    srcdoc = rf"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
