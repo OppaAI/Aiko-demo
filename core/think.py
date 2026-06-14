@@ -85,9 +85,9 @@ class AikoThink:
         self._persona_raw = _PERSONA_PATH.read_text(encoding="utf-8").strip()
 
         # Live rendered system prompt — set_system_prompt() replaces this
-        self._system_prompt: str | None = None
+        self._system_prompts: dict[str, str] = {}
 
-        self._history:  list[dict] = []
+        self._histories:  dict[str, list[dict]] = {}
         self._reasoning = False
         self._token_callback = None
         self._mem_queue  = queue.Queue()
@@ -131,11 +131,13 @@ class AikoThink:
         Also updates user_id so memory ops are scoped to the logged-in user.
         Clears conversation history so the new persona starts fresh.
         """
-        self._system_prompt = rendered_soul
         if user_id:
             self._user_id = user_id
             log.info("System prompt updated for user: %s", user_id)
-        self._history.clear()
+            
+        effective_user_id = user_id or self._user_id or _DEFAULT_USER_ID
+        self._system_prompts[effective_user_id] = rendered_soul
+        self._histories.setdefault(effective_user_id, []).clear()
 
     def chat(self, user_input: str, user_id: str | None = None, token_callback=None) -> str:
         self._token_callback = token_callback
@@ -152,9 +154,9 @@ class AikoThink:
             memory_block = None
 
         # 2. build system prompt — rendered persona + injected memories
-        # Use the live _system_prompt if set (post-login), otherwise render fresh
-        if self._system_prompt:
-            system = self._system_prompt
+        # Use the live _system_prompts if set (post-login), otherwise render fresh
+        if effective_user_id in self._system_prompts:
+            system = self._system_prompts[effective_user_id]
         else:
             system = _render_persona(self._persona_raw, effective_user_id)
 
@@ -165,8 +167,10 @@ class AikoThink:
         tool_result = None
         tool_tag    = None
 
+        user_history = self._histories.setdefault(effective_user_id, [])
+
         history_for_check = self._sanitize_history(
-            self._history[-(CONTEXT_WINDOW_TURNS * 2):] + [{"role": "user", "content": user_input}]
+            user_history[-(CONTEXT_WINDOW_TURNS * 2):] + [{"role": "user", "content": user_input}]
         )
 
         tool_tag, tool_result = self._try_tool_call(history_for_check, system)
@@ -243,21 +247,21 @@ class AikoThink:
             prompt = user_input
 
         # 5. append user turn
-        self._history.append({"role": "user", "content": prompt})
+        user_history.append({"role": "user", "content": prompt})
 
         # 6. trim history to context window
-        trimmed = self._sanitize_history(self._history[-(CONTEXT_WINDOW_TURNS * 2):])
+        trimmed = self._sanitize_history(user_history[-(CONTEXT_WINDOW_TURNS * 2):])
 
         # 7. LLM call
         response_text, _ = self._stream_response(trimmed, system=system)
 
         # 8. remove orphaned user turn on empty response
         if not response_text:
-            if self._history and self._history[-1]["role"] == "user":
-                self._history.pop()
+            if user_history and user_history[-1]["role"] == "user":
+                user_history.pop()
 
         # 9. append assistant turn to history
-        self._history.append({"role": "assistant", "content": response_text})
+        user_history.append({"role": "assistant", "content": response_text})
 
         # 10. persist to memory (background), scoped to effective user
         self._store_async(user_input, response_text, effective_user_id)
@@ -267,14 +271,18 @@ class AikoThink:
 
         return response_text
 
-    def reset_context(self) -> None:
+    def reset_context(self, user_id: str | None = None) -> None:
         """Clear the in-memory conversation history for a fresh session."""
-        self._history.clear()
+        effective_user_id = user_id or self._user_id or _DEFAULT_USER_ID
+        if effective_user_id in self._histories:
+            self._histories[effective_user_id].clear()
 
-    def last_turn(self) -> tuple[str, str] | None:
+    def last_turn(self, user_id: str | None = None) -> tuple[str, str] | None:
         """Return the latest complete user/assistant exchange, or None."""
+        effective_user_id = user_id or self._user_id or _DEFAULT_USER_ID
+        user_history = self._histories.get(effective_user_id, [])
         assistant_text: str | None = None
-        for message in reversed(self._history):
+        for message in reversed(user_history):
             role    = message.get("role")
             content = (message.get("content") or "").strip()
             if not content:
