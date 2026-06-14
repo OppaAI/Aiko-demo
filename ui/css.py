@@ -216,12 +216,12 @@ div:has(> #aiko-chatbot) {
 #aiko-input-row {
   position: absolute;
   left: 16px;
-  right: calc(42% + 500px);
+  right: 16px;
   bottom: 16px;
   display: flex;
   gap: 6px;
-  align-items: stretch;
-  z-index: 6;
+  align-items: center;
+  z-index: 7;
   flex-wrap: nowrap;
 }
 /* Make the textbox column shrink/grow */
