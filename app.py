@@ -387,8 +387,8 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 # MediaRecorder (see demo.load JS below). Replaces the old
                 # broken gr.Audio(sources=["microphone"]) component.
                 audio_b64 = gr.Textbox(
-                    visible=False,
                     elem_id="aiko-audio-b64",
+                    container=False,
                 )
 
                 with gr.Column(elem_id="aiko-chat-overlay"):
@@ -446,9 +446,10 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             }
 
             function findHiddenTextarea() {
-                const wrap = document.querySelector('#aiko-audio-b64');
-                if (!wrap) return null;
-                return wrap.querySelector('textarea') || wrap.querySelector('input');
+                const el = document.querySelector('#aiko-audio-b64');
+                if (!el) return null;
+                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') return el;
+                return el.querySelector('textarea') || el.querySelector('input');
             }
 
             function setB64(value) {

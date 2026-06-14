@@ -280,6 +280,9 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   color: var(--aiko-accent) !important;
 }
 /* Hidden recorder — rendered in DOM but zero visual footprint */
+#aiko-audio-b64 {
+  display: none !important;
+}
 #aiko-mic-audio {
   position: absolute !important;
   width: 1px !important;
