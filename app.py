@@ -367,7 +367,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         sources=["microphone"],
                         type="filepath",
                         elem_id="aiko-mic-audio",
-                        visible="hidden",
+                        visible=True,
                     )
 
                     recording_state = gr.State(value=False)

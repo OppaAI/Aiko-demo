@@ -281,13 +281,14 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 }
 /* Hidden recorder — rendered in DOM but zero visual footprint */
 #aiko-mic-audio {
-  display: block !important;
   position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
   opacity: 0 !important;
   pointer-events: none !important;
-  width: 0 !important;
-  height: 0 !important;
   overflow: hidden !important;
+  left: -9999px !important;
+  top: -9999px !important;
 }
 #aiko-note { display: none; }
 .gradio-container footer { display: none !important; }

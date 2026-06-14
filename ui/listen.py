@@ -2,10 +2,10 @@
 The terminal listener captures local PulseAudio.  In Gradio/HF Spaces the browser
 records the microphone and uploads a file, so this module transcribes that uploaded
 file by posting it to the Modal ASR endpoint (faster-whisper large-v3-turbo).
-
 Falls back to local faster-whisper when AIKO_ASR_URL is not set.
 """
 from __future__ import annotations
+
 import os
 import threading
 from pathlib import Path
@@ -37,7 +37,7 @@ def _local_model():
     with _MODEL_LOCK:
         if _MODEL is None:
             from faster_whisper import WhisperModel
-            model_size  = os.getenv("AIKO_ASR_MODEL", os.getenv("WHISPER_MODEL", "base"))
+            model_size = os.getenv("AIKO_ASR_MODEL", os.getenv("WHISPER_MODEL", "base"))
             device_hint = os.getenv("AIKO_ASR_DEVICE", os.getenv("WHISPER_DEVICE", "auto"))
             compute_hint = os.getenv("AIKO_ASR_COMPUTE", os.getenv("WHISPER_COMPUTE", "default"))
             device, compute = _resolve_device(device_hint, compute_hint)
@@ -48,11 +48,9 @@ def _local_model():
 # ---------------------------------------------------------------------------
 # Transcription backends
 # ---------------------------------------------------------------------------
-
 def _transcribe_modal(audio_path: str) -> str:
     """POST audio file to the Modal ASR endpoint."""
     import httpx
-
     with open(audio_path, "rb") as f:
         resp = httpx.post(
             f"{ASR_URL}/transcribe",
@@ -79,7 +77,6 @@ def _transcribe_local(audio_path: str) -> str:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-
 def transcribe_file(audio_path: str | Path | None) -> str:
     """Transcribe a browser-recorded microphone file.
 
@@ -89,7 +86,6 @@ def transcribe_file(audio_path: str | Path | None) -> str:
     if not audio_path:
         return ""
     audio_path = str(audio_path)
-
     if ASR_URL:
         return _transcribe_modal(audio_path)
     return _transcribe_local(audio_path)
