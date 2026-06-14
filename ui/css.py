@@ -99,8 +99,8 @@ body > #aiko-emotion-label,
 /* ── Chat overlay: right side, borderless ─────────────────────────── */
 #aiko-chat-overlay {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 48px;
+  right: 48px;
   bottom: 76px;
   width: 44%;
   display: flex;
