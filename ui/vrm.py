@@ -87,11 +87,11 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       padding: 14px 18px 70px;
       background: linear-gradient(180deg, rgba(5,5,10,.45), transparent 20%, transparent 72%, rgba(5,5,10,.55));
     }}
-    #top {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; }}
-    #status {{ display: flex; align-items: center; gap: 8px; color: #8b7ab6; font-size: 11px; }}
+    #top {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: nowrap; width: 100%; }}
+    #emotion {{ flex-shrink: 0; }}
+    #status {{ flex-shrink: 0; }}
     #dot {{ width: 8px; height: 8px; border-radius: 999px; background: #4b3a79; box-shadow: 0 0 10px rgba(155,127,212,.2); }}
     #dot.speaking {{ background: #d68cff; box-shadow: 0 0 16px rgba(214,140,255,.9); animation: pulse .6s infinite; }}
-    #emotion {{ letter-spacing: .16em; text-transform: uppercase; font-size: 11px; color: #7867a3; }}
     /* Caption bar — bottom of the canvas, left side so it doesn't clash with chat overlay */
     #caption-bar {{
       position: fixed;

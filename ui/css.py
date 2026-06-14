@@ -17,7 +17,16 @@ html, body, .gradio-container, main, footer {
 .gradio-container *, .gradio-container .prose, .gradio-container label {
   color: var(--aiko-text);
 }
-#aiko-shell { max-width: 1180px; margin: 0 auto; padding: 0 12px 12px; }
+#aiko-shell { max-width: 1500px; }
+#aiko-info-panel {
+  background: rgba(15, 10, 30, 0.6);
+  border: 1px solid rgba(155,127,212,0.3);
+  border-radius: 18px;
+  padding: 20px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+#aiko-info-panel h3, #aiko-info-panel strong { color: #ecdeff; }
 /* ── Title header ──────────────────────────────────────────────────── */
 #aiko-title {
   display: block;
@@ -200,7 +209,7 @@ div:has(> #aiko-chatbot) {
 #aiko-input-row {
   position: absolute !important;
   left: 16px !important;
-  right: 16px !important;
+  right: 4px !important;
   bottom: 16px !important;
   z-index: 7 !important;
   display: flex !important;

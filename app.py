@@ -171,7 +171,7 @@ def _get_response(message: str, history: list):
     # Keep the original 2-part signal format — JS typewriter unchanged.
     # fullText for the typewriter is just the response (no notes),
     # so notes don't get animated.
-    signal = f"TYPEWRITE:{final_emotion}||{response_text}"
+    signal = f"TYPEWRITE:{final_emotion}||{notes_prefix}||{response_text}"
     yield history, signal, audio_path
 
 
@@ -303,6 +303,22 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         visible=False,
                     )
 
+                with gr.Column(scale=1, elem_id="aiko-info-panel"):
+                    gr.Markdown("""
+### 🌸 About Aiko-chan
+Aiko is your AI companion — chat, ask questions, or just talk.
+
+**Try asking:**
+- "What's the score of [game]?" → triggers live sports lookup
+- "What's the weather in [city]?" → triggers weather tool
+- "Search the web for..." → triggers web search
+- "What's [crypto] price?" → triggers price lookup
+
+**Tips:**
+- Use 🎙️ to speak instead of typing
+- Aiko reacts emotionally — try different tones!
+                    """)
+
     # ─────────────────────────────────────────────
     # EVENTS
     # ─────────────────────────────────────────────
@@ -375,7 +391,12 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         (rawSignal) => {
             if (!rawSignal || !rawSignal.startsWith('TYPEWRITE:')) return;
 
-            const rest       = rawSignal.slice('TYPEWRITE:'.length);
+            const rest    = rawSignal.slice('TYPEWRITE:'.length);
+            const parts   = rest.split('||');
+            const emotion = parts[0];
+            const notesPrefix = parts[1] || '';
+            const fullText    = parts[2] || '';
+
             const firstPipe  = rest.indexOf('|');
             const secondPipe = rest.indexOf('|', firstPipe + 1);
 
@@ -429,6 +450,16 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 if (el.textContent.trim() !== '') {
                     targetEl = el;
                     wipeEl(el);
+                    if (notesPrefix) {
+                        const notesSpan = document.createElement('div');
+                        notesSpan.textContent = notesPrefix.trim();
+                        notesSpan.style.opacity = '0.7';
+                        notesSpan.style.fontSize = '0.9em';
+                        el.appendChild(notesSpan);
+                    }
+                    const responseSpan = document.createElement('span');
+                    el.appendChild(responseSpan);
+                    targetEl._responseSpan = responseSpan;
                     blanked = true;
 
                     const obs = new MutationObserver(() => {
@@ -470,7 +501,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
                 let i         = 0;
                 let startTime = performance.now();
-
                 function tick() {
                     if (i >= totalChars) {
                         targetEl.textContent = fullText;
@@ -485,6 +515,10 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     targetEl.textContent = i < totalChars
                         ? fullText.slice(0, i) + '▋'
                         : fullText;
+
+                    const cb = document.querySelector('#aiko-chatbot');
+                    if (cb) cb.scrollTop = cb.scrollHeight;
+
                     setTimeout(tick, perChar);
                 }
 
