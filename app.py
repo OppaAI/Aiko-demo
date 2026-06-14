@@ -7,6 +7,9 @@ import gradio as gr
 from gradio import OAuthProfile
 import time
 import inspect
+import threading
+import queue
+import re  
 
 load_dotenv()
 
@@ -220,7 +223,7 @@ with gr.Blocks(
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
         with gr.Column(elem_id="aiko-login-card"):
             gr.HTML("""
-                <h1>⚠️ ATTENTION‼️</h1>
+                <h1>⚠️ ATTENTION!!! ⚠️</h1>
                 <p class='aiko-subtitle'>Please sign in to continue</p>
             """)
             gr.HTML("""
