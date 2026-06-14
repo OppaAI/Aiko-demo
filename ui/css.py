@@ -76,14 +76,12 @@ html, body, .gradio-container, main, footer {
   pointer-events: none;
   transition: opacity 0.4s ease;
 }
-/* Hide any duplicate emotion-label nodes that Gradio's hydration may
-   inject outside the avatar card (keep only the one inside #aiko-avatar-card) */
 #aiko-emotion-label ~ #aiko-emotion-label,
 body > #aiko-emotion-label,
 .gradio-container > #aiko-emotion-label {
   display: none !important;
 }
-/* ── Hide Gradio message action buttons (copy/like/dislike/edit) ── */
+/* ── Hide Gradio message action buttons ── */
 #aiko-chatbot .message-buttons,
 #aiko-chatbot .icon-button,
 #aiko-chatbot [data-testid="like"],
@@ -109,12 +107,10 @@ body > #aiko-emotion-label,
   flex-direction: column;
   justify-content: flex-end;
   gap: 0;
-  /* pointer-events left ON so scroll works */
   pointer-events: auto;
   z-index: 5;
   overflow: hidden;
 }
-/* Chatbot itself */
 #aiko-chatbot,
 #aiko-chatbot * {
   pointer-events: auto !important;
@@ -146,7 +142,6 @@ body > #aiko-emotion-label,
   border: none !important;
   box-shadow: none !important;
 }
-/* Kill outer Gradio block wrapper */
 #aiko-chatbot.block,
 #aiko-chatbot .block,
 div:has(> #aiko-chatbot) {
@@ -156,7 +151,7 @@ div:has(> #aiko-chatbot) {
   box-shadow: none !important;
   padding: 0 !important;
 }
-/* Scrollable chatbot with subtle scrollbar */
+/* Scrollable chatbot */
 #aiko-chatbot {
   overflow-y: auto !important;
   scrollbar-width: thin;
@@ -165,17 +160,13 @@ div:has(> #aiko-chatbot) {
   max-height: 100% !important;
   padding: 0 4px 0 0 !important;
 }
-#aiko-chatbot::-webkit-scrollbar {
-  width: 4px;
-}
-#aiko-chatbot::-webkit-scrollbar-track {
-  background: transparent;
-}
+#aiko-chatbot::-webkit-scrollbar { width: 4px; }
+#aiko-chatbot::-webkit-scrollbar-track { background: transparent; }
 #aiko-chatbot::-webkit-scrollbar-thumb {
   background: rgba(182,140,255,0.35);
   border-radius: 4px;
 }
-/* Caption-style text — small, tight, NO extra paragraph spacing */
+/* Caption-style text */
 #aiko-chatbot .message,
 #aiko-chatbot .bubble,
 #aiko-chatbot [data-testid="bot"],
@@ -187,18 +178,15 @@ div:has(> #aiko-chatbot) {
   text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 16px rgba(100,60,180,0.45);
   max-width: 100% !important;
 }
-/* Kill paragraph margins inside messages */
 #aiko-chatbot p,
 #aiko-chatbot .md p {
   margin: 0 0 2px 0 !important;
 }
-/* Message row spacing */
 #aiko-chatbot .message-row,
 #aiko-chatbot [class*="message-row"] {
   margin-bottom: 2px !important;
   padding: 0 !important;
 }
-/* User = light cyan right-aligned; bot = light lavender */
 #aiko-chatbot [data-testid="user"],
 #aiko-chatbot [data-testid="user"] * {
   color: var(--aiko-user) !important;
@@ -208,43 +196,27 @@ div:has(> #aiko-chatbot) {
 #aiko-chatbot [data-testid="bot"] * {
   color: var(--aiko-bot) !important;
 }
-/* ── Input row: pinned to bottom of avatar card ───────────────────── */
-/* NOTE: chat overlay's left edge sits at (16px + 42%) from the right
-   edge of the card (right:16px + width:42%). Match the input row's
-   `right` to that SAME offset (42% + 16px), not + 48px, so the send
-   button no longer gets pushed outside the visible frame. */
+/* ── Input row ───────────────────────────────────────────────────── */
 #aiko-input-row {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  z-index: 7;
-  flex-wrap: nowrap;
+  position: absolute !important;
+  left: 16px !important;
+  right: 16px !important;
+  bottom: 16px !important;
+  z-index: 7 !important;
+  display: flex !important;
+  gap: 6px !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
 }
-/* Make the textbox column shrink/grow */
+/* Flatten Gradio's wrapper divs so they don't break flex layout */
+#aiko-input-row > div {
+  display: contents !important;
+}
 #aiko-msg {
   flex: 1 1 auto;
   min-width: 0;
 }
-#aiko-mic-btn,
-#aiko-mic-btn button,
-#aiko-send,
-#aiko-send button {
-    width:48px !important;
-    min-width:48px !important;
-    height:48px !important;
-    min-height:48px !important;
-    padding:0 !important;
-    border-radius:10px !important;
-    display:flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    flex-shrink:0;
-}
-/* Remove Gradio textbox wrapper */
+/* Remove Gradio textbox wrapper backgrounds */
 #aiko-msg,
 #aiko-msg > div,
 #aiko-msg .wrap,
@@ -254,65 +226,68 @@ div:has(> #aiko-chatbot) {
   border: none !important;
   box-shadow: none !important;
   padding: 0 !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
 }
-/* Actual typing area */
+/* Actual textarea */
 #aiko-msg textarea,
 #aiko-msg input {
-  background: rgba(8, 8, 16, 0.72) !important;
-  background-color: rgba(8, 8, 16, 0.72) !important;
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
+  background: rgba(8, 8, 16, 0.80) !important;
+  background-color: rgba(8, 8, 16, 0.80) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
   color: var(--aiko-accent) !important;
   border: 1px solid rgba(182,140,255,0.55) !important;
   border-radius: 10px !important;
   box-shadow: none !important;
   min-height: 42px !important;
+  width: 100% !important;
 }
 textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important; }
-/* Square send button */
+/* Mic + send buttons — fixed square size, never shrink */
+#aiko-mic-btn,
+#aiko-mic-btn button,
+#aiko-send,
+#aiko-send button {
+  width: 42px !important;
+  min-width: 42px !important;
+  max-width: 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  padding: 0 !important;
+  border-radius: 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+}
+/* Send button */
 #aiko-send,
 #aiko-send button {
   background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
   border: 0 !important;
-  border-radius: 8px !important;
   color: #fff !important;
-  width: 42px !important;
-  min-width: 42px !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  padding: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex-shrink: 0;
 }
-/* ── Mic button ────────────────────────────────────────────────────── */
+/* Mic button */
 #aiko-mic-btn,
 #aiko-mic-btn button {
   background: rgba(118, 82, 214, 0.25) !important;
   border: 1px solid rgba(182, 140, 255, 0.6) !important;
-  border-radius: 8px !important;
   box-shadow: none !important;
-  width: 42px !important;
-  min-width: 42px !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  padding: 0 !important;
-  flex-shrink: 0;
   font-size: 1.2rem !important;
   color: var(--aiko-accent) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
 }
-/* Hide the hidden recorder entirely from layout */
+/* Hidden recorder — zero layout footprint */
 #aiko-mic-audio {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-    width: 0;
-    height: 0;
-}#aiko-note { display: none; }
+  position: absolute !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+#aiko-note { display: none; }
 .gradio-container footer { display: none !important; }
 .hide { display: none !important; }
 """
@@ -332,7 +307,6 @@ AIKO_CSS += r"""
   position: static !important;
   inset: auto !important;
 }
-
 #aiko-login-card {
   width: min(380px, 90vw);
   max-height: 50vh;
@@ -344,7 +318,6 @@ AIKO_CSS += r"""
   box-shadow: 0 22px 80px rgba(0,0,0,0.55);
   text-align: center;
 }
-
 #aiko-login-card h1 {
   color: #ecdeff;
   text-shadow: 0 0 18px rgba(155, 124, 255, .55);

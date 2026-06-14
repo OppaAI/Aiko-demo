@@ -9,7 +9,7 @@ import time
 import inspect
 import threading
 import queue
-import re  
+import re
 
 load_dotenv()
 
@@ -61,14 +61,14 @@ def build_soul_prompt(user_id: str) -> str:
 # HELPERS
 # ─────────────────────────────────────────────
 def _strip_emoji(text: str) -> str:
-    """Remove emoji only, keep all punctuation, markdown, symbols."""
+    """Remove emoji only — keep all punctuation, markdown, symbols."""
     return re.sub(
-        r"[\U00010000-\U0010FFFF"   # supplementary planes (most emoji)
-        r"\U00002600-\U000027BF"    # misc symbols, dingbats
-        r"\U0001F000-\U0001FFFF"    # emoticons, transport, maps etc.
-        r"\U00002300-\U000023FF"    # misc technical
-        r"\U00002B00-\U00002BFF"    # misc symbols and arrows
-        r"\U0001FA00-\U0001FFFF"    # newer emoji blocks
+        r"[\U00010000-\U0010FFFF"
+        r"\U00002600-\U000027BF"
+        r"\U0001F000-\U0001FFFF"
+        r"\U00002300-\U000023FF"
+        r"\U00002B00-\U00002BFF"
+        r"\U0001FA00-\U0001FFFF"
         r"]",
         "",
         text,
@@ -78,9 +78,12 @@ def _strip_emoji(text: str) -> str:
 
 def _strip_for_speech(text: str) -> str:
     """Aggressive clean for TTS — removes markdown, symbols, emoji."""
+    # Remove search/tool annotations
     text = re.sub(r"\n?🔍 Searching: \*.*?\*\n?", "", text)
     text = re.sub(r"\n?🔧 .*?\n?", "", text)
+    # Remove think blocks
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    # Strip markdown formatting
     text = re.sub(r"#{1,6}\s+", "", text)
     text = re.sub(r"\*{1,3}(.*?)\*{1,3}", r"\1", text)
     text = re.sub(r"_{1,2}(.*?)_{1,2}", r"\1", text)
@@ -89,37 +92,42 @@ def _strip_for_speech(text: str) -> str:
     text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"^-{3,}$", "", text, flags=re.MULTILINE)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    # Keep only speech-friendly characters
     text = re.sub(r"[^\w\s,\.!\?'\"\:\;\-\(\)\&\@]", "", text, flags=re.UNICODE)
     text = re.sub(r"(?<!\w)_+(?!\w)", "", text)
+    # Collapse whitespace
     text = re.sub(r"\n{2,}", "\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
 
-# ─────────────────────────────────────────────
-# CORE RESPONSE  (full text → TTS → reveal)
-# ─────────────────────────────────────────────
 
+def _detect_emoji_emotion(text: str) -> str | None:
+    """Map emoji in response to VRM expression names."""
+    EMOJI_MAP = {
+        "😊": "happy", "😄": "happy", "😁": "happy", "🥰": "happy",
+        "😍": "happy", "🤗": "happy", "✨": "happy", "💕": "happy",
+        "💖": "happy", "🌸": "happy", "😆": "happy", "😸": "happy",
+        "😢": "sad",   "😭": "sad",   "😔": "sad",   "💔": "sad",
+        "😞": "sad",   "🥺": "sad",   "😿": "sad",
+        "😠": "angry", "😤": "angry", "🤬": "angry", "💢": "angry",
+        "😾": "angry", "👿": "angry",
+        "😮": "surprised", "😲": "surprised", "🤯": "surprised",
+        "😱": "surprised", "👀": "surprised",
+        "😌": "relaxed", "🙂": "relaxed",
+        "😶": "neutral", "🤔": "neutral", "😏": "neutral",
+    }
+    for emoji, expr in EMOJI_MAP.items():
+        if emoji in text:
+            return expr
+    return None
+
+
+# ─────────────────────────────────────────────
+# CORE RESPONSE
+# ─────────────────────────────────────────────
 def _get_response(message: str, history: list):
-    """
-    1. Show user message + thinking cursor immediately.
-    2. Run LLM to full completion (no streaming to UI).
-    3. Synthesize the complete response as one TTS pass.
-    4. Write the FINAL spoken text into `history` (so Gradio's own render
-       is already correct/persistent), and ALSO emit a TYPEWRITE signal so
-       the JS can play a cosmetic reveal animation in sync with the audio
-       and hand off lip-sync data to the VRM iframe.
-
-    Voice + text are returned in the SAME yield, so they appear together,
-    and the text never disappears on the next turn (it's baked into
-    `history`, not living only inside a JS-controlled DOM node).
-
-    History format: list of {"role": ..., "content": ...} dicts — Gradio 6.x
-    messages format (tuple format removed in 6.x).
-    """
-    # Messages format: append user turn + a placeholder assistant turn
-    # ▋ as thinking cursor in the assistant slot
     history = list(history) + [
-        {"role": "user", "content": message},
+        {"role": "user",      "content": message},
         {"role": "assistant", "content": "▋"},
     ]
     yield history, None, None
@@ -147,18 +155,20 @@ def _get_response(message: str, history: list):
     else:
         audio_path, emotion = None, "neutral"
 
-    # Build the display text shown in the chatbot bubble — strip ONLY emoji, keep everything else
-    notes_prefix = "\n".join(search_notes) + "\n\n" if search_notes else ""
-    display_text = notes_prefix + _strip_emoji(full_text)  # ← use full_text, not speech_text
+    # Emoji overrides TTS-detected emotion
+    emoji_emotion = _detect_emoji_emotion(full_text)
+    final_emotion = emoji_emotion or emotion
 
-    # ── Stage 3: write the FINAL text into history (persistent, correct) ─────
+    # ── Stage 3: build display text (emoji stripped, markdown kept) ───────────
+    notes_prefix = "\n".join(search_notes) + "\n\n" if search_notes else ""
+    display_text = notes_prefix + _strip_emoji(full_text)
+
+    # Write final text into history
     history[-1] = {"role": "assistant", "content": display_text}
 
-    # Signal carries (emotion, notes_prefix, speech_text) for the JS
-    # reveal animation / VRM lip-sync layer. The chatbot text itself is
-    # already final via `history` above — this signal is purely for
-    # animation + lip-sync, never the source of truth for the text.
-    signal = f"TYPEWRITE:{emotion}|{notes_prefix}|{display_text}"
+    # Signal: third segment is full display_text (already includes notes_prefix)
+    # JS just uses it directly as fullText — no double-prefix
+    signal = f"TYPEWRITE:{final_emotion}||{display_text}"
     yield history, signal, audio_path
 
 
@@ -173,7 +183,7 @@ def _submit(message, history):
     first = True
     for h, tts, audio in _get_response(message, history):
         if first:
-            yield h, tts, audio, ""   # clear input on first yield
+            yield h, tts, audio, ""
             first = False
         else:
             yield h, tts, audio, gr.update()
@@ -196,7 +206,7 @@ def voice_chat(audio_path, history):
 
 
 # ─────────────────────────────────────────────
-# LOGIN HANDLER (HF OAuth)
+# LOGIN HANDLER
 # ─────────────────────────────────────────────
 def _check_login(profile: OAuthProfile | None):
     if profile is None:
@@ -216,9 +226,7 @@ def _check_login(profile: OAuthProfile | None):
 # ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
-with gr.Blocks(
-    title="🌸 AI Waifu and Companion: Aiko-chan",
-) as demo:
+with gr.Blocks(title="Aiko-chan 🌸") as demo:
 
     user_id_state = gr.State(value="Guest")
 
@@ -226,7 +234,7 @@ with gr.Blocks(
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
         with gr.Column(elem_id="aiko-login-card"):
             gr.HTML("""
-                <h1>⚠️ ATTENTION!!! ⚠️</h1>
+                <h1>🌸 Aiko-chan</h1>
                 <p class='aiko-subtitle'>Please sign in to continue</p>
             """)
             gr.HTML("""
@@ -240,7 +248,7 @@ with gr.Blocks(
 
     with gr.Column(elem_id="aiko-shell"):
 
-        gr.HTML("<div id='aiko-title'>🌸 AI Waifu and Companion: Aiko-chan</div>")
+        gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
 
         with gr.Row(equal_height=True):
 
@@ -265,7 +273,6 @@ with gr.Blocks(
                         height=600,
                         show_label=False,
                         container=False,
-                        #type="messages",
                     )
 
                 with gr.Row(elem_id="aiko-input-row"):
@@ -290,7 +297,7 @@ with gr.Blocks(
                         sources=["microphone"],
                         type="filepath",
                         elem_id="aiko-mic-audio",
-                        visible=False,   # hides it but keeps it in DOM
+                        visible=False,
                     )
 
     # ─────────────────────────────────────────────
@@ -355,19 +362,9 @@ with gr.Blocks(
         """
     )
 
-    # ── Lip-sync / reveal-animation bridge ────────────────────────────────────
-    # The chatbot text is ALREADY correct and persistent (written into
-    # `history` in `_get_response`, in the SAME yield as the audio). This
-    # handler is now purely an animation/lip-sync layer:
-    #   1. Stash speech text + emotion on `window` for the VRM iframe and
-    #      post a message to it immediately so it can drive viseme/mouth
-    #      shapes timed against the <audio> element (lip-sync hook).
-    #   2. Play a cosmetic "reveal" animation (CSS clip-path) over the
-    #      already-rendered final text, synced to audio duration — never
-    #      rewriting the DOM's text content, so nothing can be lost or
-    #      desync on the next turn.
-    #
-    # Signal format: TYPEWRITE:<emotion>|<notes_prefix>|<speech_text>
+    # ── Typewriter / lip-sync bridge ──────────────────────────────────────────
+    # Signal format: TYPEWRITE:<emotion>||<display_text>
+    # (double-pipe so notes_prefix slot is empty — display_text already contains it)
     tts_text.change(
         None,
         inputs=[tts_text],
@@ -375,38 +372,34 @@ with gr.Blocks(
         (rawSignal) => {
             if (!rawSignal || !rawSignal.startsWith('TYPEWRITE:')) return;
 
-            const rest        = rawSignal.slice('TYPEWRITE:'.length);
-            const firstPipe   = rest.indexOf('|');
-            const secondPipe  = rest.indexOf('|', firstPipe + 1);
-            const emotion     = rest.slice(0, firstPipe);
-            const notesPrefix = rest.slice(firstPipe + 1, secondPipe);
-            const speechText  = rest.slice(secondPipe + 1);
+            const rest       = rawSignal.slice('TYPEWRITE:'.length);
+            const firstPipe  = rest.indexOf('|');
+            const secondPipe = rest.indexOf('|', firstPipe + 1);
 
-            // ── 1. VRM handoff ──────────────────────────────────────────
+            const emotion    = rest.slice(0, firstPipe);
+            // notesPrefix slot intentionally empty — kept for VRM compat
+            const fullText   = rest.slice(secondPipe + 1);
+
+            // ── 1. VRM handoff ──────────────────────────────────────
             const iframe = document.querySelector('#aiko-vrm-frame');
             if (iframe?.contentWindow) {
                 iframe.contentWindow.postMessage(
-                    JSON.stringify({ expression: emotion, ttsText: speechText, notesPrefix }), '*'
+                    JSON.stringify({ expression: emotion, ttsText: fullText }), '*'
                 );
             }
-            window._aikoLatestTtsText = speechText;
+            window._aikoLatestTtsText = fullText;
             window._aikoLatestEmotion = emotion;
 
-            // ── 2. Helpers ──────────────────────────────────────────────
+            // ── 2. Helpers ──────────────────────────────────────────
             function getBubbleEl() {
                 const allBubbles = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
                 if (!allBubbles.length) return null;
-                const lastBubble = allBubbles[allBubbles.length - 1];
-                const candidates = [
-                    lastBubble.querySelector('.prose p:last-child'),
-                    lastBubble.querySelector('.prose'),
-                    lastBubble.querySelector('.message-content'),
-                    lastBubble,
-                ];
-                for (const el of candidates) {
-                    if (el) return el;
-                }
-                return lastBubble;
+                const last = allBubbles[allBubbles.length - 1];
+                return (
+                    last.querySelector('.prose') ||
+                    last.querySelector('.message-content') ||
+                    last
+                );
             }
 
             function wipeEl(el) {
@@ -418,18 +411,19 @@ with gr.Blocks(
                 return Number.isFinite(d) && d > 0 && d < 600;
             }
 
-            // ── 3. PHASE 1: blank watcher ───────────────────────────────
-            const fullText  = (notesPrefix ? notesPrefix + '\\n\\n' : '') + speechText;
-            let blanked     = false;
-            let targetEl    = null;
+            // ── 3. Blank watcher — fires immediately via rAF ────────
+            // Catches the bubble the instant ▋ (yield 1) or the full
+            // text (yield 2) appears, wipes it, and holds it blank via
+            // MutationObserver until the typewriter takes over.
+            let blanked       = false;
+            let targetEl      = null;
             let typingStarted = false;
 
             function blankWatcher() {
                 const el = getBubbleEl();
                 if (!el) { requestAnimationFrame(blankWatcher); return; }
 
-                const t = el.textContent.trim();
-                if (t !== '') {
+                if (el.textContent.trim() !== '') {
                     targetEl = el;
                     wipeEl(el);
                     blanked = true;
@@ -443,14 +437,12 @@ with gr.Blocks(
                     requestAnimationFrame(blankWatcher);
                 }
             }
-            blankWatcher();   // ← starts immediately, no setTimeout
+            blankWatcher();
 
-            // ── 4. PHASE 2: typewriter ──────────────────────────────────
+            // ── 4. Typewriter — starts as soon as bubble is blanked ─
             function startTypewriter() {
-                if (!blanked || !targetEl) {
-                    setTimeout(startTypewriter, 20);
-                    return;
-                }
+                if (!blanked || !targetEl) { setTimeout(startTypewriter, 20); return; }
+
                 typingStarted = true;
 
                 if (window._aikoBlankObs) {
@@ -458,16 +450,19 @@ with gr.Blocks(
                     window._aikoBlankObs = null;
                 }
 
-                const totalChars  = fullText.length;
-                let audioDuration = Math.max(3, speechText.length * 0.055);
-                let totalMs       = audioDuration * 1000;
-                let perChar       = totalMs / totalChars;
+                const totalChars = fullText.length;
+                // Estimate pace from char count (stripped of markdown for timing)
+                const cleanLen   = fullText.replace(/[*_#`]/g, '').length;
+                let audioDur     = Math.max(3, cleanLen * 0.055);
+                let totalMs      = audioDur * 1000;
+                let perChar      = totalMs / Math.max(1, totalChars);
 
+                // Use real audio duration if already available
                 const audioEl = document.querySelector('#aiko-audio audio');
                 if (audioEl && isUsableDuration(audioEl.duration)) {
-                    audioDuration = audioEl.duration;
-                    totalMs       = audioDuration * 1000;
-                    perChar       = totalMs / totalChars;
+                    audioDur = audioEl.duration;
+                    totalMs  = audioDur * 1000;
+                    perChar  = totalMs / Math.max(1, totalChars);
                 }
 
                 let i         = 0;
@@ -476,13 +471,15 @@ with gr.Blocks(
                 function tick() {
                     if (i > totalChars) {
                         targetEl.textContent = fullText;
-                        const chatbot = document.querySelector('#aiko-chatbot');
-                        if (chatbot) chatbot.scrollTop = chatbot.scrollHeight;
+                        const cb = document.querySelector('#aiko-chatbot');
+                        if (cb) cb.scrollTop = cb.scrollHeight;
                         return;
                     }
+                    // Resync to elapsed time to prevent drift
                     const elapsed  = performance.now() - startTime;
                     const shouldBe = Math.floor((elapsed / totalMs) * totalChars);
                     i = Math.max(i, Math.min(shouldBe, totalChars));
+
                     targetEl.textContent = i < totalChars
                         ? fullText.slice(0, i) + '▋'
                         : fullText;
@@ -490,12 +487,13 @@ with gr.Blocks(
                     setTimeout(tick, perChar);
                 }
 
+                // Resync pace when real audio duration arrives
                 function onAudioReady(el) {
                     if (!isUsableDuration(el.duration)) return;
-                    const elapsed  = performance.now() - startTime;
-                    const charsLeft = totalChars - i;
+                    const elapsed   = performance.now() - startTime;
+                    const charsLeft = Math.max(1, totalChars - i);
                     const timeLeft  = Math.max(100, el.duration * 1000 - elapsed);
-                    perChar = timeLeft / Math.max(1, charsLeft);
+                    perChar = timeLeft / charsLeft;
                     totalMs = el.duration * 1000;
                 }
 
@@ -509,7 +507,7 @@ with gr.Blocks(
                         });
                     }
                 } else {
-                    function pollAudio() {
+                    (function pollAudio() {
                         const a = document.querySelector('#aiko-audio audio');
                         if (!a) { setTimeout(pollAudio, 80); return; }
                         if (isUsableDuration(a.duration)) {
@@ -520,8 +518,7 @@ with gr.Blocks(
                                 onAudioReady(a);
                             });
                         }
-                    }
-                    pollAudio();
+                    })();
                 }
 
                 tick();
