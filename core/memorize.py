@@ -20,7 +20,6 @@ import queue
 import re
 import threading
 
-from core.memorize import AikoMemorize
 from core.log      import get_logger
 
 log = get_logger(__name__)
