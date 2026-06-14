@@ -61,21 +61,19 @@ def build_soul_prompt(user_id: str) -> str:
 # HELPERS
 # ─────────────────────────────────────────────
 def _strip_emoji(text: str) -> str:
-    """Remove emoji and any immediately following colon, keep all else."""
-    # Remove emoji + optional trailing colon+space
-    text = re.sub(
+    """Remove emoji only — keep all punctuation, markdown, symbols."""
+    return re.sub(
         r"[\U00010000-\U0010FFFF"
         r"\U00002600-\U000027BF"
         r"\U0001F000-\U0001FFFF"
         r"\U00002300-\U000023FF"
         r"\U00002B00-\U00002BFF"
         r"\U0001FA00-\U0001FFFF"
-        r"]:?",
+        r"]",
         "",
         text,
         flags=re.UNICODE,
     )
-    return text
 
 
 def _strip_for_speech(text: str) -> str:
@@ -228,7 +226,7 @@ def _check_login(profile: OAuthProfile | None):
 # ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
-with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
+with gr.Blocks(title="Aiko-chan 🌸") as demo:
 
     user_id_state = gr.State(value="Guest")
 
@@ -236,7 +234,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
     with gr.Column(elem_id="aiko-login-overlay") as login_overlay:
         with gr.Column(elem_id="aiko-login-card"):
             gr.HTML("""
-                <h1>🌸 AI Waifu and Companion Aiko-chan</h1>
+                <h1>🌸 Aiko-chan</h1>
                 <p class='aiko-subtitle'>Please sign in to continue</p>
             """)
             gr.HTML("""
@@ -250,7 +248,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
     with gr.Column(elem_id="aiko-shell"):
 
-        gr.HTML("<div id='aiko-title'>🌸 AI Waifu and Companion Aiko-chan</div>")
+        gr.HTML("<div id='aiko-title'>🌸 Aiko-chan</div>")
 
         with gr.Row(equal_height=True):
 
