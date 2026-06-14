@@ -55,7 +55,7 @@ LLAMA_PORT = 8080
     gpu="T4",
     volumes={"/models": volume},
     timeout=300,
-    scaledown_window=120,
+    scaledown_window=300,
     secrets=[modal.Secret.from_name("aiko-secrets")],
 )
 class AikoLLM:

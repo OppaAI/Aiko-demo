@@ -1,5 +1,5 @@
 """
-backend/search.py
+backend/searxng.py
 
 Aiko's Modal SearXNG backend.
 Deploy: modal deploy backend/search.py
