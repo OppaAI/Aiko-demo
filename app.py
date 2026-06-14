@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import date
@@ -230,26 +232,70 @@ def _submit(message, history):
             yield h, tts, audio, gr.update()
 
 
-def voice_chat(audio_path, history):
+# ─────────────────────────────────────────────
+# VOICE INPUT (custom MediaRecorder → base64 → here)
+# ─────────────────────────────────────────────
+def _voice_from_b64(b64_data: str, history: list):
+    """Decode a base64 audio blob (sent via hidden textbox from JS
+    MediaRecorder), transcribe it via the Modal ASR endpoint, and run
+    it through the normal chat pipeline.
+
+    Signal format coming in: "data:audio/webm;base64,<...>" or raw base64.
+    """
     history = history or []
 
-    if not audio_path:
-        return history, None, None
+    if not b64_data:
+        yield history, None, None, ""
+        return
 
-    transcript = transcribe_file(audio_path)
+    try:
+        if "," in b64_data:
+            _header, encoded = b64_data.split(",", 1)
+        else:
+            encoded = b64_data
+        audio_bytes = base64.b64decode(encoded)
+    except Exception as e:
+        print(f"[voice] base64 decode error: {e}")
+        yield history, None, None, ""
+        return
+
+    if not audio_bytes:
+        yield history, None, None, ""
+        return
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
+            f.write(audio_bytes)
+            tmp_path = f.name
+
+        transcript = transcribe_file(tmp_path)
+    except Exception as e:
+        print(f"[voice] transcription error: {e}")
+        transcript = ""
+    finally:
+        if tmp_path:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
     if not transcript:
-        return history, None, None
+        print("[voice] empty transcript, ignoring")
+        yield history, None, None, ""
+        return
 
+    print(f"[voice] transcript: {transcript!r}")
+
+    first = True
     for h, tts, audio in _get_response(transcript, history):
         if h and len(h) >= 2:
             h[-2]["content"] = f"🎙️ {transcript}"
-        yield h, tts, audio
-
-
-def _toggle_recording(recording):
-    new_recording = not recording
-    btn_label = "⏹️" if new_recording else "🎙️"
-    return new_recording, gr.update(value=btn_label), gr.update(recording=new_recording)
+        if first:
+            yield h, tts, audio, ""
+            first = False
+        else:
+            yield h, tts, audio, gr.update()
 
 
 # ─────────────────────────────────────────────
@@ -337,6 +383,14 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     elem_id="aiko-tts-text",
                 )
 
+                # Hidden carrier for base64 audio recorded via custom JS
+                # MediaRecorder (see demo.load JS below). Replaces the old
+                # broken gr.Audio(sources=["microphone"]) component.
+                audio_b64 = gr.Textbox(
+                    visible=False,
+                    elem_id="aiko-audio-b64",
+                )
+
                 with gr.Column(elem_id="aiko-chat-overlay"):
                     chatbot = gr.Chatbot(
                         elem_id="aiko-chatbot",
@@ -363,15 +417,6 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                         elem_id="aiko-send",
                     )
 
-                    mic_audio = gr.Audio(
-                        sources=["microphone"],
-                        type="filepath",
-                        elem_id="aiko-mic-audio",
-                        visible=True,
-                    )
-
-                    recording_state = gr.State(value=False)
-
     # ─────────────────────────────────────────────
     # EVENTS
     # ─────────────────────────────────────────────
@@ -381,6 +426,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         outputs=[user_id_state, login_overlay, info_overlay],
     )
 
+    # ── Mic permission warm-up ────────────────────────────────────────────
     demo.load(
         None,
         inputs=None,
@@ -397,7 +443,117 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         }
         """
     )
-    
+
+    # ── Custom MediaRecorder wired to #aiko-mic-btn ──────────────────────
+    # Toggle on click: first click starts recording, second click stops
+    # and writes the resulting blob (base64) into the hidden
+    # #aiko-audio-b64 textbox, which triggers audio_b64.change() below.
+    demo.load(
+        None,
+        inputs=None,
+        outputs=None,
+        js="""
+        () => {
+            let mediaRecorder = null;
+            let audioChunks = [];
+            let isRecording = false;
+
+            function findMicBtn() {
+                return document.querySelector('#aiko-mic-btn button') ||
+                       document.querySelector('#aiko-mic-btn');
+            }
+
+            function findHiddenTextarea() {
+                const wrap = document.querySelector('#aiko-audio-b64');
+                if (!wrap) return null;
+                return wrap.querySelector('textarea') || wrap.querySelector('input');
+            }
+
+            function setB64(value) {
+                const ta = findHiddenTextarea();
+                if (!ta) {
+                    console.warn('[aiko] hidden audio_b64 textarea not found');
+                    return;
+                }
+                ta.value = value;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+                ta.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
+            function blobToBase64(blob) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            }
+
+            async function startRecording(btn) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    audioChunks = [];
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = (e) => {
+                        if (e.data.size > 0) audioChunks.push(e.data);
+                    };
+                    mediaRecorder.onstop = async () => {
+                        stream.getTracks().forEach(t => t.stop());
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        if (blob.size === 0) {
+                            console.warn('[aiko] empty recording, skipping');
+                            return;
+                        }
+                        const b64 = await blobToBase64(blob);
+                        setB64(b64);
+                    };
+                    mediaRecorder.start();
+                    isRecording = true;
+                    if (btn) {
+                        btn.style.boxShadow = '0 0 0 3px rgba(255,80,80,0.65)';
+                        btn.classList.add('aiko-recording');
+                    }
+                    console.log('[aiko] recording started');
+                } catch (err) {
+                    console.error('[aiko] mic error:', err);
+                    isRecording = false;
+                }
+            }
+
+            function stopRecording(btn) {
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+                isRecording = false;
+                if (btn) {
+                    btn.style.boxShadow = 'none';
+                    btn.classList.remove('aiko-recording');
+                }
+                console.log('[aiko] recording stopped');
+            }
+
+            function attachMicHandler() {
+                const btn = findMicBtn();
+                if (!btn) { setTimeout(attachMicHandler, 300); return; }
+                if (btn._aikoHandlerAttached) return;
+                btn._aikoHandlerAttached = true;
+
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!isRecording) {
+                        startRecording(btn);
+                    } else {
+                        stopRecording(btn);
+                    }
+                }, true); // capture phase — runs before any Gradio click handler
+            }
+
+            attachMicHandler();
+        }
+        """
+    )
+
     info_ok_btn.click(
         lambda: gr.update(visible=False),
         inputs=None,
@@ -416,16 +572,12 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         outputs=[chatbot, tts_text, audio_out, msg],
     )
 
-    mic_audio.change(
-        voice_chat,
-        inputs=[mic_audio, chatbot],
-        outputs=[chatbot, tts_text, audio_out],
-    )
-
-    mic_btn.click(
-        _toggle_recording,
-        inputs=[recording_state],
-        outputs=[recording_state, mic_btn, mic_audio],
+    # Fires when the JS MediaRecorder writes a finished recording (base64)
+    # into the hidden #aiko-audio-b64 textbox.
+    audio_b64.change(
+        _voice_from_b64,
+        inputs=[audio_b64, chatbot],
+        outputs=[chatbot, tts_text, audio_out, audio_b64],
     )
 
     # ── Typewriter / lip-sync bridge ─────────────────────────────────────────
