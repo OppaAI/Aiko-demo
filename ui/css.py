@@ -100,7 +100,7 @@ body > #aiko-emotion-label,
 #aiko-chat-overlay {
   position: absolute;
   top: 48px;
-  right: 96px;
+  right: 80px;
   bottom: 76px;
   width: 44%;
   display: flex;
@@ -261,7 +261,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   justify-content: center !important;
   flex-shrink: 0 !important;
   flex-grow: 0 !important;
-  margin-right: 24px !important;
+  margin-right: 36px !important;
 }
 /* Send button */
 #aiko-send,
