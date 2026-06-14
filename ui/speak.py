@@ -1,7 +1,10 @@
 """Browser-friendly TTS helper for the Gradio Space.
 The local terminal app plays MioTTS WAV bytes through sounddevice.  In a Space the
-browser must do playback, so this helper writes an MP3 file that Gradio's Audio
+browser must do playback, so this helper writes a WAV file that Gradio's Audio
 component can return to the client.
+
+Long responses are automatically split into ≤280-char chunks at sentence
+boundaries, synthesized in parallel, then concatenated into a single WAV.
 """
 from __future__ import annotations
 import hashlib
@@ -11,6 +14,7 @@ import queue
 import re
 import threading
 import time
+import wave
 from pathlib import Path
 
 TTS_DIR = Path(os.getenv("AIKO_TTS_DIR", "/tmp/aiko_tts"))
@@ -27,6 +31,9 @@ MIOTTS_URL = os.getenv("MIOTTS_URL", "").rstrip("/")
 # Preset ID registered in MioTTS via register_preset_cli.
 # e.g. "Aiko" or "jp_female"
 MIOTTS_PRESET_ID = os.getenv("MIOTTS_PRESET_ID", "Aiko")
+
+# MioTTS hard character limit per request
+MIOTTS_MAX_CHARS = 280
 
 # ── Emoji → VRM expression name ───────────────────────────────────────────────
 _EMOJI_EMOTION: dict[str, str] = {
@@ -88,10 +95,10 @@ def _clean_for_tts(text: str) -> str:
     text = re.sub(r"__SEARCHING__:[^\n]+", "", text)
     text = re.sub(r"\[(?:think|search)[^\]]*\]", "", text, flags=re.I)
     text = _ACTION_RE.sub("", text)
-    text = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", text)   # **bold** -> bold
+    text = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", text)    # **bold** -> bold
     text = re.sub(r"^\s*[-*]\s+", "", text, flags=re.M)  # bullet markers
-    text = re.sub(r"^\s*-{3,}\s*$", "", text, flags=re.M)  # --- rules
-    text = re.sub(r"[`_#>~*-]", "", text)              # leftover symbols, now includes * and -
+    text = re.sub(r"^\s*-{3,}\s*$", "", text, flags=re.M) # --- rules
+    text = re.sub(r"[`_#>~*-]", "", text)               # leftover symbols
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
@@ -112,6 +119,51 @@ def _sentences_from_stream(token_iter):
         yield buf
 
 
+# ── Chunking ──────────────────────────────────────────────────────────────────
+
+def _chunk_text(text: str, max_chars: int = MIOTTS_MAX_CHARS) -> list[str]:
+    """Split text at sentence boundaries into chunks under max_chars.
+
+    Sentences longer than max_chars are hard-split as a last resort.
+    """
+    sentences = re.split(r'(?<=[.!?。！？…])\s+', text.strip())
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        # Hard-split any single sentence that exceeds the limit
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            while sentence:
+                chunks.append(sentence[:max_chars])
+                sentence = sentence[max_chars:]
+            continue
+        if len(current) + len(sentence) + 1 <= max_chars:
+            current = (current + " " + sentence).strip()
+        else:
+            if current:
+                chunks.append(current)
+            current = sentence
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+# ── WAV utilities ─────────────────────────────────────────────────────────────
+
+def _concat_wavs(paths: list[Path]) -> str:
+    """Concatenate multiple WAV files into one. Returns path string."""
+    out_path = TTS_DIR / f"aiko_concat_{time.time_ns()}.wav"
+    with wave.open(str(out_path), "wb") as out_wav:
+        for i, p in enumerate(paths):
+            with wave.open(str(p), "rb") as w:
+                if i == 0:
+                    out_wav.setparams(w.getparams())
+                out_wav.writeframes(w.readframes(w.getnframes()))
+    return str(out_path)
+
+
 # ── TTS backends ──────────────────────────────────────────────────────────────
 
 async def _edge_tts_to_file(text: str, out_path: Path) -> None:
@@ -121,9 +173,18 @@ async def _edge_tts_to_file(text: str, out_path: Path) -> None:
     )
     await communicate.save(str(out_path))
 
+
 def _miotts_to_file(text: str, out_path: Path) -> None:
-    """Call MioTTS /v1/tts/file (multipart/form-data) → write WAV."""
+    """Call MioTTS /v1/tts/file (multipart/form-data) → write WAV.
+
+    text must be ≤ MIOTTS_MAX_CHARS; callers are responsible for chunking.
+    """
     import httpx
+
+    assert len(text) <= MIOTTS_MAX_CHARS, (
+        f"_miotts_to_file: text too long ({len(text)} > {MIOTTS_MAX_CHARS}). "
+        "Use _synth_to_file which handles chunking."
+    )
 
     resp = httpx.post(
         f"{MIOTTS_URL}/v1/tts/file",
@@ -137,38 +198,80 @@ def _miotts_to_file(text: str, out_path: Path) -> None:
         print(f"[miotts] {resp.status_code}: {resp.text}")
     resp.raise_for_status()
 
-    # Write WAV bytes directly — no conversion needed
     out_path.write_bytes(resp.content)
 
-def _synth_to_file(clean: str) -> str | None:
-    """Synthesize cleaned text, return WAV path or None on failure."""
+
+def _synth_chunk(text: str) -> Path | None:
+    """Synthesize a single chunk (≤ MIOTTS_MAX_CHARS) to a WAV file."""
     TTS_DIR.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha1(f"{time.time_ns()}:{clean}".encode()).hexdigest()[:16]
+    digest = hashlib.sha1(f"{time.time_ns()}:{text}".encode()).hexdigest()[:16]
     out_path = TTS_DIR / f"aiko_{digest}.wav"
     try:
         if MIOTTS_URL:
-            _miotts_to_file(clean[:4000], out_path)
+            _miotts_to_file(text, out_path)
         else:
-            # Fallback: edge-tts (English only, strips non-ASCII)
-            clean_ascii = re.sub(r'[^\x00-\x7F]+', ' ', clean).strip()
+            clean_ascii = re.sub(r"[^\x00-\x7F]+", " ", text).strip()
             if not clean_ascii:
                 return None
-            asyncio.run(_edge_tts_to_file(clean_ascii[:4000], out_path))
-        return str(out_path)
+            asyncio.run(_edge_tts_to_file(clean_ascii, out_path))
+        return out_path
     except Exception as e:
         print(f"[speak] synthesis error: {e}")
         return None
 
 
+def _synth_to_file(clean: str) -> str | None:
+    """Synthesize cleaned text of any length.
+
+    Splits into ≤280-char chunks, synthesizes each (in parallel for MioTTS),
+    then concatenates the WAV files. Returns final WAV path or None on failure.
+    """
+    chunks = _chunk_text(clean)
+
+    if len(chunks) == 1:
+        # Fast path — no concatenation needed
+        result = _synth_chunk(chunks[0])
+        return str(result) if result else None
+
+    # Parallel synthesis: one thread per chunk, results collected in order
+    wav_slots: list[Path | None] = [None] * len(chunks)
+
+    def _worker(idx: int, chunk: str) -> None:
+        wav_slots[idx] = _synth_chunk(chunk)
+
+    threads = [
+        threading.Thread(target=_worker, args=(i, chunk), daemon=True)
+        for i, chunk in enumerate(chunks)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    wav_paths = [p for p in wav_slots if p is not None]
+    if not wav_paths:
+        return None
+    if len(wav_paths) == 1:
+        return str(wav_paths[0])
+
+    return _concat_wavs(wav_paths)
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def speak_to_file(text: str) -> tuple[str | None, str]:
-    """Synthesize *text* to an MP3. Returns (filepath, emotion)."""
+    """Synthesize *text* (any length) to a WAV file. Returns (filepath, emotion).
+
+    Long responses are chunked at sentence boundaries, synthesized in parallel,
+    and concatenated into a single WAV — so this always returns one file.
+    """
     emotion = _extract_emotion(text)
     clean = _clean_for_tts(text)
     if not clean:
         return None, emotion
     path = _synth_to_file(clean)
+    if path is None:
+        print(f"[tts] WARNING: speak_to_file returned None for: {text[:80]!r}")
     return path, emotion
 
 
@@ -185,6 +288,9 @@ def speak_stream(token_iter):
 
     Each sentence is synthesized in a background thread so LLM parsing and
     synthesis overlap. Yields are emitted in sentence order.
+
+    Sentences longer than MIOTTS_MAX_CHARS are automatically chunked and
+    concatenated before yielding.
 
     Usage in Gradio
     ---------------
@@ -216,6 +322,7 @@ def speak_stream(token_iter):
         if not clean:
             slot.put((sentence, None, emotion))
             return
+        # _synth_to_file handles chunking internally if sentence is long
         path = _synth_to_file(clean)
         slot.put((sentence, path, emotion))
 
