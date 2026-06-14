@@ -25,7 +25,7 @@ Usage:
 
 Note: the dream scheduler is not used in this Gradio/HF Space demo, so
       `speak` is always None. ASR (`listen`) IS used here — browser-recorded
-      audio is transcribed via ui.listne.transcribe_file (Modal endpoint
+      audio is transcribed via ui.listen.transcribe_file (Modal endpoint
       or local faster-whisper fallback) — but it has no persistent live
       object to hand back, so `listen` remains None in BootResult; its
       warmup is just a cold-start prefill (see _warmup_asr).
@@ -55,7 +55,7 @@ class BootResult:
     think:    object        # AikoThink
     memorize: object        # AikoMemorize
     speak:    None = None   # Not used in Gradio deployment
-    listen:   None = None   # No persistent object; see ui.listne.transcribe_file
+    listen:   None = None   # No persistent object; see ui.listen.transcribe_file
 
 
 # ── warmup helpers ────────────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ def _warmup_asr(
     import struct
     import tempfile
 
-    from ui.listne import ASR_URL, transcribe_file
+    from ui.listen import ASR_URL, transcribe_file
 
     on_loading("warmup_asr")
 
