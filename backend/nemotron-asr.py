@@ -29,6 +29,9 @@ image = (
     .run_commands(
         'pip install "nemo_toolkit[asr] @ git+https://github.com/NVIDIA/NeMo.git@main"'
     )
+    .run_commands(
+        "git clone --depth 1 https://github.com/NVIDIA/NeMo.git /opt/NeMo"
+    )
     .pip_install("fastapi", "python-multipart", "soundfile", "librosa")
 )
 
@@ -47,40 +50,84 @@ model_volume = modal.Volume.from_name("nemotron-asr-weights", create_if_missing=
 class ASR:
     @modal.enter()
     def load_model(self):
+        import os
         import nemo.collections.asr as nemo_asr
 
+        # Download/cache the .nemo checkpoint so the script can load it by path
         self.model = nemo_asr.models.ASRModel.from_pretrained(model_name=MODEL_ID)
-        self.model.eval()
-        if hasattr(self.model, "cuda"):
-            self.model = self.model.cuda()
+        # Find the cached .nemo file path
+        from huggingface_hub import hf_hub_download
+
+        self.model_path = hf_hub_download(
+            repo_id=MODEL_ID,
+            filename="nemotron-3.5-asr-streaming-0.6b.nemo",
+        )
 
     @modal.method()
     def transcribe(self, audio_bytes: bytes, language: str | None = None) -> str:
         import io
+        import json
+        import os
+        import subprocess
         import tempfile
 
         import librosa
         import soundfile as sf
 
-        # Load and resample to 16kHz mono
         audio, _ = librosa.load(io.BytesIO(audio_bytes), sr=16000, mono=True)
 
-        # NeMo's transcribe expects file paths
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            sf.write(f.name, audio, 16000)
-            tmp_path = f.name
-
-        # Guard against the literal string "None" (can happen via form
-        # parsing) as well as Python None, and missing/empty values.
         lang = language if language and language != "None" else "auto"
         print(f"[transcribe] resolved lang={lang!r} (raw input={language!r})")
 
-        transcripts = self.model.transcribe(paths2audio_files=[tmp_path], target_lang=lang)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav_path = os.path.join(tmpdir, "audio.wav")
+            sf.write(wav_path, audio, 16000)
 
-        result = transcripts[0]
-        # NeMo may return Hypothesis objects depending on version
-        text = result.text if hasattr(result, "text") else result
-        return text
+            duration = librosa.get_duration(y=audio, sr=16000)
+
+            manifest_path = os.path.join(tmpdir, "manifest.jsonl")
+            with open(manifest_path, "w") as f:
+                f.write(json.dumps({
+                    "audio_filepath": wav_path,
+                    "duration": duration,
+                    "text": "",
+                }) + "\n")
+
+            output_dir = os.path.join(tmpdir, "output")
+            os.makedirs(output_dir, exist_ok=True)
+
+            script = "/opt/NeMo/examples/asr/asr_cache_aware_streaming/speech_to_text_cache_aware_streaming_infer.py"
+            cmd = [
+                "python", script,
+                f"model_path={self.model_path}",
+                f"dataset_manifest={manifest_path}",
+                "batch_size=1",
+                f"target_lang={lang}",
+                "att_context_size=[56,13]",
+                "strip_lang_tags=true",
+                f"output_path={output_dir}",
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            print("[transcribe] stdout:", result.stdout[-3000:])
+            print("[transcribe] stderr:", result.stderr[-3000:])
+
+            if result.returncode != 0:
+                raise RuntimeError(f"Inference script failed: {result.stderr[-2000:]}")
+
+            # Output is written as a manifest with predicted text
+            output_files = [
+                f for f in os.listdir(output_dir) if f.endswith(".json") or f.endswith(".jsonl")
+            ]
+            if not output_files:
+                raise RuntimeError(f"No output file found in {output_dir}: {os.listdir(output_dir)}")
+
+            out_path = os.path.join(output_dir, output_files[0])
+            with open(out_path) as f:
+                line = f.readline()
+                entry = json.loads(line)
+
+            return entry.get("pred_text", entry.get("text", ""))
 
 
 @app.function(image=image, timeout=300)
