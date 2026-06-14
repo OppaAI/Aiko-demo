@@ -420,6 +420,21 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             window._aikoLatestTtsText = fullText;
             window._aikoLatestEmotion = emotion;
 
+            // ── 1b. Bridge audio play/pause/ended → iframe speaking state ──
+            const audioEl = document.querySelector('#aiko-audio audio');
+            if (audioEl && !audioEl._aikoSpeakingBridge) {
+                audioEl._aikoSpeakingBridge = true;
+                const sendSpeaking = (speaking) => {
+                    if (iframe?.contentWindow) {
+                        iframe.contentWindow.postMessage(JSON.stringify({ speaking }), '*');
+                    }
+                };
+                audioEl.addEventListener('play',    () => sendSpeaking(true));
+                audioEl.addEventListener('playing', () => sendSpeaking(true));
+                audioEl.addEventListener('pause',   () => sendSpeaking(false));
+                audioEl.addEventListener('ended',   () => sendSpeaking(false));
+            }
+
             // ── 2. Helpers ──────────────────────────────────────────
             function getBubbleEl() {
                 const allBubbles = document.querySelectorAll('#aiko-chatbot [data-testid="bot"]');
