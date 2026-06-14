@@ -479,7 +479,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
             // ── 4. Typewriter — starts as soon as bubble is blanked ─
             function startTypewriter() {
-                if (!blanked || !targetEl) { setTimeout(startTypewriter, 300); return; }
+                if (!blanked || !targetEl) { setTimeout(startTypewriter, 200); return; }
 
                 typingStarted = true;
 
