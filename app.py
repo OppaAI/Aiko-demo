@@ -373,13 +373,11 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
         (rawSignal) => {
             if (!rawSignal || !rawSignal.startsWith('TYPEWRITE:')) return;
 
-            const rest       = rawSignal.slice('TYPEWRITE:'.length);
-            const firstPipe  = rest.indexOf('|');
-            const secondPipe = rest.indexOf('|', firstPipe + 1);
-
-            const emotion    = rest.slice(0, firstPipe);
-            // notesPrefix slot intentionally empty — kept for VRM compat
-            const fullText   = rest.slice(secondPipe + 1);
+            const rest = rawSignal.slice('TYPEWRITE:'.length);
+            const parts = rest.split('||');
+            const emotion     = parts[0];
+            const notesPrefix = parts[1] || '';
+            const fullText    = parts[2] || '';
 
             // ── 1. VRM handoff ──────────────────────────────────────
             const iframe = document.querySelector('#aiko-vrm-frame');
@@ -412,10 +410,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 return Number.isFinite(d) && d > 0 && d < 600;
             }
 
-            // ── 3. Blank watcher — fires immediately via rAF ────────
-            // Catches the bubble the instant ▋ (yield 1) or the full
-            // text (yield 2) appears, wipes it, and holds it blank via
-            // MutationObserver until the typewriter takes over.
+            // ── 3. Blank watcher ─────────────────────────────────────
             let blanked       = false;
             let targetEl      = null;
             let typingStarted = false;
@@ -427,10 +422,44 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 if (el.textContent.trim() !== '') {
                     targetEl = el;
                     wipeEl(el);
+                    // Write the static notes prefix immediately (not typewritten)
+                    if (notesPrefix) {
+                        const notesEl = document.createElement('div');
+                        notesEl.className = 'aiko-tool-notes';
+                        notesEl.style.whiteSpace = 'pre-wrap';
+                        notesEl.textContent = notesPrefix.trim();
+                        targetEl.appendChild(notesEl);
+
+                        const responseEl = document.createElement('div');
+                        responseEl.className = 'aiko-response-text';
+                        responseEl.style.whiteSpace = 'pre-wrap';
+                        targetEl.appendChild(responseEl);
+                        targetEl._aikoResponseEl = responseEl;
+                    } else {
+                        targetEl._aikoResponseEl = targetEl;
+                    }
+
                     blanked = true;
 
                     const obs = new MutationObserver(() => {
-                        if (!typingStarted) wipeEl(el);
+                        if (!typingStarted) {
+                            // Only wipe if our structure got clobbered
+                            if (!targetEl.contains(targetEl._aikoResponseEl)) {
+                                wipeEl(el);
+                                if (notesPrefix) {
+                                    const notesEl = document.createElement('div');
+                                    notesEl.className = 'aiko-tool-notes';
+                                    notesEl.style.whiteSpace = 'pre-wrap';
+                                    notesEl.textContent = notesPrefix.trim();
+                                    targetEl.appendChild(notesEl);
+                                }
+                                const responseEl = document.createElement('div');
+                                responseEl.className = 'aiko-response-text';
+                                responseEl.style.whiteSpace = 'pre-wrap';
+                                targetEl.appendChild(responseEl);
+                                targetEl._aikoResponseEl = responseEl;
+                            }
+                        }
                     });
                     obs.observe(el, { childList: true, subtree: true, characterData: true });
                     window._aikoBlankObs = obs;
@@ -440,7 +469,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
             }
             blankWatcher();
 
-            // ── 4. Typewriter — starts as soon as bubble is blanked ─
+            // ── 4. Typewriter — only types fullText into responseEl ─
             function startTypewriter() {
                 if (!blanked || !targetEl) { setTimeout(startTypewriter, 20); return; }
 
@@ -451,14 +480,13 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     window._aikoBlankObs = null;
                 }
 
+                const responseEl = targetEl._aikoResponseEl;
                 const totalChars = fullText.length;
-                // Estimate pace from char count (stripped of markdown for timing)
                 const cleanLen   = fullText.replace(/[*_#`]/g, '').length;
-                let audioDur = Math.max(3, cleanLen * 0.07);
+                let audioDur     = Math.max(3, cleanLen * 0.07);
                 let totalMs      = audioDur * 1000;
                 let perChar      = totalMs / Math.max(1, totalChars);
 
-                // Use real audio duration if already available
                 const audioEl = document.querySelector('#aiko-audio audio');
                 if (audioEl && isUsableDuration(audioEl.duration)) {
                     audioDur = audioEl.duration;
@@ -471,7 +499,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
 
                 function tick() {
                     if (i >= totalChars) {
-                        targetEl.textContent = fullText;
+                        responseEl.textContent = fullText;
                         const cb = document.querySelector('#aiko-chatbot');
                         if (cb) cb.scrollTop = cb.scrollHeight;
                         return;
@@ -480,13 +508,12 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                     const shouldBe = Math.floor((elapsed / totalMs) * totalChars);
                     i = Math.min(Math.max(shouldBe, 0), totalChars);
 
-                    targetEl.textContent = i < totalChars
+                    responseEl.textContent = i < totalChars
                         ? fullText.slice(0, i) + '▋'
                         : fullText;
                     setTimeout(tick, perChar);
                 }
 
-                // Resync pace when real audio duration arrives
                 function onAudioReady(el) {
                     if (!isUsableDuration(el.duration)) return;
                     const elapsed   = performance.now() - startTime;
