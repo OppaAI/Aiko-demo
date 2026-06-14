@@ -20,13 +20,14 @@ Usage:
     memorize = result.memorize
 Note: the dream scheduler is not used in this Gradio/HF Space demo, so
       `speak` is always None. ASR (`listen`) IS used here — browser-recorded
-      audio is transcribed via ui.listen.transcribe_file (Modal endpoint
+      audio is transcribed via core.listen.transcribe_file (Modal endpoint
       or local faster-whisper fallback) — but it has no persistent live
       object to hand back, so `listen` remains None in BootResult; its
       warmup is just a cold-start prefill (see _warmup_asr).
-All four warmups (LLM, TTS, ASR, plus think/memorize init) fire real
-inference/synthesis/transcription requests rather than health checks, so
-CUDA kernels and Modal containers are hot before the first real user turn.
+All seven warmups (LLM, TTS, ASR, VLM, SearXNG, plus think/memorize init)
+fire real inference/synthesis/transcription/search requests rather than
+health checks, so CUDA kernels and Modal containers are hot before the
+first real user turn.
 """
 
 import os
@@ -161,47 +162,70 @@ def _warmup_asr(
 ) -> None:
     """
     Proper ASR warmup:
-      Run a real transcription on a short silent WAV so faster-whisper
-      (Modal large-v3-turbo via AIKO_ASR_URL, or local CTranslate2
-      fallback) has its CUDA kernels initialized before the first real
-      user utterance — avoids a multi-second stall on turn 1.
+      Download a short real-speech sample from HuggingFace (LibriSpeech)
+      and transcribe it so faster-whisper (Modal large-v3-turbo via
+      AIKO_ASR_URL, or local CTranslate2 fallback) has its CUDA kernels
+      fully initialized — encoder, decoder, and VAD all get exercised.
+      Falls back to a synthetic silent WAV if the download fails.
       No /health gate: the transcription request itself rides out a
       cold Modal container start.
     """
     import wave
     import struct
     import tempfile
+    import httpx
 
-    from ui.listen import ASR_URL, transcribe_file
+    from core.listen import ASR_URL, transcribe_file
 
     on_loading("warmup_asr")
 
-    # ~0.5s of silence at 16kHz mono — enough to drive a full forward
-    # pass through the encoder/decoder without needing real speech.
-    sample_rate = 16000
-    num_samples = sample_rate // 2
-    silence = struct.pack("<" + "h" * num_samples, *([0] * num_samples))
+    # Try downloading a real speech sample from HuggingFace first —
+    # exercises the full encoder+decoder+VAD path rather than just silence.
+    HF_ASR_SAMPLE = (
+        "https://huggingface.co/datasets/hf-internal-testing/"
+        "librispeech_asr_dummy/resolve/main/audio/1.flac"
+    )
 
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = tmp.name
-            with wave.open(tmp, "wb") as wf:
+        # Attempt to fetch a real speech sample
+        try:
+            dl = httpx.get(HF_ASR_SAMPLE, timeout=15, follow_redirects=True)
+            dl.raise_for_status()
+            suffix = ".flac"
+            audio_bytes = dl.content
+            log.info("ASR warmup: downloaded HF sample (%d bytes)", len(audio_bytes))
+        except Exception as dl_err:
+            log.info("ASR warmup: HF download failed (%s), falling back to silent WAV", dl_err)
+            # Fallback: ~0.5s of silence at 16kHz mono
+            sample_rate = 16000
+            num_samples = sample_rate // 2
+            silence = struct.pack("<" + "h" * num_samples, *([0] * num_samples))
+            import io
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
                 wf.setframerate(sample_rate)
                 wf.writeframes(silence)
+            audio_bytes = buf.getvalue()
+            suffix = ".wav"
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp_path = tmp.name
+            tmp.write(audio_bytes)
 
         if ASR_URL:
-            import httpx
+            mime = "audio/flac" if suffix == ".flac" else "audio/wav"
             with open(tmp_path, "rb") as f:
                 resp = httpx.post(
                     f"{ASR_URL}/transcribe",
-                    files={"audio": ("warmup.wav", f, "audio/wav")},
+                    files={"audio": (f"warmup{suffix}", f, mime)},
                     timeout=180,  # cold Modal container can take a while to spin up
                 )
             resp.raise_for_status()
-            log.info("ASR warmup (Modal): status=%s", resp.status_code)
+            log.info("ASR warmup (Modal): status=%s text=%r",
+                     resp.status_code, resp.json().get("text", "")[:80])
         else:
             text = transcribe_file(tmp_path)
             log.info("ASR warmup (local): transcript=%r", text)
@@ -218,34 +242,131 @@ def _warmup_asr(
                 pass
 
 
+def _warmup_vlm(
+    on_loading: Callable[[str], None],
+    on_done:    Callable[[str], None],
+    on_skip:    Callable[[str], None],
+) -> None:
+    """
+    Proper VLM warmup:
+      Send a real image inference request using a public HuggingFace
+      sample (the same refract.png used in minicpmv.py's local test)
+      so the MiniCPM-V Modal container loads the model, initializes
+      CUDA kernels, and runs a full forward pass before the first
+      user upload.
+      Uses image_url so the Modal container fetches the image from HF
+      directly — no local download needed.
+    """
+    import httpx
+
+    endpoint = os.getenv("VISION_ENDPOINT", "").rstrip("/")
+    if not endpoint:
+        log.debug("VISION_ENDPOINT not set — skipping VLM warmup")
+        on_skip("warmup_vlm")
+        return
+
+    on_loading("warmup_vlm")
+
+    # Public HF sample image — same one used in backend/minicpmv.py main()
+    HF_VLM_SAMPLE = (
+        "https://huggingface.co/datasets/openbmb/DemoCase/"
+        "resolve/main/refract.png"
+    )
+
+    try:
+        r = httpx.post(
+            endpoint,
+            json={
+                "prompt":         "Describe this image briefly.",
+                "image_url":      HF_VLM_SAMPLE,
+                "max_new_tokens": 16,   # minimal generation — just warm the GPU
+            },
+            timeout=180,  # cold Modal container with GPU can take a while
+        )
+        log.info("VLM warmup inference: status=%s text=%r",
+                 r.status_code, r.json().get("text", "")[:80])
+        if r.status_code == 200:
+            on_done("warmup_vlm")
+        else:
+            log.warning("VLM warmup got non-200: %s %s", r.status_code, r.text[:200])
+            on_skip("warmup_vlm")
+    except Exception as e:
+        log.warning("VLM warmup inference failed (non-fatal): %s", e)
+        on_skip("warmup_vlm")
+
+
+def _warmup_searxng(
+    on_loading: Callable[[str], None],
+    on_done:    Callable[[str], None],
+    on_skip:    Callable[[str], None],
+) -> None:
+    """
+    Proper SearXNG warmup:
+      Fire a real search query so the Modal SearXNG container starts
+      its internal Flask/Werkzeug server and warms its engine connections
+      (DuckDuckGo, Brave, Wikipedia) before the first user search.
+      A lightweight "hello" query is enough to trigger a full cold start.
+    """
+    import httpx
+
+    base_url = os.getenv("SEARXNG_BASE_URL", "").rstrip("/")
+    if not base_url:
+        log.debug("SEARXNG_BASE_URL not set — skipping SearXNG warmup")
+        on_skip("warmup_searxng")
+        return
+
+    on_loading("warmup_searxng")
+
+    try:
+        r = httpx.get(
+            base_url,
+            params={"q": "hello", "format": "json", "language": "en"},
+            timeout=60,  # SearXNG is CPU-only, spins up faster than GPU containers
+        )
+        n_results = len(r.json().get("results", []))
+        log.info("SearXNG warmup: status=%s results=%d", r.status_code, n_results)
+        if r.status_code == 200:
+            on_done("warmup_searxng")
+        else:
+            log.warning("SearXNG warmup got non-200: %s %s", r.status_code, r.text[:200])
+            on_skip("warmup_searxng")
+    except Exception as e:
+        log.warning("SearXNG warmup failed (non-fatal): %s", e)
+        on_skip("warmup_searxng")
+
+
 # ── wakeup ────────────────────────────────────────────────────────────────────
 
 class AikoWakeup:
     """
     Parallel boot orchestrator for Aiko cognitive subsystems.
-    Boots AikoThink, AikoMemorize, and the LLM/TTS/ASR Modal servers
-    concurrently with granular progress reporting per step.
+    Boots AikoThink, AikoMemorize, and the LLM/TTS/ASR/VLM/SearXNG Modal
+    servers concurrently with granular progress reporting per step.
     Dream scheduler is excluded from this demo deployment.
-    Modal server warmups (LLM + TTS + ASR) fire immediately and run in
-    parallel with think/memorize init so boot time is minimized.
+    Modal server warmups (LLM + TTS + ASR + VLM + SearXNG) fire immediately
+    and run in parallel with think/memorize init so boot time is minimized.
     """
 
     ALL_BOOT_LABELS: dict[str, str] = {
         **_THINK_LABELS,
         **_MEM_LABELS,
-        "warmup_llm": "🧠 Waking LLM server...",
-        "warmup_tts": "🔊 Waking voice server...",
-        "warmup_asr": "🎙️ Waking ear...",
-        "speak_skip": "TTS skipped (cloud mode)",
-        "listen_skip": "ASR skipped (cloud mode)",
+        "warmup_llm":    "🧠 Waking LLM server...",
+        "warmup_tts":    "🔊 Waking voice server...",
+        "warmup_asr":    "🎙️ Waking ear...",
+        "warmup_vlm":    "👁️ Waking vision model...",
+        "warmup_searxng": "🔍 Waking search engine...",
+        "speak_skip":    "TTS skipped (cloud mode)",
+        "listen_skip":   "ASR skipped (cloud mode)",
     }
 
     def warm_servers_async(self) -> None:
         """Fire-and-forget network warmups for page load in serverless environments."""
         def noop(k): pass
-        threading.Thread(target=_warmup_llm, args=(noop, noop, noop), daemon=True, name="warmup-llm-async").start()
-        threading.Thread(target=_warmup_tts, args=(noop, noop, noop), daemon=True, name="warmup-tts-async").start()
-        threading.Thread(target=_warmup_asr, args=(noop, noop, noop), daemon=True, name="warmup-asr-async").start()
+        threading.Thread(target=_warmup_llm,     args=(noop, noop, noop), daemon=True, name="warmup-llm-async").start()
+        threading.Thread(target=_warmup_tts,     args=(noop, noop, noop), daemon=True, name="warmup-tts-async").start()
+        threading.Thread(target=_warmup_asr,     args=(noop, noop, noop), daemon=True, name="warmup-asr-async").start()
+        threading.Thread(target=_warmup_vlm,     args=(noop, noop, noop), daemon=True, name="warmup-vlm-async").start()
+        threading.Thread(target=_warmup_searxng, args=(noop, noop, noop), daemon=True, name="warmup-searxng-async").start()
 
     def boot(
         self,
@@ -255,14 +376,16 @@ class AikoWakeup:
     ) -> BootResult:
         """
         Execute boot sequence and return live subsystem references.
-        All five subsystems boot concurrently:
+        All seven subsystems boot concurrently:
           - AikoThink          (LLM client + persona load + internal warmup)
           - AikoMemorize       (sqlite-vec + fastembed + cleanup)
           - Modal LLM warmup   (real inference prefill)
           - Modal TTS warmup   (real synthesis)
-          - ASR warmup         (real transcription, Modal or local)
+          - ASR warmup         (real transcription with HF speech sample)
+          - VLM warmup         (real vision inference with HF image)
+          - SearXNG warmup     (real search query)
         Memory backend is injected into think once both are ready.
-        Modal/ASR warmups are joined before returning so the first user
+        All warmups are joined before returning so the first user
         message hits warm containers.
         Args:
             on_loading: Called with a progress key when a subsystem starts.
@@ -311,7 +434,7 @@ class AikoWakeup:
             finally:
                 mem_ready.set()  # always unblock init_think, even on failure
 
-        # ── launch all five concurrently ────────────────────────────────────────
+        # ── launch all seven concurrently ───────────────────────────────────────
         t_think    = threading.Thread(target=init_think,    daemon=True, name="boot-think")
         t_memorize = threading.Thread(target=init_memorize, daemon=True, name="boot-memorize")
         t_llm      = threading.Thread(
@@ -326,12 +449,22 @@ class AikoWakeup:
             target=_warmup_asr, args=(on_loading, on_done, on_skip),
             daemon=True, name="warmup-asr"
         )
+        t_vlm      = threading.Thread(
+            target=_warmup_vlm, args=(on_loading, on_done, on_skip),
+            daemon=True, name="warmup-vlm"
+        )
+        t_searxng  = threading.Thread(
+            target=_warmup_searxng, args=(on_loading, on_done, on_skip),
+            daemon=True, name="warmup-searxng"
+        )
 
         t_think.start()
         t_memorize.start()
         t_llm.start()
         t_tts.start()
         t_asr.start()
+        t_vlm.start()
+        t_searxng.start()
 
         # Wait for all to complete before returning
         t_think.join()
@@ -339,6 +472,8 @@ class AikoWakeup:
         t_llm.join()
         t_tts.join()
         t_asr.join()
+        t_vlm.join()
+        t_searxng.join()
 
         on_skip("speak_skip")
         on_skip("listen_skip")

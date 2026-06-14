@@ -406,7 +406,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                     <li>Aiko reacts emotionally — try different tones!</li>
                 </ul>
             """)
-            info_ok_btn = gr.Button("Got it!", elem_id="aiko-info-ok-btn")
+            info_ok_btn = gr.Button("Proceed", elem_id="aiko-info-ok-btn")
 
     with gr.Column(elem_id="aiko-shell"):
 
