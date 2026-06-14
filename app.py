@@ -213,7 +213,7 @@ def voice_chat(audio_path, history):
 # ─────────────────────────────────────────────
 def _check_login(profile: OAuthProfile | None):
     if profile is None:
-        return "Guest", gr.update(visible=True)
+        return "Guest", gr.update(visible=True), gr.update(visible=False)
 
     user_id = profile.username or "Guest"
     soul = build_soul_prompt(user_id)
@@ -223,7 +223,7 @@ def _check_login(profile: OAuthProfile | None):
     elif hasattr(think, "system_prompt"):
         think.system_prompt = soul
 
-    return user_id, gr.update(visible=False)
+    return user_id, gr.update(visible=False), gr.update(visible=True)
 
 
 # ─────────────────────────────────────────────
@@ -248,6 +248,26 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
                 </p>
             """)
             login_btn = gr.LoginButton(elem_id="aiko-login-btn")
+
+    with gr.Column(elem_id="aiko-info-overlay", visible=False) as info_overlay:
+        with gr.Column(elem_id="aiko-info-card"):
+            gr.HTML("""
+                <h2>🌸 About Aiko-chan</h2>
+                <p>Aiko is your AI companion — chat, ask questions, or just talk.</p>
+                <p><strong>Try asking:</strong></p>
+                <ul>
+                    <li>"What's the score of [game]?" → triggers live sports lookup</li>
+                    <li>"What's the weather in [city]?" → triggers weather tool</li>
+                    <li>"Search the web for..." → triggers web search</li>
+                    <li>"What's [crypto] price?" → triggers price lookup</li>
+                </ul>
+                <p><strong>Tips:</strong></p>
+                <ul>
+                    <li>Use 🎙️ to speak instead of typing</li>
+                    <li>Aiko reacts emotionally — try different tones!</li>
+                </ul>
+            """)
+            info_ok_btn = gr.Button("Got it!", elem_id="aiko-info-ok-btn")
 
     with gr.Column(elem_id="aiko-shell"):
 
@@ -309,7 +329,13 @@ with gr.Blocks(title="🌸 AI Waifu and Companion Aiko-chan") as demo:
     demo.load(
         _check_login,
         inputs=None,
-        outputs=[user_id_state, login_overlay],
+        outputs=[user_id_state, login_overlay, info_overlay],
+    )
+
+    info_ok_btn.click(
+        lambda: gr.update(visible=False),
+        inputs=None,
+        outputs=info_overlay,
     )
 
     msg.submit(

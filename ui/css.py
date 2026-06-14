@@ -17,11 +17,7 @@ html, body, .gradio-container, main, footer {
 .gradio-container *, .gradio-container .prose, .gradio-container label {
   color: var(--aiko-text);
 }
-#aiko-shell {
-  max-width: 1180px;
-  margin: 0 0 12px 12px;
-  padding: 0 12px 12px;
-}
+#aiko-shell { max-width: 1180px; margin: 0 auto; padding: 0 12px 12px; }
 /* ── Title header ──────────────────────────────────────────────────── */
 #aiko-title {
   display: block;
@@ -204,7 +200,7 @@ div:has(> #aiko-chatbot) {
 #aiko-input-row {
   position: absolute !important;
   left: 16px !important;
-  right: 4px !important;
+  right: 16px !important;
   bottom: 16px !important;
   z-index: 7 !important;
   display: flex !important;
@@ -265,6 +261,7 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
   justify-content: center !important;
   flex-shrink: 0 !important;
   flex-grow: 0 !important;
+  margin-right: 8px !important;
 }
 /* Send button */
 #aiko-send,
@@ -353,5 +350,69 @@ AIKO_CSS += r"""
   width: 100% !important;
   padding: 10px !important;
   font-weight: 600 !important;
+}
+"""
+AIKO_CSS += r"""
+/* ── Info / "About Aiko" modal overlay (shown once after login) ───── */
+#aiko-info-overlay {
+  position: fixed !important;
+  inset: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 9, 0.78);
+  backdrop-filter: blur(6px);
+}
+#aiko-info-overlay > div {
+  position: static !important;
+  inset: auto !important;
+}
+#aiko-info-card {
+  width: min(440px, 90vw);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 24px 28px;
+  border-radius: 18px;
+  background: radial-gradient(circle at top, #1b1432 0, #080810 70%);
+  border: 1px solid rgba(155,127,212,0.4);
+  box-shadow: 0 22px 80px rgba(0,0,0,0.55);
+}
+#aiko-info-card h2 {
+  color: #ecdeff;
+  text-shadow: 0 0 18px rgba(155, 124, 255, .55);
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+  letter-spacing: .04em;
+}
+#aiko-info-card p {
+  color: var(--aiko-text);
+  font-size: 0.88rem;
+  line-height: 1.6;
+  margin: 0 0 10px;
+}
+#aiko-info-card ul {
+  margin: 4px 0 14px;
+  padding-left: 20px;
+}
+#aiko-info-card li {
+  color: var(--aiko-text);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+#aiko-info-card strong {
+  color: #ecdeff;
+}
+#aiko-info-ok-btn,
+#aiko-info-ok-btn button {
+  background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: #fff !important;
+  width: 100% !important;
+  padding: 10px !important;
+  font-weight: 600 !important;
+  margin-top: 8px !important;
 }
 """
