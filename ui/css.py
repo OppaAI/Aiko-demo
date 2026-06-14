@@ -209,10 +209,14 @@ div:has(> #aiko-chatbot) {
   color: var(--aiko-bot) !important;
 }
 /* ── Input row: pinned to bottom of avatar card ───────────────────── */
+/* NOTE: chat overlay's left edge sits at (16px + 42%) from the right
+   edge of the card (right:16px + width:42%). Match the input row's
+   `right` to that SAME offset (42% + 16px), not + 48px, so the send
+   button no longer gets pushed outside the visible frame. */
 #aiko-input-row {
   position: absolute;
   left: 16px;
-  right: calc(42% + 16px); 
+  right: calc(42% + 16px);
   bottom: 16px;
   display: flex;
   gap: 6px;
