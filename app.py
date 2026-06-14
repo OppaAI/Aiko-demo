@@ -303,6 +303,9 @@ def _voice_from_b64(b64_data: str, history: list, user_id: str):
 # LOGIN HANDLER
 # ─────────────────────────────────────────────
 def _check_login(profile: OAuthProfile | None):
+    # Fire off network warmups asynchronously in case servers scaled down
+    AikoWakeup().warm_servers_async()
+
     if profile is None:
         return "Guest", gr.update(visible=True), gr.update(visible=False)
 

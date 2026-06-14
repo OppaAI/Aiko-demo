@@ -246,6 +246,13 @@ class AikoWakeup:
         "listen_skip": "ASR skipped (cloud mode)",
     }
 
+    def warm_servers_async(self) -> None:
+        """Fire-and-forget network warmups for page load in serverless environments."""
+        def noop(k): pass
+        threading.Thread(target=_warmup_llm, args=(noop, noop, noop), daemon=True, name="warmup-llm-async").start()
+        threading.Thread(target=_warmup_tts, args=(noop, noop, noop), daemon=True, name="warmup-tts-async").start()
+        threading.Thread(target=_warmup_asr, args=(noop, noop, noop), daemon=True, name="warmup-asr-async").start()
+
     def boot(
         self,
         on_loading: Callable[[str], None],
