@@ -35,7 +35,6 @@ BOOT_LABELS = {
 # ── config ────────────────────────────────────────────────────────────────────
 
 LLAMA_BASE_URL       = os.getenv("LLAMA_BASE_URL",  "https://your-modal-endpoint.modal.run")
-LLAMA_MODEL          = os.getenv("LLAMA_MODEL",      "meta-llama/Llama-3.1-8B-Instruct")
 LLAMA_API_KEY        = os.getenv("LLAMA_API_KEY",    "")
 CONTEXT_WINDOW_TURNS = int(os.getenv("CONTEXT_WINDOW_TURNS", 20))
 
@@ -107,7 +106,6 @@ class AikoThink:
             self._client.post(
                 "/",
                 json={
-                    "model":      LLAMA_MODEL,
                     "max_tokens": 8,
                     "messages":   [{"role": "user", "content": "hi"}],
                     "temperature": 0.1,
@@ -323,7 +321,6 @@ class AikoThink:
             response = self._client.post(
                 "/",
                 json={
-                    "model":       LLAMA_MODEL,
                     "messages":    [{"role": "system", "content": system}] + messages,
                     "tools":       TOOL_SCHEMAS,
                     "tool_choice": "auto",
@@ -376,7 +373,6 @@ class AikoThink:
             response = self._client.post(
                 "/",
                 json={
-                    "model":          LLAMA_MODEL,
                     "messages":       ([{"role": "system", "content": system}] + messages) if system else messages,
                     "stream":         False,
                     "temperature":    float(os.getenv("LLAMA_TEMPERATURE",    0.75)),
