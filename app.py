@@ -136,15 +136,15 @@ def _get_response(message: str, history: list):
 
     # ── Stage 1: full LLM completion ─────────────────────────────────────────
     full_text = ""
-    search_notes: list[str] = []
+    tool_lines: list[str] = []
 
     def _cb(token: str):
         nonlocal full_text
         if token.startswith("__SEARCHING__:"):
             q = token.split(":", 1)[1]
-            search_notes.append(f"🔍 Searching: *{q}*")
+            tool_lines.append(f"🌐 Searching internet for information...")
         elif token.startswith("__TOOL__:"):
-            search_notes.append(f"🔧 {token.split(':', 1)[1]}")
+            tool_lines.append(f"⚙️ Executing skill...")
         else:
             full_text += token
 
@@ -161,15 +161,14 @@ def _get_response(message: str, history: list):
     emoji_emotion = _detect_emoji_emotion(full_text)
     final_emotion = emoji_emotion or emotion
 
-    # ── Stage 3: build display text (emoji stripped, markdown kept) ───────────
-    notes_prefix = "\n".join(search_notes) + "\n\n" if search_notes else ""
+    # ── Stage 3: build display text ────────────────────────────────────────
+    # Tool/search lines each get their own line, followed by the streamed
+    # response starting on the next line.
+    notes_prefix = ("\n".join(tool_lines) + "\n\n") if tool_lines else ""
     display_text = notes_prefix + _strip_emoji(full_text)
 
-    # Write final text into history
     history[-1] = {"role": "assistant", "content": display_text}
 
-    # Signal: third segment is full display_text (already includes notes_prefix)
-    # JS just uses it directly as fullText — no double-prefix
     signal = f"TYPEWRITE:{final_emotion}||{display_text}"
     yield history, signal, audio_path
 
