@@ -454,7 +454,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                     <li>"What's the weather in [city]?" → triggers weather tool</li>
                     <li>"Search the web for..." → triggers web search</li>
                     <li>"What's [crypto] price?" → triggers price lookup</li>
-                    <li>📷 Upload an image or video → Aiko will describe what she sees</li>
+                    <li>"Do you want to see?" → Aiko will request for camera access and snap an image to describe what she sees</li>
                 </ul>
                 <p><strong>Tips:</strong></p>
                 <ul>
