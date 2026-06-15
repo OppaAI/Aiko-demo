@@ -252,11 +252,9 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       if (persistent) persistentEmotion = name;
     }}
 
-    const MAX_MOUTH_WEIGHT = 0.7; // Cap mouth open to prevent chin mesh stretching artifacts
-
     function setMouth(weight, viseme = 'ih') {{
       if (!vrm) return;
-      const clamped = Math.max(0, Math.min(MAX_MOUTH_WEIGHT, Number(weight) || 0));
+      const clamped = Math.max(0, Math.min(1, Number(weight) || 0));
       let preset  = VISEME_MAP[viseme] ?? viseme ?? 'ih';
       if (preset === 'aa') preset = 'ih'; // Disable 'aa' completely due to chin artifact
       let usedExpression = false;
@@ -267,10 +265,16 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
             usedExpression = true;
           }}
         }}
+        try {{
+          const em = vrm.expressionManager;
+          if (em._expressions) {{
+            em._expressions.forEach(expr => expr.applyWeight({{ multiplier: 1 }}));
+          }}
+        }} catch (_) {{}}
       }}
       if (!usedExpression) {{
         const jaw = vrm.humanoid?.getNormalizedBoneNode?.('jaw') || vrm.humanoid?.getRawBoneNode?.('jaw');
-        if (jaw) jaw.rotation.x = clamped * 0.35;
+        if (jaw) jaw.rotation.x = clamped * 0.5;
       }}
     }}
 
@@ -716,18 +720,7 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
         vrm = gltf.userData.vrm;
         window._aikoVrm = vrm;
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
-        vrm.scene.traverse(o => {{
-          if (o.frustumCulled) o.frustumCulled = false;
-          // Fix white chin artifacts: force double-sided rendering so
-          // back-faces of stretched mouth/chin geometry render correctly
-          // instead of showing as bright white patches.
-          if (o.isMesh && o.material) {{
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
-            for (const mat of mats) {{
-              mat.side = THREE.DoubleSide;
-            }}
-          }}
-        }});
+        vrm.scene.traverse(o => {{ if (o.frustumCulled) o.frustumCulled = false; }});
         vrm.scene.rotation.y = 0;
         scene.add(vrm.scene);
 
@@ -765,12 +758,12 @@ def avatar_html(vrm_urls: str | list[str]) -> str:
       const audioMouth = speaking ? getAudioMouth()       : null;
 
       if (audioMouth !== null) {{
-        setMouth(audioMouth, textMouth?.viseme ?? 'ih');
+        setMouth(audioMouth, textMouth?.viseme ?? 'aa');
       }} else if (textMouth) {{
         setMouth(textMouth.weight, textMouth.viseme);
       }} else if (speaking) {{
-        mouth = 0.10 + Math.abs(Math.sin(now / 110)) * 0.50;
-        setMouth(mouth, 'ih');
+        mouth = 0.12 + Math.abs(Math.sin(now / 110)) * 0.65;
+        setMouth(mouth, 'aa');
       }} else {{
         smoothedAudioMouth = 0;
         clearMouth();
