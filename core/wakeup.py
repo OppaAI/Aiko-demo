@@ -181,10 +181,7 @@ def _warmup_asr(
 
     # Try downloading a real speech sample from HuggingFace first —
     # exercises the full encoder+decoder+VAD path rather than just silence.
-    HF_ASR_SAMPLE = (
-        "https://huggingface.co/datasets/hf-internal-testing/"
-        "librispeech_asr_dummy/resolve/main/audio/1.flac"
-    )
+    HF_ASR_SAMPLE = "static/harvard.wav"
 
     tmp_path = None
     try:
