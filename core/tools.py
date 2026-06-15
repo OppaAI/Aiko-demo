@@ -7,7 +7,7 @@ Tools:
   web_search(query)            — SearXNG JSON API (Modal-hosted)
   web_fetch(url)               — raw page fetch + HTML strip
   web_search_and_fetch(query)  — search + fetch top result, combined string
-  get_weather(location)        — wttr.in (no key)
+  get_weather(location)        — Open-Meteo geocoding + weather API (no key)
   get_timezone(location)       — worldtimeapi.org (no key)
   get_currency(amount, fr, to) — Frankfurter API (no key, ECB data)
   get_crypto_price(coin, currency) — CoinGecko API (no key)
@@ -148,15 +148,24 @@ def extract_search_query(text: str) -> str:
 
 def extract_location(text: str) -> str:
     """Pull location from weather/timezone queries."""
-    # strip common question prefixes
+    # strip common question prefixes — order matters: longest patterns first
     cleaned = re.sub(
-        r"^(what(?:'s| is) the (?:weather|temperature|forecast|time)|"
-        r"how(?:'s| is) the weather|weather|forecast|time|timezone)\s*",
+        r"^(what time is it|what(?:'s| is) the (?:weather|temperature|forecast|time|local time)"
+        r"|how(?:'s| is) the weather|how(?:'s| is) the temperature"
+        r"|what(?:'s| is) (?:the )?(?:current )?(?:weather|temperature|forecast|time|local time)"
+        r"|(?:current |local )?(?:weather|forecast|time|timezone)"
+        r"|tell me the (?:weather|time|temperature)"
+        r"|check the (?:weather|time)"
+        r"|do you know what time it is"
+        r"|what time do they have)\s*",
         "", text, flags=re.IGNORECASE,
     ).strip()
-    cleaned = re.sub(r"^(in|at|for|of)\s+", "", cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r"\?$", "", cleaned).strip()
-    return cleaned or "Tokyo"
+    # strip prepositions and trailing punctuation
+    cleaned = re.sub(r"^(in|at|for|of|around|near|over)\s+", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"[\s?!.,;]+$", "", cleaned).strip()
+    # strip trailing/standalone noise like "right now", "currently", "today"
+    cleaned = re.sub(r"(?:^|\s+)(right now|currently|today|now|rn)$", "", cleaned, flags=re.IGNORECASE).strip()
+    return cleaned or ""
 
 
 def extract_currency_parts(text: str) -> tuple[float, str, str]:
@@ -286,40 +295,77 @@ def web_search_and_fetch(query: str, max_results: int = 5) -> str:
 
 # ── weather ───────────────────────────────────────────────────────────────────
 
+# WMO weather code → human-readable description
+_WMO_CODES = {
+    0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+    45: "Foggy", 48: "Depositing rime fog",
+    51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+    56: "Light freezing drizzle", 57: "Dense freezing drizzle",
+    61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
+    66: "Light freezing rain", 67: "Heavy freezing rain",
+    71: "Slight snowfall", 73: "Moderate snowfall", 75: "Heavy snowfall",
+    77: "Snow grains", 80: "Slight rain showers", 81: "Moderate rain showers",
+    82: "Violent rain showers", 85: "Slight snow showers", 86: "Heavy snow showers",
+    95: "Thunderstorm", 96: "Thunderstorm with slight hail",
+    99: "Thunderstorm with heavy hail",
+}
+
+
 def get_weather(location: str) -> str:
     """
-    Fetch current weather via wttr.in (no API key needed).
-    Returns a concise summary string.
+    Fetch current weather via Open-Meteo (no API key needed).
+    Uses their geocoding API for accurate city resolution, then
+    fetches current conditions by lat/lon.
     """
     try:
-        # wttr.in requires the location as a path parameter (e.g., https://wttr.in/Paris)
-        # using q=location query parameters returns 500 server errors
-        resp = httpx.get(
-            f"https://wttr.in/{location}",
-            params={"format": "j1"},
+        # Step 1: Geocode the location name → lat/lon
+        geo_resp = httpx.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": location, "count": 1, "language": "en"},
             timeout=10,
-            headers={"User-Agent": "Mozilla/5.0"},
         )
-        resp.raise_for_status()
-        data    = resp.json()
-        current = data["current_condition"][0]
-        area    = data["nearest_area"][0]
+        geo_resp.raise_for_status()
+        geo_results = geo_resp.json().get("results")
+        if not geo_results:
+            return f"[weather: location not found for '{location}']"
 
-        city    = area["areaName"][0]["value"]
-        country = area["country"][0]["value"]
-        desc    = current["weatherDesc"][0]["value"]
-        temp_c  = current["temp_C"]
-        temp_f  = current["temp_F"]
-        feels_c = current["FeelsLikeC"]
-        humidity = current["humidity"]
-        wind_kmph = current["windspeedKmph"]
+        place = geo_results[0]
+        lat   = place["latitude"]
+        lon   = place["longitude"]
+        city  = place.get("name", location)
+        country = place.get("country", "")
+
+        # Step 2: Fetch current weather by coordinates
+        weather_resp = httpx.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude":  lat,
+                "longitude": lon,
+                "current":   "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m",
+                "temperature_unit": "celsius",
+                "wind_speed_unit":  "kmh",
+            },
+            timeout=10,
+        )
+        weather_resp.raise_for_status()
+        current = weather_resp.json().get("current", {})
+
+        temp_c   = current.get("temperature_2m")
+        feels_c  = current.get("apparent_temperature")
+        humidity = current.get("relative_humidity_2m")
+        wind     = current.get("wind_speed_10m")
+        code     = current.get("weather_code", -1)
+        desc     = _WMO_CODES.get(code, "Unknown")
+
+        # Convert C to F for display
+        temp_f = round(temp_c * 9 / 5 + 32, 1) if temp_c is not None else "?"
 
         return (
             f"[Weather for {city}, {country}]\n"
             f"Condition : {desc}\n"
             f"Temp      : {temp_c}°C / {temp_f}°F (feels like {feels_c}°C)\n"
             f"Humidity  : {humidity}%\n"
-            f"Wind      : {wind_kmph} km/h"
+            f"Wind      : {wind} km/h"
         )
     except Exception as e:
         return f"[weather fetch failed: {e}]"

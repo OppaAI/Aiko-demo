@@ -49,8 +49,16 @@ _DEFAULT_USER_ID = os.getenv("USER_ID", "Guest")
 
 
 def _render_persona(template: str, user_id: str) -> str:
-    today = datetime.now().strftime("%B %d, %Y")
-    return template.replace("USER_ID_HERE", user_id).replace("TODAY_HERE", today)
+    now = datetime.now().astimezone()
+    today = now.strftime("%B %d, %Y")
+    current_time = now.strftime("%Y-%m-%d %H:%M:%S %Z")
+    tz_name = now.astimezone().tzinfo.tzname(now) or "UTC"
+    time_line = f"\nCurrent server time: {current_time} ({tz_name})"
+    return (
+        template
+        .replace("USER_ID_HERE", user_id)
+        .replace("TODAY_HERE", today + time_line)
+    )
 
 
 # ── think ─────────────────────────────────────────────────────────────────────
@@ -194,17 +202,19 @@ class AikoThink:
 
             elif is_weather_intent(user_input):
                 location    = extract_location(user_input)
-                if token_callback:
-                    token_callback(f"__TOOL__:Checking weather for {location}...")
-                tool_result = get_weather(location)
-                tool_tag    = "weather_data"
+                if location:
+                    if token_callback:
+                        token_callback(f"__TOOL__:Checking weather for {location}...")
+                    tool_result = get_weather(location)
+                    tool_tag    = "weather_data"
 
             elif is_timezone_intent(user_input):
                 location    = extract_location(user_input)
-                if token_callback:
-                    token_callback(f"__TOOL__:Looking up time in {location}...")
-                tool_result = get_timezone(location)
-                tool_tag    = "time_data"
+                if location:
+                    if token_callback:
+                        token_callback(f"__TOOL__:Looking up time in {location}...")
+                    tool_result = get_timezone(location)
+                    tool_tag    = "time_data"
 
             elif is_currency_intent(user_input):
                 amount, from_cur, to_cur = extract_currency_parts(user_input)
