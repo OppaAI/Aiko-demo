@@ -174,7 +174,25 @@ def _get_response(message: str, history: list, user_id: str = "Guest"):
 
     think.chat(message, user_id=user_id, token_callback=_cb)
 
-    # ── Stage 2: TTS on clean speech text ────────────────────────────────────
+    # ── Camera auto-open: intercept __OPEN_CAMERA__ marker ───────────────
+    if "__OPEN_CAMERA__" in full_text:
+        # The LLM decided it wants to see — signal the frontend to open
+        # the camera/image picker modal automatically.
+        camera_msg = "Sure! Let me open the camera so I can take a look~ 📷"
+        history[-1] = {"role": "assistant", "content": camera_msg}
+        # Try to speak the line
+        audio_path = None
+        try:
+            speech = _strip_for_speech(camera_msg)
+            if speech:
+                audio_path, _ = speak_to_file(speech)
+        except Exception:
+            pass
+        yield history, "OPEN_CAMERA", audio_path
+        return
+
+    # ── Stage 2: TTS on clean speech text ────────────────────────────────
+────
     speech_text = _strip_for_speech(full_text)
     print(f"[tts] speech_text ({len(speech_text)} chars): {speech_text[:120]!r}")
 

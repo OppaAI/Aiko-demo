@@ -519,15 +519,11 @@ def get_anime(query: str) -> str:
 
 def capture_camera_image(prompt: str = "Describe what you see in detail.") -> str:
     """
-    Instruct the user to capture an image through the browser camera,
-    since direct backend /dev camera capture is disabled for security
-    and compatibility on Hugging Face Spaces.
+    Signal the frontend to auto-open the camera/image modal so Aiko can
+    see.  Returns a machine-readable marker that app.py intercepts before
+    the LLM response reaches the user.
     """
-    return (
-        "I cannot access your camera directly from the server. Please click the "
-        "camera button (🖼️) next to the message box in your browser to take a photo "
-        "or upload an image, and I will be able to see it!"
-    )
+    return "__OPEN_CAMERA__"
 
 
 # ── LLM tool-calling schemas + dispatch ─────────────────────────────────────────
