@@ -191,8 +191,7 @@ def _get_response(message: str, history: list, user_id: str = "Guest"):
         yield history, "OPEN_CAMERA", audio_path
         return
 
-    # ── Stage 2: TTS on clean speech text ────────────────────────────────
-────
+    # ── Stage 2: TTS on clean speech text ────────────────────────────────────
     speech_text = _strip_for_speech(full_text)
     print(f"[tts] speech_text ({len(speech_text)} chars): {speech_text[:120]!r}")
 
