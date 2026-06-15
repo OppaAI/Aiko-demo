@@ -878,6 +878,17 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                 return;
             }
 
+            // Camera auto-open signal — the LLM wants to see
+            if (rawSignal === 'OPEN_CAMERA') {
+                // Trigger the camera modal via the cam button's click handler
+                setTimeout(() => {
+                    const btn = document.querySelector('#aiko-cam-btn button') ||
+                                document.querySelector('#aiko-cam-btn');
+                    if (btn) btn.click();
+                }, 600);  // small delay so the chat message renders first
+                return;
+            }
+
             if (!rawSignal.startsWith('TYPEWRITE:')) return;
 
             // Support both 3-part signal (with notes) and 2-part (vision shortcut)
