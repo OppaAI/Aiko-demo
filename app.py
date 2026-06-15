@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import tempfile
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import date
@@ -284,23 +285,60 @@ def _voice_from_b64(b64_data: str, history: list, user_id: str):
 # ─────────────────────────────────────────────
 # VISION INPUT
 # ─────────────────────────────────────────────
-def _vision_upload(file_obj, history: list, user_id: str):
-    """Receive an uploaded image/video, run MiniCPM-V, stream result into chat."""
+def _vision_from_b64(b64_data: str, history: list, user_id: str):
+    """Decode a base64 image blob, run vision inference, stream result into chat."""
     history = list(history or [])
 
-    if file_obj is None:
-        yield history, gr.update(), gr.update(), None
+    if not b64_data:
+        yield history, gr.update(), gr.update(), ""
         return
 
-    path = file_obj if isinstance(file_obj, str) else file_obj.name
-    filename = Path(path).name
+    # Decode the base64 payload
+    try:
+        if "," in b64_data:
+            header, encoded = b64_data.split(",", 1)
+            # Extract mime type to determine extension
+            mime_match = re.match(r"data:([^;]+)", header)
+            mime = mime_match.group(1) if mime_match else "image/jpeg"
+        else:
+            encoded = b64_data
+            mime = "image/jpeg"
+        img_bytes = base64.b64decode(encoded)
+    except Exception as e:
+        print(f"[vision] base64 decode error: {e}")
+        yield history, gr.update(), gr.update(), ""
+        return
 
-    if not vision_supported(path):
+    if not img_bytes:
+        yield history, gr.update(), gr.update(), ""
+        return
+
+    # Determine file extension from mime
+    ext_map = {
+        "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+        "image/webp": ".webp", "video/mp4": ".mp4", "video/webm": ".webm",
+        "video/quicktime": ".mov",
+    }
+    ext = ext_map.get(mime, ".jpg")
+    filename = f"aiko_vision_{int(time.time())}{ext}"
+
+    # Save to temp file
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
+            f.write(img_bytes)
+            tmp_path = f.name
+    except Exception as e:
+        print(f"[vision] temp file write error: {e}")
+        yield history, gr.update(), gr.update(), ""
+        return
+
+    if not vision_supported(tmp_path):
         history.append({
             "role": "assistant",
             "content": "⚠️ Unsupported file type. Please upload an image or video.",
         })
-        yield history, gr.update(), gr.update(), None
+        yield history, gr.update(), gr.update(), ""
         return
 
     # Show upload confirmation + thinking state
@@ -308,10 +346,16 @@ def _vision_upload(file_obj, history: list, user_id: str):
         {"role": "user",      "content": f"📎 *[uploaded: {filename}]*"},
         {"role": "assistant", "content": "👁️ Let me take a look…"},
     ]
-    yield history, "STATUS:thinking", None, None
+    yield history, "STATUS:thinking", None, ""
 
-    print(f"[vision] processing: {path}")
-    result = vision_describe(path, prompt="Describe what you see in detail.")
+    print(f"[vision] processing: {tmp_path}")
+    result = vision_describe(tmp_path, prompt="Describe what you see in detail.")
+
+    # Cleanup temp file
+    try:
+        Path(tmp_path).unlink(missing_ok=True)
+    except Exception:
+        pass
 
     if result.startswith("[vision error]"):
         display = f"Sorry, I couldn't process that file — {result}"
@@ -336,7 +380,7 @@ def _vision_upload(file_obj, history: list, user_id: str):
 
     clean_display = _strip_emoji(display)
     signal = f"TYPEWRITE:{emotion}||{clean_display}"
-    yield history, signal, audio_path, None
+    yield history, signal, audio_path, ""
 
 
 # ─────────────────────────────────────────────
@@ -431,11 +475,10 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                     container=False,
                 )
 
-                # Hidden file component for vision uploads — triggered by 📷 button
-                vision_file = gr.File(
-                    file_types=["image", "video"],
-                    visible=False,
-                    elem_id="aiko-vision-file",
+                # Hidden carrier for base64 image/video from camera/file picker
+                vision_b64 = gr.Textbox(
+                    elem_id="aiko-vision-b64",
+                    container=False,
                 )
 
                 with gr.Column(elem_id="aiko-chat-overlay"):
@@ -663,7 +706,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                 fi.addEventListener('change', () => {
                     const file = fi.files[0];
                     document.body.removeChild(fi);
-                    if (file) uploadFile(file);
+                    if (file) sendFileAsB64(file);
                 });
                 fi.click();
             }
@@ -705,27 +748,36 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                         alert('Error capturing photo.');
                         return;
                     }
-                    const file = new File([blob], `aiko_snap_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                    uploadFile(file);
+                    sendFileAsB64(blob);
                     closeModal();
                 }, 'image/jpeg', 0.90);
             }
 
-            function uploadFile(file) {
-                const visionComp = document.querySelector('#aiko-vision-file');
-                if (!visionComp) {
-                    console.warn('[aiko] #aiko-vision-file not found');
-                    return;
-                }
-                const uploadInput = visionComp.querySelector('input[type=file]');
-                if (!uploadInput) {
-                    console.warn('[aiko] vision file input not found');
-                    return;
-                }
-                const dt = new DataTransfer();
-                dt.items.add(file);
-                uploadInput.files = dt.files;
-                uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
+            function findVisionTextarea() {
+                const el = document.querySelector('#aiko-vision-b64');
+                if (!el) return null;
+                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') return el;
+                return el.querySelector('textarea') || el.querySelector('input');
+            }
+
+            function sendFileAsB64(fileOrBlob) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const b64 = reader.result;
+                    const ta = findVisionTextarea();
+                    if (!ta) {
+                        console.warn('[aiko] hidden vision_b64 textarea not found');
+                        return;
+                    }
+                    ta.value = b64;
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                    ta.dispatchEvent(new Event('change', { bubbles: true }));
+                    console.log('[aiko] vision b64 dispatched, length:', b64.length);
+                };
+                reader.onerror = (err) => {
+                    console.error('[aiko] FileReader error:', err);
+                };
+                reader.readAsDataURL(fileOrBlob);
 
                 // Visual feedback on cam button
                 const btn = document.querySelector('#aiko-cam-btn button') ||
@@ -783,10 +835,10 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
         outputs=[chatbot, tts_text, audio_out, audio_b64],
     )
 
-    vision_file.change(
-        _vision_upload,
-        inputs=[vision_file, chatbot, user_id_state],
-        outputs=[chatbot, tts_text, audio_out, vision_file],
+    vision_b64.change(
+        _vision_from_b64,
+        inputs=[vision_b64, chatbot, user_id_state],
+        outputs=[chatbot, tts_text, audio_out, vision_b64],
     )
 
     # ── Typewriter / lip-sync bridge ─────────────────────────────────────────
