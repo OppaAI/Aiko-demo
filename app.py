@@ -585,13 +585,161 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
         """
     )
 
-    # ── Camera / vision button wired to native file picker ───────────────
+    # ── Camera / vision button wired to browser webcam and file picker ────
     demo.load(
         None,
         inputs=None,
         outputs=None,
         js="""
         () => {
+            let stream = null;
+
+            function createModal() {
+                // Remove existing if any
+                const existing = document.getElementById('aiko-webcam-modal');
+                if (existing) existing.remove();
+
+                const modal = document.createElement('div');
+                modal.id = 'aiko-webcam-modal';
+                modal.className = 'aiko-modal-overlay';
+                modal.innerHTML = `
+                    <div class="aiko-modal-card">
+                        <div class="aiko-modal-header">
+                            <h3>📷 Camera Options</h3>
+                            <button class="aiko-modal-close" id="aiko-webcam-close">×</button>
+                        </div>
+                        <div class="aiko-modal-body">
+                            <div id="aiko-webcam-options" style="width: 100%;">
+                                <button id="aiko-webcam-btn-start" class="aiko-btn primary">📷 Take Photo (Webcam)</button>
+                                <button id="aiko-webcam-btn-upload" class="aiko-btn">📁 Upload Image/Video</button>
+                            </div>
+                            <div id="aiko-webcam-stream-container" style="display:none; width: 100%;">
+                                <video id="aiko-webcam-video" autoplay playsinline></video>
+                                <div class="aiko-webcam-controls">
+                                    <button id="aiko-webcam-btn-capture" class="aiko-btn primary">📸 Capture</button>
+                                    <button id="aiko-webcam-btn-back" class="aiko-btn">Back</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+
+                // Wire events
+                document.getElementById('aiko-webcam-close').addEventListener('click', closeModal);
+                document.getElementById('aiko-webcam-btn-upload').addEventListener('click', triggerFileUpload);
+                document.getElementById('aiko-webcam-btn-start').addEventListener('click', startWebcam);
+                document.getElementById('aiko-webcam-btn-back').addEventListener('click', showOptions);
+                document.getElementById('aiko-webcam-btn-capture').addEventListener('click', captureFrame);
+            }
+
+            function closeModal() {
+                stopWebcamStream();
+                const modal = document.getElementById('aiko-webcam-modal');
+                if (modal) modal.remove();
+            }
+
+            function showOptions() {
+                stopWebcamStream();
+                document.getElementById('aiko-webcam-options').style.display = 'block';
+                document.getElementById('aiko-webcam-stream-container').style.display = 'none';
+            }
+
+            function stopWebcamStream() {
+                if (stream) {
+                    stream.getTracks().forEach(t => t.stop());
+                    stream = null;
+                }
+            }
+
+            function triggerFileUpload() {
+                closeModal();
+                const fi = document.createElement('input');
+                fi.type   = 'file';
+                fi.accept = 'image/*,video/*';
+                fi.style.display = 'none';
+                document.body.appendChild(fi);
+
+                fi.addEventListener('change', () => {
+                    const file = fi.files[0];
+                    document.body.removeChild(fi);
+                    if (file) uploadFile(file);
+                });
+                fi.click();
+            }
+
+            async function startWebcam() {
+                document.getElementById('aiko-webcam-options').style.display = 'none';
+                const container = document.getElementById('aiko-webcam-stream-container');
+                container.style.display = 'block';
+
+                const video = document.getElementById('aiko-webcam-video');
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { width: 640, height: 480, facingMode: 'user' } 
+                    });
+                    video.srcObject = stream;
+                } catch (err) {
+                    console.error('[aiko] webcam access error:', err);
+                    alert('Could not access webcam: ' + err.message);
+                    showOptions();
+                }
+            }
+
+            async function captureFrame() {
+                const video = document.getElementById('aiko-webcam-video');
+                if (!video || !stream) return;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                
+                // Mirror the drawn frame to match the mirrored preview
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                canvas.toBlob((blob) => {
+                    if (!blob) {
+                        alert('Error capturing photo.');
+                        return;
+                    }
+                    const file = new File([blob], `aiko_snap_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    uploadFile(file);
+                    closeModal();
+                }, 'image/jpeg', 0.90);
+            }
+
+            function uploadFile(file) {
+                const visionComp = document.querySelector('#aiko-vision-file');
+                if (!visionComp) {
+                    console.warn('[aiko] #aiko-vision-file not found');
+                    return;
+                }
+                const uploadInput = visionComp.querySelector('input[type=file]');
+                if (!uploadInput) {
+                    console.warn('[aiko] vision file input not found');
+                    return;
+                }
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                uploadInput.files = dt.files;
+                uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+                // Visual feedback on cam button
+                const btn = document.querySelector('#aiko-cam-btn button') ||
+                            document.querySelector('#aiko-cam-btn');
+                if (btn) {
+                    btn.textContent = '⏳';
+                    btn.style.opacity = '0.6';
+                    setTimeout(() => {
+                        btn.textContent = '🖼️';
+                        btn.style.opacity = '1';
+                    }, 3000);
+                }
+            }
+
             function attachCamBtn() {
                 const btn = document.querySelector('#aiko-cam-btn button') ||
                             document.querySelector('#aiko-cam-btn');
@@ -602,45 +750,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-
-                    // Spawn a native file input so we bypass HF Space CSP issues
-                    const fi = document.createElement('input');
-                    fi.type   = 'file';
-                    fi.accept = 'image/*,video/*';
-                    fi.style.display = 'none';
-                    document.body.appendChild(fi);
-
-                    fi.addEventListener('change', () => {
-                        const file = fi.files[0];
-                        document.body.removeChild(fi);
-                        if (!file) return;
-
-                        // Inject into the hidden gr.File upload input
-                        const visionComp = document.querySelector('#aiko-vision-file');
-                        if (!visionComp) {
-                            console.warn('[aiko] #aiko-vision-file not found');
-                            return;
-                        }
-                        const uploadInput = visionComp.querySelector('input[type=file]');
-                        if (!uploadInput) {
-                            console.warn('[aiko] vision file input not found');
-                            return;
-                        }
-                        const dt = new DataTransfer();
-                        dt.items.add(file);
-                        uploadInput.files = dt.files;
-                        uploadInput.dispatchEvent(new Event('change', { bubbles: true }));
-
-                        // Visual feedback on cam button
-                        btn.textContent = '⏳';
-                        btn.style.opacity = '0.6';
-                        setTimeout(() => {
-                            btn.textContent = '🖼️';
-                            btn.style.opacity = '1';
-                        }, 3000);
-                    });
-
-                    fi.click();
+                    createModal();
                 }, true);
             }
 

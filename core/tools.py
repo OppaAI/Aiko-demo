@@ -519,64 +519,15 @@ def get_anime(query: str) -> str:
 
 def capture_camera_image(prompt: str = "Describe what you see in detail.") -> str:
     """
-    Capture a live frame from Aiko's webcam using ffmpeg, save to a temp file,
-    and describe it using the vision inference model.
-    If no camera is connected, tells the user she cannot see without a camera.
+    Instruct the user to capture an image through the browser camera,
+    since direct backend /dev camera capture is disabled for security
+    and compatibility on Hugging Face Spaces.
     """
-    import os
-    import time
-    import tempfile
-    import subprocess
-    from pathlib import Path
-    from core.see import describe as vision_describe
-
-    # Check for webcam devices (Linux typical paths)
-    camera_device = None
-    for dev in ["/dev/video0", "/dev/video1"]:
-        if os.path.exists(dev):
-            camera_device = dev
-            break
-
-    if not camera_device:
-        return "I cannot see without a camera."
-
-    # Write the frame to a temp file
-    temp_dir = tempfile.gettempdir()
-    temp_file = Path(temp_dir) / f"aiko_camera_{int(time.time())}.jpg"
-
-    try:
-        # Capture exactly 1 frame using ffmpeg
-        cmd = [
-            "ffmpeg",
-            "-f", "v4l2",
-            "-video_size", "640x480",
-            "-i", camera_device,
-            "-frames:v", "1",
-            str(temp_file),
-            "-y"
-        ]
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10
-        )
-        if result.returncode != 0 or not temp_file.exists():
-            return "I cannot see without a camera."
-
-        description = vision_describe(str(temp_file), prompt=prompt)
-        
-        # Cleanup
-        if temp_file.exists():
-            temp_file.unlink()
-
-        if description.startswith("[vision error]"):
-            return f"I had trouble analyzing the camera image: {description}"
-            
-        return description
-
-    except Exception as e:
-        return f"I cannot see without a camera. (Error: {e})"
+    return (
+        "I cannot access your camera directly from the server. Please click the "
+        "camera button (🖼️) next to the message box in your browser to take a photo "
+        "or upload an image, and I will be able to see it!"
+    )
 
 
 # ── LLM tool-calling schemas + dispatch ─────────────────────────────────────────

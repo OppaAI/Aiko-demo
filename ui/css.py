@@ -313,6 +313,96 @@ textarea::placeholder, input::placeholder { color: var(--aiko-muted) !important;
 #aiko-note { display: none; }
 .gradio-container footer { display: none !important; }
 .hide { display: none !important; }
+
+/* ── Custom Webcam Modal ─────────────────────────────────────────── */
+.aiko-modal-overlay {
+  position: fixed !important;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 9, 0.85);
+  backdrop-filter: blur(6px);
+}
+.aiko-modal-card {
+  width: min(420px, 90vw);
+  border-radius: 18px;
+  background: radial-gradient(circle at top, #1b1432 0, #080810 70%);
+  border: 1px solid rgba(155,127,212,0.4);
+  box-shadow: 0 22px 80px rgba(0,0,0,0.55);
+  padding: 18px 22px;
+  text-align: center;
+}
+.aiko-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.aiko-modal-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #ecdeff;
+  text-shadow: 0 0 10px rgba(155, 124, 255, 0.45);
+}
+.aiko-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.6rem;
+  color: var(--aiko-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.aiko-modal-close:hover {
+  color: var(--aiko-accent);
+}
+.aiko-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.aiko-btn {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(182, 140, 255, 0.4);
+  background: rgba(118, 82, 214, 0.12);
+  color: var(--aiko-accent);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+.aiko-btn:hover {
+  background: rgba(182, 140, 255, 0.25);
+  border-color: rgba(182, 140, 255, 0.7);
+}
+.aiko-btn.primary {
+  background: linear-gradient(135deg, #7652d6, #bd7cff) !important;
+  border: 0 !important;
+  color: #fff !important;
+}
+.aiko-btn.primary:hover {
+  opacity: 0.9;
+}
+#aiko-webcam-video {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(155, 127, 212, 0.4);
+  margin-bottom: 12px;
+  transform: scaleX(-1);
+  aspect-ratio: 4/3;
+  object-fit: cover;
+  background: #000;
+}
+.aiko-webcam-controls {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
 """
 AIKO_CSS += r"""
 /* ── Login modal overlay ──────────────────────────────────────────── */
