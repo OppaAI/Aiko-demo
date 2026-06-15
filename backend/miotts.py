@@ -5,7 +5,7 @@ Architecture:
   1. llama-server  (llama.cpp)      — serves GGUF LLM on :8000 (OpenAI-compatible)
   2. run_server.py (MioTTS-Inference) — synthesis API on :8001
 
-Model: MioTTS-2.6B-Q4_K_M.gguf  (~1.58 GB, fits on T4)
+Model: MioTTS-2.6B-Q4_K_M.gguf  (~1.58 GB, fits on A10G)
 
 Deploy:
   modal deploy backend/miotts.py
@@ -123,7 +123,7 @@ def _wait_for_port(port: int, label: str, timeout: int = 120):
 # Modal class
 # ---------------------------------------------------------------------------
 @app.cls(
-    gpu="T4",
+    gpu="A10G",
     timeout=10 * MINUTES,
     scaledown_window=5 * MINUTES,
     min_containers=0,
