@@ -447,7 +447,7 @@ with gr.Blocks(title="🌸 AI Waifu and Companion: Aiko-chan") as demo:
                 <br>
                 <p>Aiko is your AI companion — chat with her, ask her questions, ask her to see and search for stuffs, or just talk.</p>
                 <p>She's got her own personality, moods, and opinions, and she remembers context as you talk. Sometimes sweet, sometimes a little savage — never boring. And she'll give you an actual answer whenever she feels like it.</p>
-                <p><b>⚠️ WARNING: Aiko is NOT good at keeping secrets, so don't tell her your personal information or passwords.</b></p>
+                <p><strong>⚠️ WARNING: Aiko is NOT good at keeping secrets, so don't tell her your personal information or passwords.</strong></p>
                 <p><strong>Try asking:</strong></p>
                 <ul>
                     <li>"What's the score of [game]?" → triggers live sports lookup</li>
