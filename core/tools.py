@@ -292,9 +292,11 @@ def get_weather(location: str) -> str:
     Returns a concise summary string.
     """
     try:
+        # wttr.in requires the location as a path parameter (e.g., https://wttr.in/Paris)
+        # using q=location query parameters returns 500 server errors
         resp = httpx.get(
-            "https://wttr.in/",
-            params={"format": "j1", "q": location},
+            f"https://wttr.in/{location}",
+            params={"format": "j1"},
             timeout=10,
             headers={"User-Agent": "Mozilla/5.0"},
         )
@@ -328,6 +330,7 @@ def get_weather(location: str) -> str:
 def get_timezone(location: str) -> str:
     from datetime import datetime
     from zoneinfo import ZoneInfo
+    import re
 
     _CITY_MAP = {
         "tokyo": "Asia/Tokyo", "osaka": "Asia/Tokyo",
@@ -343,14 +346,64 @@ def get_timezone(location: str) -> str:
         "vancouver": "America/Vancouver",
     }
 
-    tz_name = _CITY_MAP.get(location.lower().strip())
+    loc_clean = location.lower().strip()
+    tz_name = None
+
+    # 1. Exact map check
+    if loc_clean in _CITY_MAP:
+        tz_name = _CITY_MAP[loc_clean]
+
     if not tz_name:
         try:
             import zoneinfo
             all_zones = zoneinfo.available_timezones()
-            loc_lower = location.lower().replace(" ", "_")
-            matches = [z for z in all_zones if loc_lower in z.lower()]
-            tz_name = matches[0] if matches else None
+
+            # 2. Match full string with underscores in timezone name
+            loc_underscore = loc_clean.replace(" ", "_")
+            matches = [z for z in all_zones if loc_underscore in z.lower()]
+            if matches:
+                tz_name = matches[0]
+
+            # 3. Handle region/country suffixes (e.g. "Tokyo, Japan" -> "Tokyo")
+            if not tz_name and "," in loc_clean:
+                city_part = loc_clean.split(",")[0].strip()
+                if city_part in _CITY_MAP:
+                    tz_name = _CITY_MAP[city_part]
+                else:
+                    city_underscore = city_part.replace(" ", "_")
+                    matches = [z for z in all_zones if city_underscore in z.lower()]
+                    if matches:
+                        tz_name = matches[0]
+
+            # 4. Fallback: match sub-phrases of words
+            if not tz_name:
+                words = [w for w in re.split(r"[\s,;_]+", loc_clean) if w]
+                # Prioritize exact match with the city component of the zone
+                for length in range(len(words), 0, -1):
+                    for i in range(len(words) - length + 1):
+                        phrase = "_".join(words[i : i + length])
+                        if len(phrase) > 2:
+                            matches = [z for z in all_zones if z.lower().split("/")[-1] == phrase]
+                            if matches:
+                                tz_name = matches[0]
+                                break
+                    if tz_name:
+                        break
+
+                # Fallback to substring match on city component (excluding common words)
+                if not tz_name:
+                    for length in range(len(words), 0, -1):
+                        for i in range(len(words) - length + 1):
+                            phrase = "_".join(words[i : i + length])
+                            if len(phrase) > 2:
+                                if phrase in {"the", "what", "time", "date", "local", "zone", "city"}:
+                                    continue
+                                matches = [z for z in all_zones if phrase in z.lower().split("/")[-1]]
+                                if matches:
+                                    tz_name = matches[0]
+                                    break
+                        if tz_name:
+                            break
         except Exception:
             pass
 
