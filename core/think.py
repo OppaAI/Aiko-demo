@@ -261,6 +261,17 @@ class AikoThink:
         else:
             prompt = user_input
 
+        # If the camera tool was triggered, signal to open it immediately and bypass LLM generation
+        if tool_result == "__OPEN_CAMERA__":
+            if token_callback:
+                token_callback("__OPEN_CAMERA__")
+            response_text = "Sure! Let me open the camera so I can take a look~ 📷"
+            user_history.append({"role": "user", "content": prompt})
+            user_history.append({"role": "assistant", "content": response_text})
+            self._store_async(user_input, response_text, effective_user_id)
+            self._reasoning = False
+            return response_text
+
         # 5. append user turn
         user_history.append({"role": "user", "content": prompt})
 
