@@ -49,7 +49,7 @@ MODELS_DIR = Path("/models")
 # ---------------------------------------------------------------------------
 # Container image
 # ---------------------------------------------------------------------------
-cuda_tag = "12.4.0-runtime-ubuntu22.04"
+cuda_tag = "12.4.0-devel-ubuntu22.04"
 
 image = (
     modal.Image.from_registry(f"nvidia/cuda:{cuda_tag}", add_python="3.11")
@@ -82,7 +82,7 @@ image = (
         "git clone https://github.com/Aratako/MioTTS-Inference.git /opt/miotts",
         "cd /opt/miotts && /root/.local/bin/uv sync",
         # flash-attn is recommended but slow to build; skip for now, add if needed:
-        # "cd /opt/miotts && MAX_JOBS=4 /root/.local/bin/uv pip install --no-build-isolation flash-attn",
+        "cd /opt/miotts && MAX_JOBS=4 /root/.local/bin/uv pip install --no-build-isolation flash-attn",
     )
     .pip_install("huggingface_hub")
 )
