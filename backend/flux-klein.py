@@ -68,9 +68,11 @@ class AikoImageGen:
         hf_token = os.environ["HF_TOKEN"]
         local_path = f"{WEIGHTS_DIR}/flux2-klein-9b"
 
-        # download once into the volume, reuse on warm starts
-        if not os.path.exists(local_path):
-            print("Downloading FLUX.2 klein 9B weights...")
+        # verify the critical shard exists, not just the directory
+        shard_check = f"{local_path}/transformer/diffusion_pytorch_model-00001-of-00002.safetensors"
+        
+        if not os.path.exists(local_path) or not os.path.exists(shard_check):
+            print("Downloading FLUX.2 klein 9B weights (or resuming partial)...")
             snapshot_download(
                 MODEL_ID,
                 local_dir=local_path,
